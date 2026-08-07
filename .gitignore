@@ -1,0 +1,26 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE files
+.idea/
+.vscode/
+
+# Project logs
+logs/
+*.log
+
+# Environment variables
+.env
+.env.example
+
+# Local storage data (runtime generated)
+printers_storage/*.json
+!printers_storage/.gitkeep
