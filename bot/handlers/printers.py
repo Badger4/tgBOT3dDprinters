@@ -76,8 +76,13 @@ async def handle_printer_status(message: Message, app):
                     f"❌ Вага моделі (<b>{model_w}g</b>) перевищує залишок (<b>{spool_before}g</b>).\n"
                     f"🚨 Не вистачає ~<b>{deficit}g</b>!\n"
                 )
-    elif getattr(target_printer, "last_job_grams", 0.0) > 0:
+    maint_rem = max(0.0, target_printer.maintenance_interval_hours - target_printer.maintenance_hours_counter)
+    status_txt += (
+        f"⏱️ <b>Напрацювання:</b> <b>{target_printer.total_print_hours:.1f}г</b> (до ТО: <b>{maint_rem:.1f}г</b>)\n"
+    )
+    if getattr(target_printer, "last_job_grams", 0.0) > 0 and target_printer.gcode_state not in ["RUNNING", "PAUSE"]:
         status_txt += f"⚖️ <b>Остання вага моделі:</b> <b>{target_printer.last_job_grams}g</b>\n"
+
     status_txt += (
         f"\n-----------------------------------\n"
         f"🌐 <b>IP:</b> <tg-spoiler>{target_printer.ip}</tg-spoiler>\n"
@@ -85,6 +90,26 @@ async def handle_printer_status(message: Message, app):
         f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>"
     )
     await message.answer(status_txt, parse_mode=ParseMode.HTML)
+
+@router.message(F.text.lower().in_(["🧹 скинути лічильник то", "скинути лічильник то", "провести то"]))
+async def handle_reset_maintenance(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+
+    if not target_printer:
+        return
+
+    target_printer.reset_maintenance_counter()
+    await app.save_printers_config()
+    await message.answer(
+        f"🧹 <b>Лічильник ТО для {html.escape(target_printer.name)} успішно скинуто!</b>\n"
+        f"⏱️ Новий відлік до наступного ТО: <b>{target_printer.maintenance_interval_hours} год</b>.\n"
+        f"Дякую, що дбаєш про принтер, Бака! 🧼✨",
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_printer_menu_keyboard(target_printer)
+    )
 
 @router.message(F.text.lower().in_(["📷 камера", "📷 реальне фото (камера)", "фото", "камера"]))
 async def handle_printer_camera(message: Message, app):
@@ -263,7 +288,23 @@ async def handle_select_printer_by_name(message: Message, app):
             reply_markup=get_printer_menu_keyboard(printer)
         )
 
-@router.message(F.func(lambda m: True))
+PRINTER_STATES = {"add_p_name", "add_p_ip", "add_p_code", "add_p_sn", "confirm_delete_printer"}
+
+async def printer_state_filter(message: Message, app) -> bool:
+    if not message.text:
+        return False
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    state = user.get("state", "idle")
+    if state in PRINTER_STATES:
+        return True
+    text = message.text.strip()
+    for printer in app.printers.values():
+        if text == f"🖨️ {printer.name}" or text.lower() == printer.name.lower():
+            return True
+    return False
+
+@router.message(printer_state_filter)
 async def handle_printer_states(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)

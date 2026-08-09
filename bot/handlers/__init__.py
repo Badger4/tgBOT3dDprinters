@@ -12,18 +12,17 @@ from bot.handlers.notifications import router as notifications_router
 from bot.handlers.admin import router as admin_router
 from bot.handlers.files import router as files_router
 from bot.handlers.callbacks import router as callbacks_router
+from bot.handlers.commercial import router as commercial_router
 from bot.handlers.common import router as common_router
 
 def setup_routers() -> Router:
     main_router = Router()
-    main_router.include_router(start_router)
-    main_router.include_router(dashboard_router)
-    main_router.include_router(printers_router)
-    main_router.include_router(control_router)
-    main_router.include_router(filament_router)
-    main_router.include_router(notifications_router)
-    main_router.include_router(admin_router)
-    main_router.include_router(files_router)
-    main_router.include_router(callbacks_router)
-    main_router.include_router(common_router)
+    all_routers = [
+        start_router, dashboard_router, commercial_router, printers_router,
+        control_router, filament_router, notifications_router, admin_router,
+        files_router, callbacks_router, common_router
+    ]
+    for r in all_routers:
+        r._parent_router = None
+        main_router.include_router(r)
     return main_router

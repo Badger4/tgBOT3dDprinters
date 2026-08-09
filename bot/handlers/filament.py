@@ -217,7 +217,22 @@ async def handle_add_spool_start(message: Message, app):
     await app.storage.save_user(user)
     await message.answer("Введіть назву котушки (наприклад: <code>eSUN PLA+ Black</code>):", parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True))
 
-@router.message(F.func(lambda m: True))
+FILAMENT_STATES = {
+    "edit_filament_weight", "select_slot_for_weight", "select_spool_from_db",
+    "select_slot_for_spool", "edit_filament_price", "add_spool_name",
+    "add_spool_grams", "add_spool_price", "select_spool_to_edit",
+    "select_spool_field", "edit_spool_name", "edit_spool_grams",
+    "edit_spool_price", "select_spool_to_delete", "confirm_delete_spool"
+}
+
+async def filament_state_filter(message: Message, app) -> bool:
+    if not message.text:
+        return False
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    return user.get("state") in FILAMENT_STATES
+
+@router.message(filament_state_filter)
 async def handle_filament_states(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)

@@ -74,4 +74,29 @@ async def handle_history(message: Message, app):
         cost = item.get("cost_uah", 0.0)
         hist_txt += f"<b>{idx}. {p_name}</b> ({dt_str})\n   📄 <i>{sub}</i> | {w}g | 💰 {cost} грн\n"
 
-    await message.answer(hist_txt, parse_mode=ParseMode.HTML)
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    csv_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📥 Завантажити CSV звіт")], [KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True)
+    await message.answer(hist_txt, parse_mode=ParseMode.HTML, reply_markup=csv_kb)
+
+@router.message(F.text.lower().in_(["📥 завантажити csv звіт", "завантажити csv звіт", "експорт csv", "csv"]))
+async def handle_export_csv(message: Message, app):
+    chat_id = str(message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        return
+
+    history = await app.storage.load_history()
+    if not history:
+        await message.answer("⚠️ Журнал друку порожній, немає даних для експорту.")
+        return
+
+    from services.report_generator import generate_csv_report
+    from aiogram.types import BufferedInputFile
+
+    csv_bytes = generate_csv_report(history)
+    date_str = time.strftime("%Y%m%d_%H%M")
+    doc_file = BufferedInputFile(csv_bytes, filename=f"farm_print_history_{date_str}.csv")
+    await message.answer_document(
+        document=doc_file,
+        caption="📊 *Повний CSV звіт історії друку 3D Ферми*\nТримай файл для Excel, Бака! 📑✨",
+        parse_mode=ParseMode.MARKDOWN
+    )

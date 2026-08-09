@@ -12,6 +12,7 @@ import paho.mqtt.client as mqtt
 from config import logger, STORAGE_DIR
 from services.ftps_client import extract_model_weight, fetch_bambu_ftps_weight, upload_3mf_to_bambu
 from storage.manager import StorageManager
+from models.enums import AMSSlot, GCodeState
 
 class BambuPrinter:
     """Manages Bambu Lab 3D Printer telemetry and MQTT control."""
@@ -30,9 +31,21 @@ class BambuPrinter:
         self.electricity_rate_uah = float(config.get("electricity_rate_uah", 4.32))
         self.active_spool_id = str(config.get("active_spool_id", ""))
 
+        # Maintenance & Print Hours Tracking (Default: 100h interval)
+        self.total_print_hours = float(config.get("total_print_hours", 0.0))
+        self.maintenance_hours_counter = float(config.get("maintenance_hours_counter", 0.0))
+        self.maintenance_interval_hours = int(config.get("maintenance_interval_hours", 100))
+        self.last_maintenance_timestamp = float(config.get("last_maintenance_timestamp", 0.0))
+
         # Per-slot AMS filament weight tracking (Keys: "0"=A1, "1"=A2, "2"=A3, "3"=A4, "255"=External)
         raw_ams_slots = config.get("ams_slots") or {}
-        default_slots = {"0": 1000.0, "1": 1000.0, "2": 1000.0, "3": 1000.0, "255": 1000.0}
+        default_slots = {
+            AMSSlot.A1.value: 1000.0,
+            AMSSlot.A2.value: 1000.0,
+            AMSSlot.A3.value: 1000.0,
+            AMSSlot.A4.value: 1000.0,
+            AMSSlot.EXTERNAL.value: 1000.0
+        }
         self.ams_slots: Dict[str, float] = {k: float(v) for k, v in {**default_slots, **raw_ams_slots}.items()}
 
         self.storage = storage
@@ -69,7 +82,7 @@ class BambuPrinter:
         s_key = str(self.active_ams_tray)
         if s_key in self.ams_slots:
             return s_key
-        return "0" if "0" in self.ams_slots else "255"
+        return AMSSlot.A1.value if AMSSlot.A1.value in self.ams_slots else AMSSlot.EXTERNAL.value
 
     def get_slot_grams(self, slot_id: Optional[Any] = None) -> float:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()
@@ -100,7 +113,11 @@ class BambuPrinter:
         context.verify_mode = ssl.CERT_NONE
         self._client.tls_set_context(context)
 
+        self.is_mqtt_connected = False
+        self.last_mqtt_msg_time = time.time()
+
         self._client.on_connect = self._on_connect
+        self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
         self._client.on_error = self._on_error
 
@@ -119,12 +136,19 @@ class BambuPrinter:
 
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
+            self.is_mqtt_connected = True
+            self.last_mqtt_msg_time = time.time()
             logger.info(f"✅ Connected to Bambu MQTT [{self.name}]")
             client.subscribe(f"device/{self.serial_number}/report")
             push_req = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}})
             client.publish(f"device/{self.serial_number}/request", push_req)
         else:
+            self.is_mqtt_connected = False
             logger.error(f"❌ MQTT connection error [{self.name}] code: {rc}")
+
+    def _on_disconnect(self, client, userdata, rc):
+        self.is_mqtt_connected = False
+        logger.warning(f"⚠️ MQTT disconnected for [{self.name}] (code: {rc})")
 
     def _on_error(self, client, userdata, rc):
         logger.error(f"❌ MQTT error [{self.name}]: {rc}")
@@ -170,6 +194,8 @@ class BambuPrinter:
 
     def _on_message(self, client, userdata, msg):
         try:
+            self.is_mqtt_connected = True
+            self.last_mqtt_msg_time = time.time()
             payload = json.loads(msg.payload.decode('utf-8'))
             print_data = payload.get("print")
             if not print_data:
@@ -416,6 +442,22 @@ class BambuPrinter:
             "total_cost": round(filament_cost + electricity_cost, 2)
         }
 
+    def record_print_hours(self, hours: float):
+        """Records completed print hours towards total and maintenance counters."""
+        if hours <= 0:
+            return
+        self.total_print_hours = round(self.total_print_hours + hours, 2)
+        self.maintenance_hours_counter = round(self.maintenance_hours_counter + hours, 2)
+        logger.info(f"⏱️ Updated print hours for [{self.name}]: +{hours:.2f}h (Total: {self.total_print_hours:.1f}h, Counter: {self.maintenance_hours_counter:.1f}h)")
+        self._trigger_save()
+
+    def reset_maintenance_counter(self):
+        """Resets the maintenance hours counter after servicing."""
+        self.maintenance_hours_counter = 0.0
+        self.last_maintenance_timestamp = time.time()
+        logger.info(f"🧹 Maintenance counter reset for [{self.name}]")
+        self._trigger_save()
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
@@ -431,6 +473,10 @@ class BambuPrinter:
             "power_watts": self.power_watts,
             "electricity_rate_uah": self.electricity_rate_uah,
             "active_spool_id": self.active_spool_id,
+            "total_print_hours": self.total_print_hours,
+            "maintenance_hours_counter": self.maintenance_hours_counter,
+            "maintenance_interval_hours": self.maintenance_interval_hours,
+            "last_maintenance_timestamp": self.last_maintenance_timestamp,
             "gcode_state": self.gcode_state,
             "nozzle_temper": self.nozzle_temper,
             "bed_temper": self.bed_temper,

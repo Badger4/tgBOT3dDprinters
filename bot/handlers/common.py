@@ -14,7 +14,7 @@ from bot.keyboards import (
 
 router = Router()
 
-@router.message(F.text.lower().in_(["відміна", "стоп", "відмінити", "скасувати", "назад", "⬅️ назад"]))
+@router.message(F.text.lower().in_(["відміна", "стоп", "відмінити", "скасувати", "назад", "⬅️ назад", "головне меню", "⬅️ головне меню"]))
 async def handle_cancel_or_back(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
@@ -67,7 +67,7 @@ async def handle_cancel_or_back(message: Message, app):
         reply_markup=get_main_keyboard(is_adm)
     )
 
-@router.message(F.text.lower().in_(["головне меню", "повернутись в меню", "вихід", "меню"]))
+@router.message(F.text.lower().in_(["головне меню", "⬅️ головне меню", "повернутись в меню", "назад в меню", "⬅️ назад в меню", "вихід", "меню"]))
 async def handle_main_menu_nav(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):

@@ -9,6 +9,8 @@ class TestGcodeParser(unittest.TestCase):
         self.assertEqual(parse_time_str("1h 30m"), 90)
         self.assertEqual(parse_time_str("45m"), 45)
         self.assertEqual(parse_time_str("01:15:00"), 75)
+        self.assertEqual(parse_time_str("8d 18h 54m 54s"), 8 * 1440 + 18 * 60 + 54) # 12654
+        self.assertEqual(parse_time_str("model printing time: 8d 18h 54m 54s; total estimated time: 8d 19h 1m 9s"), 8 * 1440 + 19 * 60 + 1) # 12661
         self.assertEqual(parse_time_str(""), 0)
 
     def test_resolve_model_name(self):

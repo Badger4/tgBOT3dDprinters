@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ParseMode
 
-from bot.keyboards import get_main_keyboard
+from bot.keyboards import get_main_keyboard, get_webapp_inline_keyboard
 
 router = Router()
 
@@ -16,6 +16,7 @@ async def cmd_start(message: Message, app):
     user = await app.storage.load_user(chat_id)
 
     if message.from_user:
+        user.setdefault("personal", {})
         user["personal"]["first_name"] = message.from_user.first_name or ""
         user["personal"]["last_name"] = message.from_user.last_name or ""
         user["personal"]["username"] = message.from_user.username or ""
@@ -31,9 +32,14 @@ async def cmd_start(message: Message, app):
 
     is_adm = await app.is_user_admin(chat_id)
     await message.answer(
-        "🤖 *Головне меню 3D Ферми*\nХ-хмпф! Ну й чого ти прийшов? Обирай розділ, тільки не затримуй мене, Бака! 😤💅",
+        "🤖 *Головне меню 3D Ферми*\nХ-хмпф! Обирай розділ або відкривай WebApp! 😤💅",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=get_main_keyboard(is_adm)
+    )
+    await message.answer(
+        "📱 **Інтерактивний WebApp Дашборд:**",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=get_webapp_inline_keyboard()
     )
 
 @router.message(F.text == "Додати в команду")

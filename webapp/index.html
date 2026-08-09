@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Farm WebApp — Bambu Lab Manager</title>
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- WebApp CSS -->
+    <link rel="stylesheet" href="/static/css/style.css?v=2">
+</head>
+<body>
+    <div id="app" class="app-container">
+        <!-- Top App Bar -->
+        <header class="app-header">
+            <div class="header-brand">
+                <div class="brand-logo">
+                    <i class="fa-solid fa-cube"></i>
+                </div>
+                <div class="brand-titles">
+                    <h1>3D Farm Hub</h1>
+                    <span id="header-subtitle" class="subtitle">Моніторинг Bambu Lab</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="upload-file-btn" class="btn btn-primary btn-sm">
+                    <i class="fa-solid fa-file-arrow-up"></i> 📥 Файл
+                </button>
+                <input type="file" id="file-upload-input" accept=".3mf" style="display: none;">
+                <button id="refresh-btn" class="icon-btn" title="Оновити">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="app-content">
+            <!-- TAB 1: PRINTERS DASHBOARD -->
+            <section id="tab-printers" class="tab-page active">
+                <div class="section-header">
+                    <h2><i class="fa-solid fa-print"></i> Стан ферми</h2>
+                    <span id="active-badge" class="badge badge-active">
+                        <i class="fa-solid fa-circle-dot"></i> <span id="active-count">0/0</span> активні
+                    </span>
+                </div>
+                <div id="printers-grid" class="printers-grid">
+                    <!-- Dynamic Printer Cards inserted here -->
+                    <div class="loading-spinner">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                        <p>Завантаження принтерів...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: COMMERCIAL PRICING CALCULATOR -->
+            <section id="tab-commercial" class="tab-page">
+                <div class="section-header">
+                    <h2><i class="fa-solid fa-calculator"></i> Комерція & Калькулятор</h2>
+                    <button id="add-preset-btn" class="btn btn-primary btn-sm">
+                        <i class="fa-solid fa-plus"></i> Новий пресет
+                    </button>
+                </div>
+
+                <!-- Calculator Card -->
+                <div class="glass-card mb-4">
+                    <h3><i class="fa-solid fa-coins color-orange"></i> Розрахунок вартості друку</h3>
+                    <form id="comm-calc-form" onsubmit="return false;">
+                        <div class="form-group">
+                            <label>Пресет ціноутворення</label>
+                            <select id="calc-preset-select" class="form-control">
+                                <option value="">Завантаження пресетів...</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col">
+                                <label>Вага нитки (г)</label>
+                                <input type="number" id="calc-weight-g" class="form-control" value="100" min="1" step="1">
+                            </div>
+                            <div class="form-group col">
+                                <label>Час друку (хв)</label>
+                                <input type="number" id="calc-time-mins" class="form-control" value="120" min="1" step="5">
+                            </div>
+                        </div>
+                    </form>
+
+                    <!-- Breakdown Output Box -->
+                    <div id="calc-result-box" class="calc-result-box mt-3">
+                        <div class="result-header">
+                            <span>Підсумкова комерційна ціна:</span>
+                            <strong id="res-total-price" class="total-price-badge">0.00 ₴</strong>
+                        </div>
+                        <div class="result-details-grid mt-2">
+                            <div class="res-item">
+                                <small>Пластик</small>
+                                <strong id="res-filament-cost">0.00 ₴</strong>
+                            </div>
+                            <div class="res-item">
+                                <small>Електроенергія</small>
+                                <strong id="res-elec-cost">0.00 ₴</strong>
+                            </div>
+                            <div class="res-item">
+                                <small>Амортизація</small>
+                                <strong id="res-depr-cost">0.00 ₴</strong>
+                            </div>
+                            <div class="res-item">
+                                <small>Витратні матеріали</small>
+                                <strong id="res-cons-cost">0.00 ₴</strong>
+                            </div>
+                            <div class="res-item highlight">
+                                <small>Собівартість</small>
+                                <strong id="res-direct-cost">0.00 ₴</strong>
+                            </div>
+                            <div class="res-item highlight">
+                                <small>Прибуток (Маржа)</small>
+                                <strong id="res-profit-cost">0.00 ₴</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Presets Management Card -->
+                <div class="glass-card">
+                    <h3><i class="fa-solid fa-list-check"></i> Наявні пресети ціноутворення</h3>
+                    <div id="presets-list" class="spools-list">
+                        <!-- Dynamic Presets -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: AMS & MATERIALS -->
+            <section id="tab-materials" class="tab-page">
+                <div class="section-header">
+                    <h2><i class="fa-solid fa-boxes-packing"></i> Філамент & AMS</h2>
+                    <button id="add-spool-btn" class="btn btn-primary btn-sm">
+                        <i class="fa-solid fa-plus"></i> Нова котушка
+                    </button>
+                </div>
+
+                <!-- AMS Slots Overview -->
+                <div class="glass-card mb-4">
+                    <h3><i class="fa-solid fa-layer-group"></i> Стан слотів AMS</h3>
+                    <div id="ams-printers-container" class="ams-container">
+                        <!-- Dynamic AMS views per printer -->
+                    </div>
+                </div>
+
+                <!-- Spool Inventory -->
+                <div class="glass-card">
+                    <h3><i class="fa-solid fa-cubes-stacked"></i> Склад котушок</h3>
+                    <div id="spools-list" class="spools-list">
+                        <!-- Dynamic Spools -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: HISTORY & ANALYTICS -->
+            <section id="tab-history" class="tab-page">
+                <div class="section-header">
+                    <h2><i class="fa-solid fa-chart-pie"></i> Аналітика & Історія</h2>
+                </div>
+
+                <!-- Stats Summary Row -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Всього друків</span>
+                            <span id="stat-total-jobs" class="stat-value">0</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fa-solid fa-weight-hanging"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Витрачено нитки</span>
+                            <span id="stat-total-weight" class="stat-value">0 kg</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fa-solid fa-coins"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Загальна вартість</span>
+                            <span id="stat-total-cost" class="stat-value">0 ₴</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- History Table -->
+                <div class="glass-card mt-4">
+                    <h3>Журнал виконаних робіт</h3>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Дата</th>
+                                    <th>Принтер</th>
+                                    <th>Модель</th>
+                                    <th>Вага (г)</th>
+                                    <th>Собівартість</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-table-body">
+                                <tr><td colspan="5" class="text-center">Немає записів історії</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 5: SETTINGS & SYSTEM -->
+            <section id="tab-settings" class="tab-page">
+                <div class="section-header">
+                    <h2><i class="fa-solid fa-sliders"></i> Налаштування</h2>
+                </div>
+
+                <div class="glass-card mb-4">
+                    <h3><i class="fa-solid fa-bell"></i> Глобальні сповіщення</h3>
+                    <div class="settings-group">
+                        <label class="switch-row">
+                            <span><i class="fa-solid fa-play"></i> Сповіщення про початок друку</span>
+                            <input type="checkbox" id="setting-notify-start" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <label class="switch-row">
+                            <span><i class="fa-solid fa-flag-checkered"></i> Сповіщення про завершення</span>
+                            <input type="checkbox" id="setting-notify-finish" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <label class="switch-row">
+                            <span><i class="fa-solid fa-pause"></i> Сповіщення про паузу / помилки</span>
+                            <input type="checkbox" id="setting-notify-pause" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <button id="save-settings-btn" class="btn btn-primary mt-3">
+                        <i class="fa-solid fa-floppy-disk"></i> Зберегти налаштування
+                    </button>
+                </div>
+
+                <div class="glass-card">
+                    <h3><i class="fa-solid fa-server"></i> Стан сервера</h3>
+                    <div class="info-list">
+                        <div class="info-item">
+                            <span>Час безвідмовної роботи:</span>
+                            <strong id="sys-uptime">-</strong>
+                        </div>
+                        <div class="info-item">
+                            <span>Підключені принтери:</span>
+                            <strong id="sys-printers-count">0</strong>
+                        </div>
+                        <div class="info-item">
+                            <span>REST API Статус:</span>
+                            <span class="badge badge-success"><i class="fa-solid fa-check"></i> Активний</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- FILE UPLOADED CHOICE MODAL -->
+        <div id="file-action-modal" class="modal-backdrop">
+            <div class="modal-window">
+                <div class="modal-header">
+                    <h3>📄 3D Файл прийнято</h3>
+                    <button id="close-file-action-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <div class="glass-card mb-3">
+                        <h4 id="file-modal-filename" class="text-amber mb-2">filename.3mf</h4>
+                        <div class="telemetry-grid">
+                            <div class="telem-box">
+                                <i class="fa-solid fa-print color-purple"></i>
+                                <div class="telem-info">
+                                    <small>Модель</small>
+                                    <strong id="file-modal-model">-</strong>
+                                </div>
+                            </div>
+                            <div class="telem-box">
+                                <i class="fa-solid fa-vial color-blue"></i>
+                                <div class="telem-info">
+                                    <small>Пластик</small>
+                                    <strong id="file-modal-type">-</strong>
+                                </div>
+                            </div>
+                            <div class="telem-box">
+                                <i class="fa-solid fa-weight-hanging color-orange"></i>
+                                <div class="telem-info">
+                                    <small>Вага</small>
+                                    <strong id="file-modal-weight">0 г</strong>
+                                </div>
+                            </div>
+                            <div class="telem-box">
+                                <i class="fa-solid fa-clock color-green"></i>
+                                <div class="telem-info">
+                                    <small>Орієнт. час</small>
+                                    <strong id="file-modal-time">0 хв</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Choice Action Options -->
+                    <div class="file-choice-actions">
+                        <p class="text-muted text-center mb-3">Оберіть потрібну дію для цього файлу:</p>
+                        <button id="btn-choice-calc" class="btn btn-warning btn-lg w-100 mb-2">
+                            <i class="fa-solid fa-calculator"></i> 🧮 Порахувати вартість
+                        </button>
+                        <button id="btn-choice-print" class="btn btn-success btn-lg w-100">
+                            <i class="fa-solid fa-play"></i> 🖨️ Кинути на друк
+                        </button>
+                    </div>
+
+                    <!-- Printer Selector Panel (Shown after clicking 'Кинути на друк') -->
+                    <div id="file-print-panel" class="mt-4" style="display:none;">
+                        <h4 class="mb-2"><i class="fa-solid fa-print"></i> Оберіть принтер для запуску:</h4>
+                        <div id="file-printers-list" class="spools-list">
+                            <!-- Dynamic Printer options -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PRINTER DETAILS & CONTROL MODAL -->
+        <div id="printer-modal" class="modal-backdrop">
+            <div class="modal-window">
+                <div class="modal-header">
+                    <div class="modal-title-wrap">
+                        <h3 id="modal-printer-name">Принтер Bambu</h3>
+                        <span id="modal-printer-status" class="status-pill">IDLE</span>
+                    </div>
+                    <button id="close-modal-btn" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <div class="modal-body">
+                    <!-- Live Camera Snapshot Card -->
+                    <div class="camera-card">
+                        <div class="camera-header">
+                            <span><i class="fa-solid fa-video"></i> Жива камера</span>
+                            <button id="refresh-cam-btn" class="btn btn-xs btn-outline">
+                                <i class="fa-solid fa-rotate-right"></i> Оновити
+                            </button>
+                        </div>
+                        <div class="camera-viewport">
+                            <img id="camera-snapshot-img" src="" alt="Кадра немає" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="camera-fallback" style="display:none;">
+                                <i class="fa-solid fa-camera-rotate"></i>
+                                <p>Кадр камери недоступний</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Telemetry Stats Grid -->
+                    <div class="telemetry-grid">
+                        <div class="telem-box">
+                            <i class="fa-solid fa-temperature-high color-red"></i>
+                            <div class="telem-info">
+                                <small>Сопло</small>
+                                <strong id="modal-nozzle-temp">0°C</strong>
+                            </div>
+                        </div>
+                        <div class="telem-box">
+                            <i class="fa-solid fa-hot-tub-person color-orange"></i>
+                            <div class="telem-info">
+                                <small>Стіл</small>
+                                <strong id="modal-bed-temp">0°C</strong>
+                            </div>
+                        </div>
+                        <div class="telem-box">
+                            <i class="fa-solid fa-layer-group color-blue"></i>
+                            <div class="telem-info">
+                                <small>Шар</small>
+                                <strong id="modal-layer">0 / 0</strong>
+                            </div>
+                        </div>
+                        <div class="telem-box">
+                            <i class="fa-solid fa-clock color-purple"></i>
+                            <div class="telem-info">
+                                <small>Зашилось</small>
+                                <strong id="modal-time">0 хв</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Speed Controls -->
+                    <div class="control-section">
+                        <h4><i class="fa-solid fa-gauge-high"></i> Швидкість друку</h4>
+                        <div class="speed-selector">
+                            <button class="speed-btn" data-level="1">🐢 Silent (50%)</button>
+                            <button class="speed-btn" data-level="2">🚗 Standard (100%)</button>
+                            <button class="speed-btn" data-level="3">🏎️ Sport (124%)</button>
+                            <button class="speed-btn" data-level="4">🚀 Ludicrous (166%)</button>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="action-grid">
+                        <button id="btn-action-pause" class="btn btn-warning"><i class="fa-solid fa-pause"></i> Пауза</button>
+                        <button id="btn-action-resume" class="btn btn-success" style="display:none;"><i class="fa-solid fa-play"></i> Відновити</button>
+                        <button id="btn-action-stop" class="btn btn-danger"><i class="fa-solid fa-stop"></i> Зупинити</button>
+                        <button id="btn-action-light" class="btn btn-neutral"><i class="fa-solid fa-lightbulb"></i> Світло</button>
+                    </div>
+
+                    <!-- Maintenance Section -->
+                    <div class="maintenance-box">
+                        <div class="maint-info">
+                            <span><i class="fa-solid fa-screwdriver-wrench"></i> Лічильник ТО: <strong id="modal-maint-hours">0.0 / 100 год</strong></span>
+                            <button id="btn-reset-maint" class="btn btn-xs btn-outline-warning">Скинути ТО</button>
+                        </div>
+                        <div class="progress-bar-wrap sm">
+                            <div id="modal-maint-bar" class="progress-bar amber" style="width: 0%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SPOOL MODAL (ADD / EDIT) -->
+        <div id="spool-modal" class="modal-backdrop">
+            <div class="modal-window">
+                <div class="modal-header">
+                    <h3>Додати котушку</h3>
+                    <button id="close-spool-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <form id="spool-form" onsubmit="return false;">
+                        <div class="form-group">
+                            <label>Назва котушки</label>
+                            <input type="text" id="spool-name" class="form-control" placeholder="Bambu PLA Basic Black" required>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col">
+                                <label>Тип пластику</label>
+                                <select id="spool-type" class="form-control">
+                                    <option value="PLA">PLA</option>
+                                    <option value="PETG">PETG</option>
+                                    <option value="ABS">ABS</option>
+                                    <option value="ASA">ASA</option>
+                                    <option value="TPU">TPU</option>
+                                    <option value="PNC">PNA/PNC</option>
+                                </select>
+                            </div>
+                            <div class="form-group col">
+                                <label>Залишок (г)</label>
+                                <input type="number" id="spool-grams" class="form-control" value="1000" step="10">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Ціна за 1 кг (Грн)</label>
+                            <input type="number" id="spool-price" class="form-control" value="650" step="10">
+                        </div>
+                        <button id="save-spool-submit" class="btn btn-primary w-100 mt-2">Зберегти котушку</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- PRESET MODAL (ADD / EDIT COMMERCIAL PRESET) -->
+        <div id="preset-modal" class="modal-backdrop">
+            <div class="modal-window">
+                <div class="modal-header">
+                    <h3 id="preset-modal-title">Створити пресет ціноутворення</h3>
+                    <button id="close-preset-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <form id="preset-form" onsubmit="return false;">
+                        <div class="form-group">
+                            <label>Назва пресета</label>
+                            <input type="text" id="preset-name" class="form-control" placeholder="Стандарт PLA (850 грн/кг, +100%)" required>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col">
+                                <label>Ціна пластику (грн/г)</label>
+                                <input type="number" id="preset-price-g" class="form-control" value="0.85" step="0.01">
+                            </div>
+                            <div class="form-group col">
+                                <label>Потужність (Вт)</label>
+                                <input type="number" id="preset-power" class="form-control" value="120" step="10">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col">
+                                <label>Амортизація (грн/год або %)</label>
+                                <input type="text" id="preset-depreciation" class="form-control" value="10" placeholder="10 або 10%">
+                            </div>
+                            <div class="form-group col">
+                                <label>Витратні (грн/год або %)</label>
+                                <input type="text" id="preset-consumables" class="form-control" value="5" placeholder="5 або 5%">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Націнка / Прибуток (маржа)</label>
+                            <input type="text" id="preset-profit" class="form-control" value="100%" placeholder="100% або 50 грн">
+                        </div>
+                        <button id="save-preset-submit" class="btn btn-primary w-100 mt-2">Зберегти пресет</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Navigation Bar -->
+        <nav class="app-nav">
+            <button class="nav-btn active" data-tab="tab-printers">
+                <i class="fa-solid fa-print"></i>
+                <span>Принтери</span>
+            </button>
+            <button class="nav-btn" data-tab="tab-commercial">
+                <i class="fa-solid fa-calculator"></i>
+                <span>Комерція</span>
+            </button>
+            <button class="nav-btn" data-tab="tab-materials">
+                <i class="fa-solid fa-boxes-packing"></i>
+                <span>Матеріали</span>
+            </button>
+            <button class="nav-btn" data-tab="tab-history">
+                <i class="fa-solid fa-chart-pie"></i>
+                <span>Історія</span>
+            </button>
+            <button class="nav-btn" data-tab="tab-settings">
+                <i class="fa-solid fa-sliders"></i>
+                <span>Налаштування</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- WebApp Application JS -->
+    <script src="/static/js/app.js?v=6"></script>
+</body>
+</html>

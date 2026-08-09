@@ -8,38 +8,13 @@ from typing import Dict, Any, Optional
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 
-from config import logger, STORAGE_DIR, TELEGRAM_BOT_TOKEN, ADMIN_CHAT_ID
+from config import logger, STORAGE_DIR, TELEGRAM_BOT_TOKEN, ADMIN_CHAT_ID, validate_config
 from storage.manager import StorageManager
 from models.printer import BambuPrinter
+from models.enums import GCodeState, AMSSlot
 from bot.handlers import setup_routers
-
-def parse_slot_key_from_text(text: str) -> str:
-    clean = text.lower()
-    if "a1" in clean or "slot 1" in clean:
-        return "0"
-    elif "a2" in clean or "slot 2" in clean:
-        return "1"
-    elif "a3" in clean or "slot 3" in clean:
-        return "2"
-    elif "a4" in clean or "slot 4" in clean:
-        return "3"
-    elif "зовнішн" in clean or "vt" in clean:
-        return "255"
-    return "0"
-
-def extract_filament_type_from_name(name: str) -> str:
-    types = [
-        "PLA+", "PLA-CF", "PLA", "PETG-CF", "PETG", "PET",
-        "ABS-GF", "ABS", "ASA", "TPU-95A", "TPU",
-        "PPA-CF", "PA-CF", "PA6-CF", "PA", "PC", "HIPS", "PVA"
-    ]
-    name_upper = name.upper()
-    for t in types:
-        pattern = r'(?:\b|_)' + re.escape(t) + r'(?:\b|_)'
-        if re.search(pattern, name_upper):
-            return t
-    words = name.strip().split()
-    return words[0] if words else name.strip()
+from bot.keyboards import get_notification_inline_keyboard
+from utils.filament_utils import parse_slot_key_from_text, extract_filament_type_from_name
 
 class PrinterBotApp:
     def __init__(self):
@@ -61,7 +36,7 @@ class PrinterBotApp:
         logger.info(f"Loaded {len(printers_data)} printers from {self.storage.printers_file}")
         for p_config in printers_data:
             p_obj = BambuPrinter(p_config, self.storage, save_callback=self.save_printers_config)
-            p_obj.init_mqtt()
+            asyncio.create_task(asyncio.to_thread(p_obj.init_mqtt))
             self.printers[p_obj.id] = p_obj
 
         self.global_settings = await self.storage.load_json(self.storage.settings_file, self.global_settings)
@@ -107,6 +82,10 @@ class PrinterBotApp:
 
         while True:
             try:
+                # Prune removed printer states to prevent memory leaks
+                active_ids = set(self.printers.keys())
+                self.printer_states = {k: v for k, v in self.printer_states.items() if k in active_ids}
+
                 is_any_printing = False
                 for p_id, p in list(self.printers.items()):
                     if p.id not in self.printer_states:
@@ -147,7 +126,7 @@ class PrinterBotApp:
                                 )
                                 st["notifiedInsufficentWarning"] = True
 
-                            await self.send_notification("start", start_txt)
+                            await self.send_notification("start", start_txt, reply_markup=get_notification_inline_keyboard(p.id))
                             st["notifiedStart"] = True
                             st["notifiedFinish"] = False
 
@@ -232,6 +211,11 @@ class PrinterBotApp:
                             st["notifiedPause"] = False
                             st["notifiedInsufficentWarning"] = False
 
+                            # Record completed print hours
+                            job_mins = getattr(p, "last_job_mins", 0) or getattr(p, "mc_remaining_time", 0) or 30
+                            p.record_print_hours(job_mins / 60.0)
+                            await self.save_printers_config()
+
                     # 4. Part Removal Reminder
                     if curr_state == "FINISH" and getattr(p, "finish_timestamp", 0.0) > 0:
                         mins_passed = (time.time() - p.finish_timestamp) / 60.0
@@ -250,6 +234,20 @@ class PrinterBotApp:
                         st["notifiedHMS"] = True
                     elif not getattr(p, "hms_errors", None):
                         st["notifiedHMS"] = False
+
+                    # 6. Maintenance & Lubing Alert (100h threshold)
+                    if p.maintenance_hours_counter >= p.maintenance_interval_hours:
+                        if not st.get("notifiedMaintenance"):
+                            maint_txt = (
+                                f"🧹 *Час провести ТО на принтері {p.name}!*\n"
+                                f"⏱️ Принтер відпрацював *{p.maintenance_hours_counter:.1f} годин* (поріг ТО: {p.maintenance_interval_hours} год)!\n"
+                                f"🔧 Прочистіть сопло, змастіть валі та перевірте натяг ременів, Бака! 🧼✨"
+                            )
+                            from bot.keyboards import get_maintenance_inline_keyboard
+                            await self.send_notification("pause", maint_txt, reply_markup=get_maintenance_inline_keyboard(p.id))
+                            st["notifiedMaintenance"] = True
+                    else:
+                        st["notifiedMaintenance"] = False
 
                     st["lastState"] = curr_state
 
@@ -277,6 +275,19 @@ class PrinterBotApp:
         self.dp.include_router(main_router)
 
         monitor_task = asyncio.create_task(self.monitoring_loop())
+
+        # Start REST API & Healthcheck HTTP server
+        from services.http_server import start_http_server
+        await start_http_server(self)
+
+        try:
+            from aiogram.types import MenuButtonWebApp, WebAppInfo
+            from config import WEBAPP_URL
+            if WEBAPP_URL:
+                await self.bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="WebApp 🖨️", web_app=WebAppInfo(url=WEBAPP_URL)))
+                logger.info(f"📱 WebApp Chat Menu Button configured with URL: {WEBAPP_URL}")
+        except Exception as e:
+            logger.warning(f"Could not set chat menu button: {e}")
 
         try:
             logger.info("🤖 Starting Telegram Bot polling...")
