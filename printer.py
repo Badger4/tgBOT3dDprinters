@@ -5,6 +5,7 @@ Entrypoint script.
 import asyncio
 from app import PrinterBotApp
 
+
 def main():
     app = PrinterBotApp()
     try:

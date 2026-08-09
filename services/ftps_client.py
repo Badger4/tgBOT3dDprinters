@@ -7,18 +7,17 @@ import ssl
 import socket
 import ftplib
 import zipfile
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from config import logger
 
 class ImplicitFTP_TLS(ftplib.FTP_TLS):
     """FTP_TLS subclass for implicit SSL/TLS on port 990 for Bambu Lab printers."""
-    def connect(self, host='', port=990, timeout=-999):
+    def connect(self, host='', port=990, timeout=10.0):
         if host != '':
             self.host = host
         if port > 0:
             self.port = port
-        if timeout != -999:
-            self.timeout = timeout
+        self.timeout = timeout if timeout and timeout > 0 else 10.0
         self.sock = socket.create_connection((self.host, self.port), self.timeout)
         self.af = self.sock.family
         if not hasattr(self, 'context') or self.context is None:

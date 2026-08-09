@@ -8,7 +8,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ParseMode
 
 from config import logger, STORAGE_DIR
-from services.gcode_parser import parse_3mf_file, check_compatibility
+from services.gcode_parser import parse_3mf_file, check_compatibility, format_print_time_human
 from bot.keyboards import get_printer_menu_keyboard
 
 router = Router()
@@ -28,6 +28,13 @@ async def handle_document_upload(message: Message, app):
     fname = doc.file_name or "file.3mf"
     if not fname.lower().endswith(('.3mf', '.gcode')):
         await message.answer("⚠️ Бот приймає лише файли <b>.3mf</b> та <b>.gcode</b> від Bambu Studio чи OrcaSlicer.", parse_mode=ParseMode.HTML)
+        return
+
+    # Protection for Pi Zero 512MB RAM: reject files larger than 30MB
+    MAX_FILE_SIZE = 30 * 1024 * 1024
+    if doc.file_size and doc.file_size > MAX_FILE_SIZE:
+        size_mb = round(doc.file_size / (1024 * 1024), 1)
+        await message.answer(f"⚠️ Файл занадто великий ({size_mb} MB)! Максимальний розмір для Raspberry Pi — 30 MB.", parse_mode=ParseMode.HTML)
         return
 
     msg_wait = await message.answer(f"📥 ⏳ Завантажую та перевіряю 3MF файл: <code>{html.escape(fname)}</code>...", parse_mode=ParseMode.HTML)
@@ -66,7 +73,7 @@ async def handle_document_upload(message: Message, app):
             f"🖨️ <b>Модель у 3MF файлі:</b> <code>{html.escape(meta['printer_model'])}</code>\n"
             f"🧵 <b>Тип пластику у файлі:</b> <code>{html.escape(meta['filament_type'])}</code>\n"
             f"⚖️ <b>Необхідно пластику:</b> <b>{meta['weight_g']}g</b>\n"
-            f"⏱️ <b>Орієнтовний час друку:</b> ~<b>{meta['time_mins']} хв</b>\n"
+            f"⏱️ <b>Орієнтовний час друку:</b> <b>{format_print_time_human(meta['time_mins'])}</b>\n"
             f"-----------------------------------\n"
             f"<b>Перевірка сумісності з фермою:</b>\n\n"
         )
@@ -80,6 +87,7 @@ async def handle_document_upload(message: Message, app):
             if c_info["compatible"]:
                 kb_buttons.append([KeyboardButton(text=f"🚀 Запустити на {p.name}")])
 
+        kb_buttons.append([KeyboardButton(text="💰 Розрахувати комерційну вартість 3MF")])
         kb_buttons.append([KeyboardButton(text="⬅️ Назад")])
         reply_kb = ReplyKeyboardMarkup(keyboard=kb_buttons, resize_keyboard=True)
 
@@ -89,6 +97,115 @@ async def handle_document_upload(message: Message, app):
         logger.error(f"Error processing uploaded 3MF document: {e}")
         await message.answer(f"⚠️ Не вдалося обробити файл: {e}")
         await msg_wait.delete()
+
+def format_commercial_card(res: dict, filename: str) -> str:
+    return (
+        f"<b>💼 Комерційний розрахунок для 3MF</b>\n"
+        f"📄 <b>Файл:</b> <code>{html.escape(filename)}</code>\n"
+        f"⚖️ <b>Вага:</b> <code>{res['weight_g']}g</code> | ⏱️ <b>Час друку:</b> <code>~{res['time_mins']} хв</code>\n"
+        f"📋 <b>Пресет:</b> <b>{html.escape(res['preset_name'])}</b>\n"
+        f"-----------------------------------\n"
+        f"🧵 <b>Пластик:</b> <code>{res['filament_cost']:.2f} грн</code>\n"
+        f"⚡ <b>Електроенергія:</b> <code>{res['electricity_cost']:.2f} грн</code>\n"
+        f"🔧 <b>Амортизація:</b> <code>{res['depreciation_cost']:.2f} грн</code> <i>({res['depreciation_str']})</i>\n"
+        f"🧼 <b>Витратні матеріали:</b> <code>{res['consumables_cost']:.2f} грн</code> <i>({res['consumables_str']})</i>\n"
+        f"-----------------------------------\n"
+        f"💵 <b>Собівартість виробу:</b> <code>{res['cost_before_profit']:.2f} грн</code>\n"
+        f"💼 <b>Прибуток / Маржа:</b> <code>{res['profit_cost']:.2f} грн</code> <i>({res['profit_str']})</i>\n"
+        f"-----------------------------------\n"
+        f"💰 <b>ЦІНА ДЛЯ КЛІЄНТА:</b> <code>{res['total_price']:.2f} грн</code>"
+    )
+
+@router.message(F.text.lower().in_(["💰 розрахувати комерційну вартість 3mf", "комерційна вартість 3mf"]))
+async def handle_calc_3mf_commercial(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    pending_file = user.get("context_data", {}).get("pending_file", {})
+
+    if not pending_file:
+        await message.answer("⚠️ Не знайдено завантаженого 3MF файлу. Надішліть файл заново.")
+        return
+
+    from bot.handlers.commercial import get_user_presets
+    presets = await get_user_presets(app)
+
+    user["state"] = "calc_select_preset_for_3mf"
+    await app.storage.save_user(user)
+
+    kb = [[KeyboardButton(text=f"🔹 {p['name']}")] for p in presets.values()]
+    kb.append([KeyboardButton(text="📊 Розрахувати для всіх пресетів")])
+    kb.append([KeyboardButton(text="⬅️ Назад")])
+
+    await message.answer(
+        f"📋 <b>Оберіть комерційний пресет для розрахунку файлу:</b> <code>{html.escape(pending_file.get('filename', '3MF'))}</code>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+    )
+
+async def is_3mf_preset_choice_state(message: Message, app) -> bool:
+    if not message.text:
+        return False
+    txt = message.text.strip().lower()
+    if txt in ["📊 розрахувати для всіх пресетів", "розрахувати для всіх пресетів"] or message.text.startswith("🔹 "):
+        return True
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    return user.get("state", "") == "calc_select_preset_for_3mf"
+
+@router.message(is_3mf_preset_choice_state)
+async def handle_3mf_preset_choice(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    text = message.text.strip()
+
+    if text.lower() in ["⬅️ назад", "назад", "скасувати"]:
+        user["state"] = "select_printer_for_file"
+        await app.storage.save_user(user)
+        await message.answer("Повертаюсь до файлу.")
+        return True
+
+    pending_file = user.get("context_data", {}).get("pending_file", {})
+    if not pending_file:
+        await message.answer("⚠️ Не знайдено завантаженого 3MF файлу. Надішліть файл заново.")
+        return True
+
+    from bot.handlers.commercial import get_user_presets
+    from models.commercial import calculate_commercial_price
+    presets = await get_user_presets(app)
+
+    w_g = pending_file.get("weight_g", 0.0)
+    t_mins = pending_file.get("time_mins", 0)
+    fname = pending_file.get("filename", "3MF")
+    file_p_model = pending_file.get("printer_model", "Unknown")
+    file_f_type = pending_file.get("filament_type", "PLA")
+
+    # Build keyboard to return back to file options
+    kb_buttons = []
+    for p_id, p in app.printers.items():
+        c_info = check_compatibility(file_p_model, file_f_type, p.name)
+        if c_info["compatible"]:
+            kb_buttons.append([KeyboardButton(text=f"🚀 Запустити на {p.name}")])
+    kb_buttons.append([KeyboardButton(text="💰 Розрахувати комерційну вартість 3MF")])
+    kb_buttons.append([KeyboardButton(text="⬅️ Назад")])
+    file_kb = ReplyKeyboardMarkup(keyboard=kb_buttons, resize_keyboard=True)
+
+    if text == "📊 Розрахувати для всіх пресетів":
+        for p in presets.values():
+            res = calculate_commercial_price(p, w_g, t_mins)
+            await message.answer(format_commercial_card(res, fname), parse_mode=ParseMode.HTML, reply_markup=file_kb)
+    else:
+        preset_name_clean = text.replace("🔹 ", "").strip()
+        target = next((p for p in presets.values() if p["name"] == preset_name_clean or p["name"] == text), None)
+        if not target:
+            await message.answer("⚠️ Пресет не знайдено, оберіть зі списку.")
+            return True
+
+        res = calculate_commercial_price(target, w_g, t_mins)
+        await message.answer(format_commercial_card(res, fname), parse_mode=ParseMode.HTML, reply_markup=file_kb)
+
+    user["state"] = "select_printer_for_file"
+    await app.storage.save_user(user)
+    return True
 
 @router.message(F.text.startswith("🚀 Запустити на "))
 async def handle_select_printer_for_file(message: Message, app):

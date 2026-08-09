@@ -87,7 +87,14 @@ async def handle_stop_print_request(message: Message, app):
         reply_markup=stop_kb
     )
 
-@router.message(F.func(lambda m: True))
+async def control_state_filter(message: Message, app) -> bool:
+    if not message.text:
+        return False
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    return user.get("state") == "confirm_stop_print"
+
+@router.message(control_state_filter)
 async def handle_control_states(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)

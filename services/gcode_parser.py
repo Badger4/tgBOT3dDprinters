@@ -24,18 +24,26 @@ BAMBU_MODEL_MAP = {
 }
 
 def parse_time_str(time_str: str) -> int:
-    """Parses time strings like '1h 10m 15s', '70m', '01:10:00' into total minutes."""
+    """Parses time strings like '8d 18h 54m 54s', '1h 10m 15s', '70m', '01:10:00' into total minutes."""
     if not time_str:
         return 0
     t_clean = time_str.strip().lower()
 
-    # Format: 1h 10m or 1h10m
-    h_match = re.search(r'(\d+)\s*h', t_clean)
-    m_match = re.search(r'(\d+)\s*m', t_clean)
-    if h_match or m_match:
+    if "total estimated time:" in t_clean:
+        t_clean = t_clean.split("total estimated time:")[-1]
+    elif "total estimated time =" in t_clean:
+        t_clean = t_clean.split("total estimated time =")[-1]
+
+    d_match = re.search(r'\b(\d+)\s*d\b', t_clean)
+    h_match = re.search(r'\b(\d+)\s*h\b', t_clean)
+    m_match = re.search(r'\b(\d+)\s*m\b', t_clean)
+    s_match = re.search(r'\b(\d+)\s*s\b', t_clean)
+
+    if d_match or h_match or m_match or s_match:
+        days = int(d_match.group(1)) if d_match else 0
         hours = int(h_match.group(1)) if h_match else 0
         mins = int(m_match.group(1)) if m_match else 0
-        return hours * 60 + mins
+        return days * 1440 + hours * 60 + mins
 
     # Format: 01:10:00 or 70:00
     parts = t_clean.split(':')
@@ -51,6 +59,28 @@ def parse_time_str(time_str: str) -> int:
             pass
 
     return 0
+
+def format_print_time_human(mins: int) -> str:
+    """Formats minutes into human-readable format like '8д 19г 1хв (12661 хв)' or '2г 15хв (135 хв)'."""
+    if mins <= 0:
+        return "0 хв"
+    days = mins // 1440
+    rem_mins = mins % 1440
+    hours = rem_mins // 60
+    m = rem_mins % 60
+
+    parts = []
+    if days > 0:
+        parts.append(f"{days}д")
+    if hours > 0:
+        parts.append(f"{hours}г")
+    if m > 0 or not parts:
+        parts.append(f"{m}хв")
+
+    time_str = " ".join(parts)
+    if days > 0 or hours > 0:
+        return f"~{time_str} ({mins} хв)"
+    return f"~{mins} хв"
 
 def resolve_model_name(raw_model: str) -> str:
     """
@@ -82,7 +112,7 @@ def resolve_model_name(raw_model: str) -> str:
 
 def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
     """
-    Parses a .3mf or .gcode file bytes to extract Bambu Studio / OrcaSlicer slice metadata.
+    Parses a .3mf file bytes to extract Bambu Studio / OrcaSlicer slice metadata.
     Returns dict with keys: printer_model, filament_type, weight_g, time_mins, filename, plate_name.
     """
     result = {
@@ -95,6 +125,10 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
         "valid": False,
         "error": ""
     }
+
+    if not filename.lower().endswith(".3mf"):
+        result["error"] = "Дозволено завантажувати тільки файли .3mf від Bambu Studio або OrcaSlicer."
+        return result
 
     try:
         if zipfile.is_zipfile(io.BytesIO(file_bytes)):
@@ -189,7 +223,7 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
                             if t_sec_match:
                                 result["time_mins"] = int(t_sec_match.group(1)) // 60
                             else:
-                                t_str_match = re.search(r";\s*(?:estimated printing time|printing time|print time)\s*=\s*([^\r\n]+)", gcode_text, re.IGNORECASE)
+                                t_str_match = re.search(r";\s*(?:model printing time|estimated printing time|total estimated time|printing time|print time)\s*[:=]\s*([^\r\n]+)", gcode_text, re.IGNORECASE)
                                 if t_str_match:
                                     result["time_mins"] = parse_time_str(t_str_match.group(1))
                     except Exception as e:
@@ -210,10 +244,10 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
             result["filament_type"] = "ABS"
         elif "petg" in fname_lower:
             result["filament_type"] = "PETG"
-        elif "pla" in fname_lower:
-            result["filament_type"] = "PLA"
-        elif "tpu" in fname_lower:
-            result["filament_type"] = "TPU"
+        if result["weight_g"] <= 0.0:
+            result["weight_g"] = 50.0
+        if result["time_mins"] <= 0:
+            result["time_mins"] = 60
 
         result["valid"] = True
 

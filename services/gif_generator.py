@@ -19,7 +19,7 @@ def generate_printer_status_gif(printer: Any) -> bytes:
     """Generates an instant dynamic animated GIF showing live 3D printing simulation & telemetry."""
     width, height = 480, 310
     frames = []
-    num_frames = 10
+    num_frames = 5
     progress_pct = max(0, min(100, printer.mc_percent if printer.gcode_state in ["RUNNING", "PAUSE"] else 0))
 
     for frame_idx in range(num_frames):
@@ -74,8 +74,11 @@ def generate_printer_status_gif(printer: Any) -> bytes:
             draw.rectangle([(13, 253), (13 + prog_w, 289)], fill="#0284c7")
 
         draw.text((200, 261), f"Progress: {progress_pct}%", fill="#ffffff", font=FONT_BODY)
-        frames.append(img)
+        
+        # Fast Palette quantization for small memory footprint
+        p_frame = img.convert('P', palette=Image.Palette.ADAPTIVE, colors=64)
+        frames.append(p_frame)
 
     out_buffer = io.BytesIO()
-    frames[0].save(out_buffer, format="GIF", save_all=True, append_images=frames[1:], duration=180, loop=0)
+    frames[0].save(out_buffer, format="GIF", save_all=True, append_images=frames[1:], duration=220, loop=0, optimize=True)
     return out_buffer.getvalue()

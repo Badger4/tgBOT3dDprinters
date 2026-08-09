@@ -2,17 +2,30 @@
 Reply and Inline keyboard builders for Telegram Bot.
 """
 from typing import Dict, Any
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from models.printer import BambuPrinter
+from config import WEBAPP_URL
 
 def get_main_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
-    keyboard = [
+    keyboard = []
+    if WEBAPP_URL and WEBAPP_URL.startswith("https://"):
+        keyboard.append([KeyboardButton(text="📱 Відкрити WebApp 🚀", web_app=WebAppInfo(url=WEBAPP_URL))])
+    
+    keyboard.extend([
         [KeyboardButton(text="🖨️ Принтери"), KeyboardButton(text="📊 Стан ферми")],
-        [KeyboardButton(text="📜 Історія друку"), KeyboardButton(text="🔔 Сповіщення")]
-    ]
+        [KeyboardButton(text="📜 Історія друку"), KeyboardButton(text="💰 Комерція")],
+        [KeyboardButton(text="🔔 Сповіщення")]
+    ])
     if is_admin:
         keyboard.append([KeyboardButton(text="👑 Адмінка")])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+def get_webapp_inline_keyboard() -> InlineKeyboardMarkup:
+    if WEBAPP_URL and WEBAPP_URL.startswith("https://"):
+        btn = InlineKeyboardButton(text="📱 Відкрити WebApp 🚀", web_app=WebAppInfo(url=WEBAPP_URL))
+    else:
+        btn = InlineKeyboardButton(text="🌐 Відкрити WebApp в браузері 🚀", url=WEBAPP_URL or "http://localhost:8080/webapp")
+    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
 
 def get_printers_keyboard(printers: Dict[str, BambuPrinter]) -> ReplyKeyboardMarkup:
     keyboard = []
@@ -27,12 +40,32 @@ def get_printer_menu_keyboard(printer: BambuPrinter) -> ReplyKeyboardMarkup:
 
     keyboard = [
         [KeyboardButton(text="📊 Статус"), KeyboardButton(text="📷 Камера")],
-        [KeyboardButton(text="🎞️ GIF Анімація")], # [KeyboardButton(text="🤖 ШІ Аналіз Камери")]
+        [KeyboardButton(text="🎞️ GIF Анімація")],
         [KeyboardButton(text="🎛️ Керування принтером"), KeyboardButton(text="🧵 Філамент")],
-        [KeyboardButton(text=notify_str), KeyboardButton(text="🗑️ Видалити принтер")],
-        [KeyboardButton(text="🖨️ Назад до принтерів")]
+        [KeyboardButton(text="🧹 Скинути лічильник ТО"), KeyboardButton(text=notify_str)],
+        [KeyboardButton(text="🗑️ Видалити принтер"), KeyboardButton(text="🖨️ Назад до принтерів")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+def get_notification_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
+    """Builds interactive inline buttons attached to live printer notifications."""
+    buttons = [
+        [
+            InlineKeyboardButton(text="📷 Фото", callback_data=f"notify_photo_{printer_id}"),
+            InlineKeyboardButton(text="⏸ Пауза", callback_data=f"notify_pause_{printer_id}"),
+            InlineKeyboardButton(text="💡 Світло", callback_data=f"notify_light_{printer_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_maintenance_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
+    """Inline keyboard attached to maintenance alerts to reset counter instantly."""
+    buttons = [
+        [
+            InlineKeyboardButton(text="🧹 Провести ТО (Скинути лічильник)", callback_data=f"notify_maint_reset_{printer_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_printer_control_keyboard(printer: BambuPrinter) -> ReplyKeyboardMarkup:
     pause_resume_btn = KeyboardButton(text="▶️ Відновити друк") if printer.gcode_state == "PAUSE" else KeyboardButton(text="⏸️ Пауза")
@@ -109,4 +142,15 @@ def get_notify_keyboard(u_notify: dict) -> ReplyKeyboardMarkup:
         [KeyboardButton(text=btn_clear)],
         [KeyboardButton(text="⬅️ Назад")]
     ], resize_keyboard=True)
+
+def get_notification_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
+    """Builds interactive inline buttons attached to live printer notifications."""
+    buttons = [
+        [
+            InlineKeyboardButton(text="📷 Фото", callback_data=f"notify_photo_{printer_id}"),
+            InlineKeyboardButton(text="⏸ Пауза", callback_data=f"notify_pause_{printer_id}"),
+            InlineKeyboardButton(text="💡 Світло", callback_data=f"notify_light_{printer_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 

@@ -1,0 +1,23 @@
+[Unit]
+Description=3D Printer Farm Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/python_project
+ExecStart=/home/pi/python_project/.venv/bin/python printer.py
+Restart=always
+RestartSec=5
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=3dprinterbot
+
+# Resource & Environment limits for Raspberry Pi Zero
+LimitNOFILE=4096
+MemoryHigh=250M
+MemoryMax=350M
+
+[Install]
+WantedBy=multi-user.target
