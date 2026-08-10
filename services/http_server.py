@@ -556,6 +556,17 @@ async def load_commercial_presets(app_obj: Any) -> dict:
     if not presets:
         presets = DEFAULT_PRESETS.copy()
         await app_obj.storage.save_json(PRESETS_FILE, presets)
+    else:
+        unique_presets = {}
+        seen_names = set()
+        for pid, p in presets.items():
+            pname = str(p.get("name", "")).strip()
+            if pname and pname not in seen_names:
+                seen_names.add(pname)
+                unique_presets[pid] = p
+        if len(unique_presets) != len(presets):
+            presets = unique_presets
+            await app_obj.storage.save_json(PRESETS_FILE, presets)
     return presets
 
 async def handle_get_presets(request: web.Request) -> web.Response:
