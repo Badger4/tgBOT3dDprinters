@@ -521,6 +521,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 container.innerHTML = printers.map(p => {
                     const hasAms = Boolean(p.has_ams);
+                    const activeKey = String(p.active_slot_key || "255");
+                    const slots = p.ams_slots || {};
                     const slotKeys = hasAms ? ["0", "1", "2", "3", "255"] : ["255"];
                     const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач" };
                     const amsBadge = hasAms 
