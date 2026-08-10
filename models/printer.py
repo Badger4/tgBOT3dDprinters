@@ -128,6 +128,7 @@ class BambuPrinter:
         self.ams_exist_bits: str = str(config.get("ams_exist_bits", "0"))
         raw_ams_enabled = config.get("ams_enabled")
         self.ams_enabled: Optional[bool] = bool(raw_ams_enabled) if raw_ams_enabled is not None else None
+        self.ams_trays_info: Dict[str, dict] = {}
 
     @property
     def has_ams(self) -> bool:
@@ -319,6 +320,28 @@ class BambuPrinter:
 
                 if "ams" in ams_info and isinstance(ams_info["ams"], list):
                     self.ams_units = ams_info["ams"]
+                    trays_dict = {}
+                    for unit in self.ams_units:
+                        if isinstance(unit, dict) and "tray" in unit and isinstance(unit["tray"], list):
+                            for tray in unit["tray"]:
+                                if isinstance(tray, dict):
+                                    slot_id = str(tray.get("id", ""))
+                                    if slot_id != "":
+                                        is_empty = bool(tray.get("empty", False))
+                                        raw_color = str(tray.get("tray_color") or "")
+                                        hex_color = f"#{raw_color[:6]}" if len(raw_color) >= 6 else ""
+                                        
+                                        trays_dict[slot_id] = {
+                                            "id": slot_id,
+                                            "empty": is_empty,
+                                            "type": str(tray.get("tray_type") or ""),
+                                            "sub_brands": str(tray.get("tray_sub_brands") or ""),
+                                            "color": hex_color,
+                                            "remain": int(tray.get("remain", -1))
+                                        }
+                    if trays_dict:
+                        self.ams_trays_info.update(trays_dict)
+
                     if self.ams_units:
                         unit = self.ams_units[0]
                         if "humidity" in unit:
@@ -331,6 +354,20 @@ class BambuPrinter:
                                 self.ams_temp = float(unit["temp"])
                             except (ValueError, TypeError):
                                 pass
+
+            if "vt_tray" in print_data and isinstance(print_data["vt_tray"], dict):
+                vt = print_data["vt_tray"]
+                vt_empty = bool(vt.get("empty", False))
+                vt_color = str(vt.get("tray_color") or "")
+                vt_hex = f"#{vt_color[:6]}" if len(vt_color) >= 6 else ""
+                self.ams_trays_info["255"] = {
+                    "id": "255",
+                    "empty": vt_empty,
+                    "type": str(vt.get("tray_type") or ""),
+                    "sub_brands": str(vt.get("tray_sub_brands") or ""),
+                    "color": vt_hex,
+                    "remain": int(vt.get("remain", -1))
+                }
 
             filament = print_data.get("vt_tray", {}).get("tray_type")
             if not filament and self.ams_units:
