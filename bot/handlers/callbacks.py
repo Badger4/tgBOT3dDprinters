@@ -138,4 +138,24 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             pass
         return
 
+    elif data.startswith("delete_user_"):
+        if not await app.is_user_admin(str(callback.from_user.id)):
+            await callback.answer("⛔ Тільки адміністратор може керувати доступами!", show_alert=True)
+            return
+        target_uid = data.replace("delete_user_", "")
+        from config import ADMIN_CHAT_ID
+        if str(target_uid) == str(ADMIN_CHAT_ID):
+            await callback.answer("⚠️ Неможливо видалити головного адміністратора!", show_alert=True)
+            return
+        ok = await app.storage.delete_user(target_uid)
+        if ok:
+            await callback.answer("🗑️ Користувача видалено з бази!", show_alert=True)
+            try:
+                await callback.message.edit_text(callback.message.html_text + "\n\n🗑️ <b>Повністю видалено з бази даних.</b>", parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+        else:
+            await callback.answer("⚠️ Не вдалося видалити користувача.", show_alert=True)
+        return
+
     await callback.answer()
