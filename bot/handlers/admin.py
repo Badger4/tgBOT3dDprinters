@@ -141,13 +141,15 @@ async def handle_manage_user_action(message: Message, app):
     )
     await message.answer(info_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
-@router.message(F.text.regexp(r"\((\d+)\)"))
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+@router.message(F.text & F.text.func(lambda txt: bool(re.search(r"\((\d+)\)", txt or ""))))
 async def handle_select_user_card(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_admin(chat_id):
         return
 
-    m = re.search(r"\((\d+)\)", message.text)
+    m = re.search(r"\((\d+)\)", message.text or "")
     if m:
         target_uid = m.group(1)
         target_u = await app.storage.load_user(target_uid)
@@ -168,18 +170,27 @@ async def handle_select_user_card(message: Message, app):
                 [KeyboardButton(text="Повернутись в адмінку")]
             ], resize_keyboard=True)
 
+            inline_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Схвалити" if not is_app else "❌ Забрати доступ", callback_data=f"{'approve' if not is_app else 'reject'}_user_{target_uid}"),
+                    InlineKeyboardButton(text="👑 Призначити адміном" if not is_t_adm else "🔻 Забрати адміна", callback_data=f"{'make_admin' if not is_t_adm else 'reject'}_user_{target_uid}")
+                ]
+            ])
+
             p = target_u.get("personal", {})
             first_name = html.escape(str(p.get("first_name", "")))
             last_name = html.escape(str(p.get("last_name", "")))
             username = html.escape(str(p.get("username", "немає")))
             user_id_esc = html.escape(str(target_uid))
             status_str = "<b>✅ В команді</b>" if is_app else "<b>❌ Не в команді</b>"
+            adm_str = "<b>👑 Адміністратор</b>" if is_t_adm else "<b>👤 Користувач</b>"
 
             info_text = (
                 f"<b>👤 Картка користувача:</b>\n"
                 f"🆔 <b>ID:</b> <code>{user_id_esc}</code>\n"
                 f"👤 <b>Ім'я:</b> {first_name} {last_name}\n"
                 f"🏷️ <b>Username:</b> @{username}\n"
+                f"Роль: {adm_str}\n"
                 f"Статус: {status_str}"
             )
             await message.answer(info_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
