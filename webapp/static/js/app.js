@@ -316,9 +316,9 @@ document.addEventListener("DOMContentLoaded", () => {
                                 </button>` : ''}
                             </div>
                         </div>
-                        <div class="d-flex align-items-center gap-2 mb-1">
+                        <div class="d-flex align-items-center gap-2 mb-1" style="min-width:0;">
                             <div class="spool-color-dot" style="background-color:${spoolColor}; width:14px; height:14px; border-radius:50%; border:1px solid rgba(255,255,255,0.4); flex-shrink:0;"></div>
-                            <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px;">
+                            <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0;">
                                 <strong>${spoolName}</strong> <small class="text-muted">(${spoolType})</small>
                             </div>
                         </div>
