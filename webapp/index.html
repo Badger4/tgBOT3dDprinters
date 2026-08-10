@@ -370,6 +370,17 @@
                         </div>
                     </div>
 
+                    <!-- Print Progress in Modal -->
+                    <div class="progress-container mb-3" style="background: rgba(255,255,255,0.03); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);">
+                        <div class="progress-header">
+                            <span id="modal-subtask-name" style="font-weight:600; color:#fff;"><i class="fa-solid fa-file-code color-blue"></i> Вільний</span>
+                            <span id="modal-progress-text" style="font-weight:600; color:var(--emerald);">0%</span>
+                        </div>
+                        <div class="progress-bar-wrap mt-1">
+                            <div id="modal-progress-bar" class="progress-bar" style="width: 0%;"></div>
+                        </div>
+                    </div>
+
                     <!-- Telemetry Stats Grid -->
                     <div class="telemetry-grid">
                         <div class="telem-box">
@@ -626,6 +637,6 @@
     </div>
 
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1000"></script>
+    <script src="/static/js/app.js?v=1001"></script>
 </body>
 </html>

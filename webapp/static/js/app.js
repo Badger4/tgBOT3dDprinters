@@ -260,6 +260,19 @@ document.addEventListener("DOMContentLoaded", () => {
         modalLayer.textContent = `${p.current_layer} / ${p.total_layers}`;
         modalTime.textContent = p.remaining_mins > 0 ? `${p.remaining_mins} хв` : "0 хв";
 
+        const modalSubtask = document.getElementById("modal-subtask-name");
+        const modalProgText = document.getElementById("modal-progress-text");
+        const modalProgBar = document.getElementById("modal-progress-bar");
+        if (modalSubtask && modalProgText && modalProgBar) {
+            const isPrinting = p.state === "RUNNING";
+            const progress = p.progress_pct || 0;
+            const modelName = p.subtask_name || (isPrinting ? "Друк..." : "Вільний");
+            modalSubtask.innerHTML = `<i class="fa-solid fa-file-code color-blue"></i> ${escapeHtml(modelName)}`;
+            modalProgText.textContent = `${progress}%`;
+            modalProgBar.style.width = `${progress}%`;
+            modalProgBar.className = `progress-bar ${p.state === 'PAUSE' ? 'amber' : ''}`;
+        }
+
         // Speed buttons
         speedBtns.forEach(btn => {
             const lvl = parseInt(btn.getAttribute("data-level"));
