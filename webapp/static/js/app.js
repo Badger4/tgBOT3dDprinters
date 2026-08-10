@@ -141,6 +141,10 @@ document.addEventListener("DOMContentLoaded", () => {
     async function fetchPrinters() {
         try {
             const res = await fetch("/api/printers");
+            if (res.status === 401 || res.status === 403) {
+                renderAccessDenied();
+                return;
+            }
             if (!res.ok) throw new Error("Failed fetching printers");
             printersData = await res.json();
             renderPrinters(printersData);
@@ -152,6 +156,18 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (err) {
             console.error("Error fetching printers:", err);
         }
+    }
+
+    function renderAccessDenied() {
+        if (pollInterval) clearInterval(pollInterval);
+        document.body.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#0f172a;color:#ef4444;text-align:center;padding:24px;font-family:sans-serif;">
+                <div style="font-size:54px;margin-bottom:16px;">⛔</div>
+                <h2 style="font-size:24px;font-weight:700;margin-bottom:12px;color:#f87171;">Доступ заблоковано</h2>
+                <p style="color:#94a3b8;max-width:360px;line-height:1.5;font-size:15px;">
+                    Ваш акаунт не має прав доступу до цієї 3D Ферми або ваш доступ було скасовано адміністратором.
+                </p>
+            </div>`;
     }
 
     function renderPrinters(printers) {
