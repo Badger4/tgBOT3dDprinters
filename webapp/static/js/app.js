@@ -196,15 +196,27 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        const onlinePrinters = printers.filter(p => p.state !== "OFFLINE" && p.state !== "OFF").length;
         const activeStates = ["RUNNING", "PREPARE", "PAUSE", "PAUSED", "PRINTING", "SLICING", "CHANGING_FILAMENT", "MAM_CLEANING"];
-        const activeCount = printers.filter(p => activeStates.includes(String(p.state || "").toUpperCase())).length;
-        activeCountEl.textContent = `${activeCount}/${printers.length}`;
+        const printingCount = printers.filter(p => activeStates.includes(String(p.state || "").toUpperCase())).length;
+        
+        activeCountEl.textContent = `${onlinePrinters}/${printers.length}${printingCount > 0 ? ` (друк: ${printingCount})` : ''}`;
 
         printersGrid.innerHTML = printers.map(p => {
-            const isPrinting = p.state === "RUNNING" || p.state === "PREPARE" || p.state === "PRINTING";
-            const progress = p.state === "FINISH" ? 100 : (p.state === "IDLE" || p.state === "OFF" || p.state === "OFFLINE" ? 0 : (p.progress_pct || 0));
+            const st = String(p.state || "IDLE").toUpperCase();
+            const isPrinting = ["RUNNING", "PREPARE", "PRINTING", "CHANGING_FILAMENT"].includes(st);
+            let progress = p.progress_pct !== undefined ? p.progress_pct : 0;
+            if (st === "FINISH") progress = 100;
+            if (st === "OFFLINE" || st === "OFF") progress = 0;
+
             const modelName = cleanSubtaskName(p.subtask_name, isPrinting);
-            const timeStr = formatRemainingTime(p.remaining_mins);
+            let timeStr = formatRemainingTime(p.remaining_mins);
+            if (st === "FINISH") timeStr = "Завершено";
+            else if (st === "FAILED") timeStr = "Збій";
+            else if (st === "IDLE") timeStr = "Вільний";
+            else if (!timeStr && isPrinting) timeStr = "Підготовка...";
+
+            const layerStr = (st === "IDLE" && p.current_layer === 0) ? "—" : `${p.current_layer}/${p.total_layers}`;
 
             return `
                 <div class="printer-card" data-id="${p.id}">
@@ -213,7 +225,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             <h3>${escapeHtml(p.name)}</h3>
                             <div class="printer-model-sub"><i class="fa-solid fa-file-code"></i> ${escapeHtml(modelName)}</div>
                         </div>
-                        <span class="status-pill status-${p.state}">${p.state}</span>
+                        <span class="status-pill status-${st}">${st}</span>
                     </div>
 
                     <div class="progress-container">
@@ -222,14 +234,14 @@ document.addEventListener("DOMContentLoaded", () => {
                             <span>${timeStr}</span>
                         </div>
                         <div class="progress-bar-wrap">
-                            <div class="progress-bar ${p.state === 'PAUSE' ? 'amber' : ''}" style="width: ${progress}%;"></div>
+                            <div class="progress-bar ${st === 'PAUSE' || st === 'PAUSED' ? 'amber' : st === 'FAILED' ? 'red' : ''}" style="width: ${progress}%;"></div>
                         </div>
                     </div>
 
                     <div class="printer-stats-row">
                         <span><i class="fa-solid fa-temperature-high color-red"></i> ${p.nozzle_temp}°C</span>
                         <span><i class="fa-solid fa-hot-tub-person color-orange"></i> ${p.bed_temp}°C</span>
-                        <span><i class="fa-solid fa-layer-group color-blue"></i> ${p.current_layer}/${p.total_layers}</span>
+                        <span><i class="fa-solid fa-layer-group color-blue"></i> ${layerStr}</span>
                         <span><i class="fa-solid fa-spool color-purple"></i> ${escapeHtml(p.filament_type || 'PLA')} (${p.filament_grams_left}g)</span>
                     </div>
                 </div>`;
@@ -266,26 +278,38 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function updatePrinterModalContent(p) {
+        const st = String(p.state || "IDLE").toUpperCase();
+        const isPrinting = ["RUNNING", "PREPARE", "PRINTING", "CHANGING_FILAMENT"].includes(st);
+        let progress = p.progress_pct !== undefined ? p.progress_pct : 0;
+        if (st === "FINISH") progress = 100;
+        if (st === "OFFLINE" || st === "OFF") progress = 0;
+
+        let timeStr = formatRemainingTime(p.remaining_mins);
+        if (st === "FINISH") timeStr = "Завершено";
+        else if (st === "FAILED") timeStr = "Збій";
+        else if (st === "IDLE") timeStr = "Вільний";
+        else if (!timeStr && isPrinting) timeStr = "Підготовка...";
+
+        const layerStr = (st === "IDLE" && p.current_layer === 0) ? "—" : `${p.current_layer} / ${p.total_layers}`;
+
         modalNameEl.textContent = p.name;
-        modalStatusEl.textContent = p.state;
-        modalStatusEl.className = `status-pill status-${p.state}`;
+        modalStatusEl.textContent = st;
+        modalStatusEl.className = `status-pill status-${st}`;
 
         modalNozzleTemp.textContent = `${p.nozzle_temp}°C`;
         modalBedTemp.textContent = `${p.bed_temp}°C`;
-        modalLayer.textContent = `${p.current_layer} / ${p.total_layers}`;
-        modalTime.textContent = p.remaining_mins > 0 ? formatRemainingTime(p.remaining_mins) : "0 хв";
+        modalLayer.textContent = layerStr;
+        modalTime.textContent = timeStr || "0 хв";
 
         const modalSubtask = document.getElementById("modal-subtask-name");
         const modalProgText = document.getElementById("modal-progress-text");
         const modalProgBar = document.getElementById("modal-progress-bar");
         if (modalSubtask && modalProgText && modalProgBar) {
-            const isPrinting = p.state === "RUNNING";
-            const progress = p.state === "FINISH" ? 100 : (p.state === "IDLE" || p.state === "OFF" || p.state === "OFFLINE" ? 0 : (p.progress_pct || 0));
             const modelName = cleanSubtaskName(p.subtask_name, isPrinting);
             modalSubtask.innerHTML = `<i class="fa-solid fa-file-code color-blue"></i> ${escapeHtml(modelName)}`;
             modalProgText.textContent = `${progress}%`;
             modalProgBar.style.width = `${progress}%`;
-            modalProgBar.className = `progress-bar ${p.state === 'PAUSE' ? 'amber' : ''}`;
+            modalProgBar.className = `progress-bar ${st === 'PAUSE' || st === 'PAUSED' ? 'amber' : st === 'FAILED' ? 'red' : ''}`;
         }
 
         // Speed buttons
