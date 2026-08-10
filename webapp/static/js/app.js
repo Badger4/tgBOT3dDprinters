@@ -520,15 +520,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 const spoolsList = Object.values(spools || {});
 
                 container.innerHTML = printers.map(p => {
-                    const activeKey = String(p.active_slot_key || "255");
-                    const slots = p.ams_slots || {};
-                    const slotKeys = ["0", "1", "2", "3", "255"];
-                    const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": "VT (Зовнішній)" };
+                    const hasAms = Boolean(p.has_ams);
+                    const slotKeys = hasAms ? ["0", "1", "2", "3", "255"] : ["255"];
+                    const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач" };
+                    const amsBadge = hasAms 
+                        ? `<span class="badge badge-success" style="font-size:10px; font-weight:500;"><i class="fa-solid fa-layer-group"></i> AMS Підключено</span>`
+                        : `<span class="badge badge-secondary" style="font-size:10px; font-weight:500;"><i class="fa-solid fa-spool"></i> Пряма подача (Без AMS)</span>`;
 
                     return `
                         <div class="ams-printer-block glass-card p-3 mb-3">
                             <div class="ams-printer-title d-flex justify-content-between align-items-center mb-2">
-                                <strong><i class="fa-solid fa-print color-blue"></i> ${escapeHtml(p.name)}</strong>
+                                <div class="d-flex align-items-center gap-2">
+                                    <strong><i class="fa-solid fa-print color-blue"></i> ${escapeHtml(p.name)}</strong>
+                                    ${amsBadge}
+                                </div>
                                 <small class="text-muted">Тип: <b>${escapeHtml(p.filament_type || 'PLA')}</b> • ${p.price_per_kg || 650} ₴/кг</small>
                             </div>
                             <div class="ams-slots-grid">

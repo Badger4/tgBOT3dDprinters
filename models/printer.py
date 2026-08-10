@@ -126,11 +126,16 @@ class BambuPrinter:
         self.ams_humidity_idx: int = 1
         self.active_ams_tray: int = 255
 
+    @property
+    def has_ams(self) -> bool:
+        """Returns True if printer has at least 1 active AMS unit connected."""
+        return bool(self.ams_units and len(self.ams_units) > 0)
+
     def get_active_slot_key(self) -> str:
         s_key = str(self.active_ams_tray)
         if s_key in self.ams_slots:
             return s_key
-        return AMSSlot.A1.value if AMSSlot.A1.value in self.ams_slots else AMSSlot.EXTERNAL.value
+        return AMSSlot.EXTERNAL.value if AMSSlot.A1.value in self.ams_slots else AMSSlot.EXTERNAL.value
 
     def get_slot_grams(self, slot_id: Optional[Any] = None) -> float:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()

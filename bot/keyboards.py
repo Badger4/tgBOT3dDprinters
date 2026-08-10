@@ -114,12 +114,18 @@ def get_ams_slots_keyboard(printer: BambuPrinter) -> ReplyKeyboardMarkup:
     active_key = printer.get_active_slot_key()
     mark = lambda key, label: f"{label} [⚡ АКТИВНИЙ]" if active_key == key else label
 
-    keyboard = [
-        [KeyboardButton(text=mark("0", "📍 Слот A1 (Slot 1)")), KeyboardButton(text=mark("1", "📍 Слот A2 (Slot 2)"))],
-        [KeyboardButton(text=mark("2", "📍 Слот A3 (Slot 3)")), KeyboardButton(text=mark("3", "📍 Слот A4 (Slot 4)"))],
-        [KeyboardButton(text=mark("255", "📍 Зовнішній слот (VT)"))],
-        [KeyboardButton(text="⬅️ Назад")]
-    ]
+    if getattr(printer, "has_ams", False):
+        keyboard = [
+            [KeyboardButton(text=mark("0", "📍 Слот A1 (Slot 1)")), KeyboardButton(text=mark("1", "📍 Слот A2 (Slot 2)"))],
+            [KeyboardButton(text=mark("2", "📍 Слот A3 (Slot 3)")), KeyboardButton(text=mark("3", "📍 Слот A4 (Slot 4)"))],
+            [KeyboardButton(text=mark("255", "📍 Зовнішній слот (VT)"))],
+            [KeyboardButton(text="⬅️ Назад")]
+        ]
+    else:
+        keyboard = [
+            [KeyboardButton(text=mark("255", "📍 Зовнішній котушкотримач (VT)"))],
+            [KeyboardButton(text="⬅️ Назад")]
+        ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 def get_notify_keyboard(u_notify: dict) -> ReplyKeyboardMarkup:
