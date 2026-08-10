@@ -890,3 +890,59 @@ body {
     color: var(--primary);
 }
 
+/* Flex Utilities */
+.d-flex { display: flex !important; }
+.gap-2 { gap: 8px !important; }
+.align-items-center { align-items: center !important; }
+
+/* Maintenance Detailed Points */
+.maint-list-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.maint-item-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.maint-item-card.overdue {
+    border-color: rgba(239, 68, 68, 0.5);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.maint-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.maint-item-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.maint-item-inputs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.maint-input-interval {
+    width: 55px;
+    padding: 2px 6px;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--glass-border);
+    border-radius: 4px;
+    color: #38bdf8;
+    text-align: center;
+}
+

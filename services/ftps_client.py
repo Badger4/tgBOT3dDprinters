@@ -267,11 +267,12 @@ def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = ""
 
     return 0.0
 
-def bambu_storbinary(ftps: ftplib.FTP, cmd: str, fp: io.BytesIO, blocksize: int = 32768) -> str:
+def bambu_storbinary(ftps: ftplib.FTP, cmd: str, fp: io.BytesIO, blocksize: int = 8192) -> str:
     """
-    Custom storbinary for Bambu Lab FTPS.
-    Bypasses Python ftplib's conn.unwrap() which hangs waiting for TLS close_notify on Bambu printers.
+    Custom storbinary optimized for Bambu Lab MicroSD card write stability.
+    Uses 8KB block size to prevent SD card buffer overflow and handles TLS socket teardown cleanly.
     """
+    import time
     ftps.voidcmd('TYPE I')
     conn = ftps.transfercmd(cmd)
     try:
@@ -280,25 +281,48 @@ def bambu_storbinary(ftps: ftplib.FTP, cmd: str, fp: io.BytesIO, blocksize: int 
             if not buf:
                 break
             conn.sendall(buf)
+        # Small delay to allow TCP socket buffer to drain to printer RAM
+        time.sleep(0.3)
     finally:
         try:
             conn.close()
         except Exception:
             pass
-    return ftps.voidresp()
+
+    # Wait for 226 Transfer complete from Bambu printer
+    resp = ftps.voidresp()
+    # 2.0s post-upload delay so printer firmware finishes flushing FAT32 sectors to MicroSD card
+    time.sleep(2.0)
+    return resp
+
+def sanitize_bambu_filename(filename: str) -> str:
+    """
+    Sanitizes filename for Bambu Lab FAT32 SD card filesystem:
+    - Pure ASCII alphanumeric characters + underscores only
+    - Short length (max 16 chars base name + extension)
+    - Prevents SD card read/write exception [0500-C010311617]
+    """
+    import time
+    ext = ".gcode" if filename.lower().endswith(".gcode") else ".3mf"
+    raw_name = filename.rsplit(".", 1)[0]
+    clean_base = re.sub(r'[^a-zA-Z0-9_]', '_', raw_name)
+    clean_base = re.sub(r'_+', '_', clean_base).strip('_')
+    if not clean_base or len(clean_base) > 16:
+        clean_base = f"print_{int(time.time()) % 100000}"
+    return f"{clean_base}{ext}"
 
 def upload_3mf_to_bambu(ip: str, access_code: str, file_bytes: bytes, filename: str) -> Optional[str]:
     """
     Uploads a 3MF/Gcode file to Bambu Lab printer's SD card via FTPS.
-    Returns remote relative filepath (e.g. 'cache/filename.3mf' or 'filename.3mf') on success, or None on failure.
+    Returns remote relative filepath (e.g. 'cache/print_12345.3mf' or 'print_12345.3mf') on success, or None on failure.
     """
+    import time
     if not ip or not access_code or not file_bytes:
         return None
 
-    # Sanitize filename for SD card
-    safe_fname = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', filename)
-    if not safe_fname.lower().endswith(('.3mf', '.gcode')):
-        safe_fname += ".3mf"
+    # Sanitize filename strictly for Bambu FAT32 SD card
+    safe_fname = sanitize_bambu_filename(filename)
+    logger.info(f"📤 Preparing FTPS upload to [{ip}] with sanitized filename: '{safe_fname}' ({len(file_bytes)} bytes)")
 
     # Attempt 1: Upload to /cache/
     ftps = _connect_bambu_ftps(ip, access_code, timeout=15.0)
@@ -315,13 +339,14 @@ def upload_3mf_to_bambu(ip: str, access_code: str, file_bytes: bytes, filename: 
                     in_cache = False
 
             if in_cache:
-                bambu_storbinary(ftps, f"STOR {safe_fname}", io.BytesIO(file_bytes))
+                bambu_storbinary(ftps, f"STOR {safe_fname}", io.BytesIO(file_bytes), blocksize=8192)
                 logger.info(f"✅ Uploaded 3MF file to /cache/{safe_fname} on [{ip}] via FTPS")
                 return f"cache/{safe_fname}"
         except Exception as e_cache:
             logger.warning(f"FTPS upload to /cache failed for {ip}: {e_cache}")
         finally:
             try:
+                time.sleep(1.0)
                 ftps.quit()
             except Exception:
                 pass
@@ -331,13 +356,14 @@ def upload_3mf_to_bambu(ip: str, access_code: str, file_bytes: bytes, filename: 
     if ftps_root:
         try:
             ftps_root.cwd("/")
-            bambu_storbinary(ftps_root, f"STOR {safe_fname}", io.BytesIO(file_bytes))
+            bambu_storbinary(ftps_root, f"STOR {safe_fname}", io.BytesIO(file_bytes), blocksize=8192)
             logger.info(f"✅ Uploaded 3MF file to /{safe_fname} on [{ip}] via FTPS")
             return safe_fname
         except Exception as e_root:
             logger.error(f"FTPS upload to root failed for {ip}: {e_root}")
         finally:
             try:
+                time.sleep(1.0)
                 ftps_root.quit()
             except Exception:
                 pass

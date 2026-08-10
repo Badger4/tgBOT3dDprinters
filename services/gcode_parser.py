@@ -244,9 +244,9 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
             result["filament_type"] = "ABS"
         elif "petg" in fname_lower:
             result["filament_type"] = "PETG"
-        if result["weight_g"] <= 0.0:
+        if result["weight_g"] <= 0.0 and zipfile.is_zipfile(io.BytesIO(file_bytes)):
             result["weight_g"] = 50.0
-        if result["time_mins"] <= 0:
+        if result["time_mins"] <= 0 and zipfile.is_zipfile(io.BytesIO(file_bytes)):
             result["time_mins"] = 60
 
         result["valid"] = True

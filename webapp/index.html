@@ -45,9 +45,14 @@
             <section id="tab-printers" class="tab-page active">
                 <div class="section-header">
                     <h2><i class="fa-solid fa-print"></i> Стан ферми</h2>
-                    <span id="active-badge" class="badge badge-active">
-                        <i class="fa-solid fa-circle-dot"></i> <span id="active-count">0/0</span> активні
-                    </span>
+                    <div class="d-flex gap-2 align-items-center">
+                        <button id="add-printer-btn" class="btn btn-primary btn-sm" onclick="document.getElementById('add-printer-modal').classList.add('active')">
+                            <i class="fa-solid fa-plus"></i> Додати принтер
+                        </button>
+                        <span id="active-badge" class="badge badge-active">
+                            <i class="fa-solid fa-circle-dot"></i> <span id="active-count">0/0</span> активні
+                        </span>
+                    </div>
                 </div>
                 <div id="printers-grid" class="printers-grid">
                     <!-- Dynamic Printer Cards inserted here -->
@@ -163,6 +168,9 @@
             <section id="tab-history" class="tab-page">
                 <div class="section-header">
                     <h2><i class="fa-solid fa-chart-pie"></i> Аналітика & Історія</h2>
+                    <a href="/api/history/export" class="btn btn-primary btn-sm" download>
+                        <i class="fa-solid fa-file-csv"></i> Звіт (CSV)
+                    </a>
                 </div>
 
                 <!-- Stats Summary Row -->
@@ -342,9 +350,16 @@
                     <div class="camera-card">
                         <div class="camera-header">
                             <span><i class="fa-solid fa-video"></i> Жива камера</span>
-                            <button id="refresh-cam-btn" class="btn btn-xs btn-outline">
-                                <i class="fa-solid fa-rotate-right"></i> Оновити
-                            </button>
+                            <div class="d-flex gap-2 align-items-center">
+                                <label class="switch-row sm">
+                                    <input type="checkbox" id="auto-cam-toggle">
+                                    <span class="slider"></span>
+                                    <small style="font-size:10px; color:#94a3b8;">Авто (5с)</small>
+                                </label>
+                                <button id="refresh-cam-btn" class="btn btn-xs btn-outline">
+                                    <i class="fa-solid fa-rotate-right"></i> Оновити
+                                </button>
+                            </div>
                         </div>
                         <div class="camera-viewport">
                             <img id="camera-snapshot-img" src="" alt="Кадра немає" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
@@ -404,18 +419,50 @@
                         <button id="btn-action-resume" class="btn btn-success" style="display:none;"><i class="fa-solid fa-play"></i> Відновити</button>
                         <button id="btn-action-stop" class="btn btn-danger"><i class="fa-solid fa-stop"></i> Зупинити</button>
                         <button id="btn-action-light" class="btn btn-neutral"><i class="fa-solid fa-lightbulb"></i> Світло</button>
+                        <button id="btn-action-notify" class="btn btn-neutral"><i class="fa-solid fa-bell"></i> Сповіщення</button>
                     </div>
 
-                    <!-- Maintenance Section -->
+                    <!-- Maintenance Section with Detailed Points & Custom Intervals -->
                     <div class="maintenance-box">
-                        <div class="maint-info">
-                            <span><i class="fa-solid fa-screwdriver-wrench"></i> Лічильник ТО: <strong id="modal-maint-hours">0.0 / 100 год</strong></span>
-                            <button id="btn-reset-maint" class="btn btn-xs btn-outline-warning">Скинути ТО</button>
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <h4 style="margin:0; font-size:14px;"><i class="fa-solid fa-screwdriver-wrench"></i> Технічне обслуговування (ТО)</h4>
                         </div>
-                        <div class="progress-bar-wrap sm">
-                            <div id="modal-maint-bar" class="progress-bar amber" style="width: 0%;"></div>
+                        <div id="modal-maint-list" class="maint-list-grid">
+                            <!-- Dynamic Maintenance Points -->
                         </div>
                     </div>
+                    <button id="btn-action-delete" class="btn btn-outline-danger w-100 mt-3"><i class="fa-solid fa-trash"></i> Видалити принтер</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADD PRINTER MODAL -->
+        <div id="add-printer-modal" class="modal-backdrop">
+            <div class="modal-window">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-print"></i> Додати новий принтер</h3>
+                    <button id="close-add-printer-modal" class="icon-btn-close" onclick="document.getElementById('add-printer-modal').classList.remove('active')"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <form id="add-printer-form" onsubmit="return false;">
+                        <div class="form-group">
+                            <label>Назва принтера</label>
+                            <input type="text" id="new-p-name" class="form-control" placeholder="Bambu Lab A1 mini 3" required>
+                        </div>
+                        <div class="form-group">
+                            <label>IP адреса</label>
+                            <input type="text" id="new-p-ip" class="form-control" placeholder="192.168.1.50" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Access Code (Код доступу)</label>
+                            <input type="text" id="new-p-code" class="form-control" placeholder="12345678" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Серійний номер (SN)</label>
+                            <input type="text" id="new-p-sn" class="form-control" placeholder="0309DA561100751" required>
+                        </div>
+                        <button id="save-printer-submit" class="btn btn-primary w-100 mt-2">Зберегти принтер</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -424,8 +471,8 @@
         <div id="spool-modal" class="modal-backdrop">
             <div class="modal-window">
                 <div class="modal-header">
-                    <h3>Додати котушку</h3>
-                    <button id="close-spool-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
+                    <h3 id="spool-modal-title">Додати котушку</h3>
+                    <button id="close-spool-modal" class="icon-btn-close" onclick="document.getElementById('spool-modal').classList.remove('active')"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body">
                     <form id="spool-form" onsubmit="return false;">
@@ -450,11 +497,46 @@
                                 <input type="number" id="spool-grams" class="form-control" value="1000" step="10">
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label>Ціна за 1 кг (Грн)</label>
-                            <input type="number" id="spool-price" class="form-control" value="650" step="10">
+                        <div class="form-row">
+                            <div class="form-group col">
+                                <label>Ціна за 1 кг (грн)</label>
+                                <input type="number" id="spool-price" class="form-control" value="650" step="10">
+                            </div>
+                            <div class="form-group col">
+                                <label>Колір котушки</label>
+                                <input type="color" id="spool-color" class="form-control" value="#3b82f6" style="height: 38px; padding: 2px;">
+                            </div>
                         </div>
                         <button id="save-spool-submit" class="btn btn-primary w-100 mt-2">Зберегти котушку</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ASSIGN SPOOL TO PRINTER SLOT MODAL -->
+        <div id="assign-spool-modal" class="modal-backdrop">
+            <div class="modal-window">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-truck-ramp-box"></i> Встановити котушку на принтер</h3>
+                    <button id="close-assign-spool-modal" class="icon-btn-close" onclick="document.getElementById('assign-spool-modal').classList.remove('active')"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <form id="assign-spool-form" onsubmit="return false;">
+                        <div class="form-group">
+                            <label>Обраний принтер</label>
+                            <select id="assign-printer-select" class="form-control"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Обраний слот (AMS / Зовнішній)</label>
+                            <select id="assign-slot-select" class="form-control">
+                                <option value="0">A1 (Слот 1)</option>
+                                <option value="1">A2 (Слот 2)</option>
+                                <option value="2">A3 (Слот 3)</option>
+                                <option value="3">A4 (Слот 4)</option>
+                                <option value="255">VT (Зовнішня тримач-бабіна)</option>
+                            </select>
+                        </div>
+                        <button id="confirm-assign-spool-btn" class="btn btn-primary w-100 mt-2">Встановити на принтер</button>
                     </form>
                 </div>
             </div>
@@ -529,6 +611,6 @@
     </div>
 
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=6"></script>
+    <script src="/static/js/app.js?v=18"></script>
 </body>
 </html>
