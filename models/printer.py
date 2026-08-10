@@ -183,7 +183,11 @@ class BambuPrinter:
         except RuntimeError:
             self._main_loop = None
 
-        self._client = mqtt.Client(client_id=f"BambuBot_{self.id[:10]}")
+        client_uid = f"t_{self.id}"
+        try:
+            self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=client_uid)
+        except Exception:
+            self._client = mqtt.Client(client_id=client_uid)
         self._client.username_pw_set("bblp", self.access_code)
 
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -216,10 +220,11 @@ class BambuPrinter:
         if rc == 0:
             self.is_mqtt_connected = True
             self.last_mqtt_msg_time = time.time()
-            logger.info(f"✅ Connected to Bambu MQTT [{self.name}]")
-            client.subscribe(f"device/{self.serial_number}/report")
-            push_req = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}})
-            client.publish(f"device/{self.serial_number}/request", push_req)
+            logger.info(f"✅ Connected to Bambu MQTT [{self.name}] ({self.ip})")
+            if self.serial_number:
+                client.subscribe(f"device/{self.serial_number}/report")
+                push_req = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}})
+                client.publish(f"device/{self.serial_number}/request", push_req)
         else:
             self.is_mqtt_connected = False
             logger.error(f"❌ MQTT connection error [{self.name}] code: {rc}")
@@ -704,7 +709,7 @@ class BambuPrinter:
             "id": self.id,
             "name": self.name,
             "ip": self.ip,
-            "accessCode": "••••••••" if self.access_code else "",
+            "accessCode": self.access_code,
             "serialNumber": self.serial_number,
             "spoolDbFile": self.spool_db_file,
             "filament_grams": self.filament_grams,

@@ -181,7 +181,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function cleanSubtaskName(subtask, isPrinting) {
         if (!subtask) return isPrinting ? "Друк..." : "Вільний";
-        const clean = String(subtask).replace(/^Metadata\//i, "").replace(/\.gcode$/i, "").replace(/\.3mf$/i, "").trim();
+        let clean = String(subtask).replace(/^Metadata\//i, "");
+        clean = clean.replace(/\.(gcode|3mf)+$/gi, "").replace(/\.(gcode|3mf)+$/gi, "").trim();
         return clean || (isPrinting ? "Друк..." : "Вільний");
     }
 
