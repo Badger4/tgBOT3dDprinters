@@ -7,9 +7,12 @@ import time
 import json
 import asyncio
 from pathlib import Path
-from typing import Any
-from aiohttp import web
-from config import logger, HTTP_PORT, API_SECRET_KEY, STORAGE_DIR
+import re
+import hmac
+import hashlib
+import urllib.parse
+from typing import Optional
+from config import logger, HTTP_PORT, API_SECRET_KEY, STORAGE_DIR, TELEGRAM_BOT_TOKEN
 from services.camera_stream import capture_real_camera_photo
 from services.gcode_parser import parse_3mf_file, check_compatibility
 from models.commercial import calculate_commercial_price
@@ -18,6 +21,11 @@ from models.printer import BambuPrinter
 START_TIME = time.time()
 WEBAPP_DIR = Path(__file__).parent.parent / "webapp"
 PRESETS_FILE = STORAGE_DIR / "commercial_presets.json"
+
+# IP Rate Limiting storage: ip -> list of request timestamps
+IP_REQUEST_LOGS: dict[str, list[float]] = {}
+MAX_REQ_PER_MINUTE = 120
+MAX_UPLOADS_PER_MINUTE = 10
 
 DEFAULT_PRESETS = {
     "default_pla": {
@@ -42,12 +50,86 @@ DEFAULT_PRESETS = {
     }
 }
 
+def verify_telegram_init_data(init_data: str, bot_token: str) -> Optional[dict]:
+    """
+    Cryptographically verifies Telegram WebApp initData HMAC-SHA256 signature.
+    Returns parsed user dict if valid, or None if invalid/tampered.
+    """
+    if not init_data or not bot_token:
+        return None
+    try:
+        parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+        hash_val = parsed.pop("hash", None)
+        if not hash_val:
+            return None
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(calculated_hash, hash_val):
+            user_raw = parsed.get("user")
+            if user_raw:
+                return json.loads(user_raw)
+            return {"valid": True}
+    except Exception as e:
+        logger.warning(f"Telegram initData verification error: {e}")
+    return None
+
 def check_auth(request: web.Request) -> bool:
-    """Validates X-API-Key header or ?token= query parameter if API_SECRET_KEY is configured."""
+    """
+    Multi-layer Security Check:
+    1. Validates X-API-Key header or ?token= query parameter against API_SECRET_KEY.
+    2. Validates X-Telegram-Init-Data or ?initData= cryptographic HMAC signature against TELEGRAM_BOT_TOKEN.
+    3. If neither is provided and API_SECRET_KEY is configured, denies access.
+    """
+    # 1. Check API Key
+    req_key = request.headers.get("X-API-Key") or request.query.get("token", "")
+    if API_SECRET_KEY and req_key == API_SECRET_KEY:
+        return True
+
+    # 2. Check Telegram WebApp initData HMAC
+    init_data = request.headers.get("X-Telegram-Init-Data") or request.query.get("initData", "")
+    if init_data:
+        t_user = verify_telegram_init_data(init_data, TELEGRAM_BOT_TOKEN)
+        if t_user:
+            return True
+
+    # 3. Fallback: If no API_SECRET_KEY configured, allow local access
     if not API_SECRET_KEY:
         return True
-    req_key = request.headers.get("X-API-Key") or request.query.get("token", "")
-    return req_key == API_SECRET_KEY
+
+    return False
+
+@web.middleware
+async def security_and_ratelimit_middleware(request: web.Request, handler) -> web.StreamResponse:
+    client_ip = request.remote or "127.0.0.1"
+    now = time.time()
+
+    # Clean up old timestamps (> 60s)
+    timestamps = [t for t in IP_REQUEST_LOGS.get(client_ip, []) if now - t < 60.0]
+
+    # Check upload limit vs general limit
+    limit = MAX_UPLOADS_PER_MINUTE if request.path == "/api/files/upload" else MAX_REQ_PER_MINUTE
+    if len(timestamps) >= limit:
+        logger.warning(f"⛔ Rate limit exceeded for IP [{client_ip}] on {request.path}")
+        return web.json_response(
+            {"error": "Too Many Requests", "message": "Rate limit exceeded. Please wait 60 seconds."},
+            status=429
+        )
+
+    timestamps.append(now)
+    IP_REQUEST_LOGS[client_ip] = timestamps
+
+    # Process request
+    response = await handler(request)
+
+    # Apply HTTP Security Headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "ALLOW-FROM https://web.telegram.org"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:;"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 async def handle_serve_index(request: web.Request) -> web.FileResponse:
     """Serves the main Telegram WebApp single-page application."""
@@ -280,23 +362,42 @@ async def handle_file_upload(request: web.Request) -> web.Response:
         if not field or not field.filename:
             return web.json_response({"error": "No file provided"}, status=400)
 
-        filename = field.filename
+        # Sanitize filename & prevent path traversal
+        raw_name = Path(field.filename).name
+        clean_ext = ".3mf" if raw_name.lower().endswith(".3mf") else ".gcode" if raw_name.lower().endswith(".gcode") else ""
+        if not clean_ext:
+            return web.json_response({"error": "Дозволено завантажувати тільки файли .3mf або .gcode"}, status=400)
+
+        clean_base = re.sub(r'[^a-zA-Z0-9_]', '_', raw_name.rsplit('.', 1)[0])
+        safe_filename = f"{clean_base}{clean_ext}"
+
         content_buf = bytearray()
+        max_bytes = 50 * 1024 * 1024
         while True:
             chunk = await field.read_chunk(size=1024 * 1024)
             if not chunk:
                 break
             content_buf.extend(chunk)
+            if len(content_buf) > max_bytes:
+                return web.json_response({"error": "Файл перевищує максимальний дозволений розмір 50 MB"}, status=413)
+
         content = bytes(content_buf)
 
-        meta = parse_3mf_file(content, filename)
+        # Validate .3mf ZIP magic bytes
+        if clean_ext == ".3mf" and not content.startswith(b"PK\x03\x04"):
+            return web.json_response({"error": "Недійсний підпис .3mf файлу"}, status=400)
+
+        meta = parse_3mf_file(content, safe_filename)
         if not meta.get("valid"):
             return web.json_response({"error": meta.get("error", "Недійсний файл .3mf")}, status=400)
 
         upload_dir = STORAGE_DIR / "uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
-        file_token = f"{int(time.time())}_{filename}"
-        save_path = upload_dir / file_token
+        file_token = f"{int(time.time())}_{safe_filename}"
+        save_path = (upload_dir / file_token).resolve()
+        if upload_dir.resolve() not in save_path.parents:
+            return web.json_response({"error": "Illegal file path"}, status=400)
+
         save_path.write_bytes(content)
 
         printers_info = []
@@ -593,8 +694,11 @@ async def handle_update_settings(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=400)
 
 def create_http_app(app_obj: Any) -> web.Application:
-    """Creates aiohttp web Application with configured API routes & static WebApp assets."""
-    web_app = web.Application(client_max_size=100 * 1024 * 1024)
+    """Creates aiohttp web Application with configured API routes, security middlewares & static WebApp assets."""
+    web_app = web.Application(
+        client_max_size=50 * 1024 * 1024,
+        middlewares=[security_and_ratelimit_middleware]
+    )
     web_app["app_obj"] = app_obj
 
     # WebApp Index & Assets

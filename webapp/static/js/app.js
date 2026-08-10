@@ -2,7 +2,7 @@
  * 3D Farm Telegram WebApp Application Logic
  */
 
-// Automatically bypass localtunnel reminder page for all API requests
+// Automatically bypass localtunnel & attach Telegram WebApp HMAC initData to all API requests
 const originalFetch = window.fetch;
 window.fetch = function(url, options = {}) {
     options = options || {};
@@ -13,6 +13,9 @@ window.fetch = function(url, options = {}) {
         h = new Headers(h);
     }
     h.set("Bypass-Tunnel-Reminder", "true");
+    if (window.Telegram?.WebApp?.initData) {
+        h.set("X-Telegram-Init-Data", window.Telegram.WebApp.initData);
+    }
     options.headers = h;
     return originalFetch(url, options);
 };
