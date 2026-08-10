@@ -59,25 +59,22 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> Optional[bytes]:
                 buf.extend(chunk)
             return bytes(buf)
 
-        # Read 16-byte header
-        hdr = recv_exact(16)
-        if len(hdr) < 16:
-            return None
-
-        psize, _, _, _ = struct.unpack('<IIII', hdr)
-        if psize <= 0 or psize > 500000:
-            return None
-
-        # Read exact payload image bytes
-        img = recv_exact(psize)
-
-        if b'\xff\xd8' in img:
-            start_idx = img.find(b'\xff\xd8')
-            end_idx = img.rfind(b'\xff\xd9')
-            if end_idx > start_idx:
-                jpeg_bytes = img[start_idx:end_idx + 2]
-                logger.info(f"✅ Captured {len(jpeg_bytes)} bytes JPEG frame from {ip}:6000")
-                return jpeg_bytes
+        # Read up to 5 stream packets until JPEG frame is received
+        for _ in range(5):
+            hdr = recv_exact(16)
+            if len(hdr) < 16:
+                break
+            psize, _, _, _ = struct.unpack('<IIII', hdr)
+            if psize <= 0 or psize > 2000000:
+                break
+            img = recv_exact(psize)
+            if b'\xff\xd8' in img:
+                start_idx = img.find(b'\xff\xd8')
+                end_idx = img.rfind(b'\xff\xd9')
+                if end_idx > start_idx:
+                    jpeg_bytes = img[start_idx:end_idx + 2]
+                    logger.info(f"✅ Captured {len(jpeg_bytes)} bytes JPEG frame from {ip}:6000")
+                    return jpeg_bytes
 
     except Exception as e:
         logger.warning(f"Port 6000 TLS stream fetch error for {ip}: {e}")
