@@ -196,11 +196,12 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        const activeCount = printers.filter(p => p.state === "RUNNING").length;
+        const activeStates = ["RUNNING", "PREPARE", "PAUSE", "PAUSED", "PRINTING", "SLICING", "CHANGING_FILAMENT", "MAM_CLEANING"];
+        const activeCount = printers.filter(p => activeStates.includes(String(p.state || "").toUpperCase())).length;
         activeCountEl.textContent = `${activeCount}/${printers.length}`;
 
         printersGrid.innerHTML = printers.map(p => {
-            const isPrinting = p.state === "RUNNING";
+            const isPrinting = p.state === "RUNNING" || p.state === "PREPARE" || p.state === "PRINTING";
             const progress = p.state === "FINISH" ? 100 : (p.state === "IDLE" || p.state === "OFF" || p.state === "OFFLINE" ? 0 : (p.progress_pct || 0));
             const modelName = cleanSubtaskName(p.subtask_name, isPrinting);
             const timeStr = formatRemainingTime(p.remaining_mins);
