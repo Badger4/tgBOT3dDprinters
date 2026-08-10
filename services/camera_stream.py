@@ -39,7 +39,7 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> Optional[bytes]:
 
         # Build 64-byte binary authentication packet
         username = b'bblp'
-        password = access_code.encode('ascii')
+        password = str(access_code or "").encode('utf-8')[:32]
 
         auth_packet = struct.pack('<I', 0x40)    # Payload size (64)
         auth_packet += struct.pack('<I', 0x3000)  # Packet type
@@ -71,9 +71,13 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> Optional[bytes]:
         # Read exact payload image bytes
         img = recv_exact(psize)
 
-        if img.startswith(b'\xff\xd8') and img.endswith(b'\xff\xd9'):
-            logger.info(f"✅ Captured {len(img)} bytes JPEG frame from {ip}:6000")
-            return img
+        if b'\xff\xd8' in img:
+            start_idx = img.find(b'\xff\xd8')
+            end_idx = img.rfind(b'\xff\xd9')
+            if end_idx > start_idx:
+                jpeg_bytes = img[start_idx:end_idx + 2]
+                logger.info(f"✅ Captured {len(jpeg_bytes)} bytes JPEG frame from {ip}:6000")
+                return jpeg_bytes
 
     except Exception as e:
         logger.warning(f"Port 6000 TLS stream fetch error for {ip}: {e}")
