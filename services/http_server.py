@@ -2,6 +2,7 @@
 Lightweight REST API & WebApp HTTP server for 3D Printer Farm.
 Uses aiohttp.web running inside the main asyncio event loop.
 """
+import uuid
 import time
 import json
 import asyncio
@@ -12,6 +13,7 @@ from config import logger, HTTP_PORT, API_SECRET_KEY, STORAGE_DIR
 from services.camera_stream import capture_real_camera_photo
 from services.gcode_parser import parse_3mf_file, check_compatibility
 from models.commercial import calculate_commercial_price
+from models.printer import BambuPrinter
 
 START_TIME = time.time()
 WEBAPP_DIR = Path(__file__).parent.parent / "webapp"
@@ -108,6 +110,60 @@ async def handle_get_printers(request: web.Request) -> web.Response:
     result = [build_printer_telemetry(p) for p in app_obj.printers.values()]
     return web.json_response(result)
 
+async def handle_create_printer(request: web.Request) -> web.Response:
+    """POST /api/printers - Adds a new Bambu printer."""
+    if not check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    try:
+        data = await request.json()
+        name = str(data.get("name", "")).strip()
+        ip = str(data.get("ip", "")).strip()
+        access_code = str(data.get("accessCode", "")).strip()
+        serial_number = str(data.get("serialNumber", "")).strip()
+
+        if not name or not ip or not access_code or not serial_number:
+            return web.json_response({"error": "Всі поля (Назва, IP, Access Code, SN) обов'язкові!"}, status=400)
+
+        p_data = {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "ip": ip,
+            "accessCode": access_code,
+            "serialNumber": serial_number,
+            "filament_grams": float(data.get("filament_grams", 1000.0)),
+            "notify": True
+        }
+
+        p_obj = BambuPrinter(p_data, app_obj.storage, save_callback=app_obj.save_printers_config)
+        p_obj.init_mqtt()
+        app_obj.printers[p_obj.id] = p_obj
+        await app_obj.save_printers_config()
+
+        logger.info(f"➕ Added new printer [{p_obj.name}] ({p_obj.ip}) via WebApp REST API")
+        return web.json_response({"status": "ok", "printer": build_printer_telemetry(p_obj)})
+    except Exception as e:
+        logger.error(f"Error creating printer via API: {e}")
+        return web.json_response({"error": str(e)}, status=400)
+
+async def handle_delete_printer(request: web.Request) -> web.Response:
+    """DELETE /api/printers/{id} - Removes a Bambu printer."""
+    if not check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    p_id = request.match_info.get("id", "")
+    p = app_obj.printers.get(p_id)
+    if not p:
+        return web.json_response({"error": "Printer not found"}, status=404)
+
+    p.destroy()
+    del app_obj.printers[p_id]
+    await app_obj.save_printers_config()
+    logger.info(f"🗑️ Removed printer [{p.name}] via WebApp REST API")
+    return web.json_response({"status": "ok"})
+
 async def handle_get_printer_by_id(request: web.Request) -> web.Response:
     """GET /api/printers/{id} - Single printer telemetry."""
     if not check_auth(request):
@@ -156,33 +212,59 @@ async def handle_printer_control(request: web.Request) -> web.Response:
         return web.json_response({"error": "Invalid JSON payload"}, status=400)
 
     if action == "pause":
-        p.pause_print()
+        p.pause()
         return web.json_response({"status": "ok", "action": "pause"})
     elif action == "resume":
-        p.resume_print()
+        p.resume()
         return web.json_response({"status": "ok", "action": "resume"})
     elif action == "stop":
         p.stop_print()
         return web.json_response({"status": "ok", "action": "stop"})
     elif action == "light_toggle":
-        new_s = "off" if p.chamber_light_state == "on" else "on"
-        p.set_chamber_light(new_s)
-        return web.json_response({"status": "ok", "action": "light_toggle", "state": new_s})
+        p.toggle_chamber_light("toggle")
+        return web.json_response({"status": "ok", "action": "light_toggle", "light_state": p.chamber_light_state})
+    elif action == "toggle_notify":
+        p.notify = not getattr(p, "notify", True)
+        await app_obj.save_printers_config()
+        return web.json_response({"status": "ok", "action": "toggle_notify", "notify": p.notify})
     elif action == "set_speed":
         level = int(data.get("level", 2))
-        p.set_print_speed(level)
+        p.set_speed_level(level)
         return web.json_response({"status": "ok", "action": "set_speed", "level": level})
     elif action == "reset_maint":
-        p.maintenance_hours_counter = 0.0
-        p.last_maintenance_timestamp = time.time()
+        item_key = str(data.get("item_key", "rails"))
+        p.reset_maintenance_counter(item_key)
         await app_obj.save_printers_config()
-        return web.json_response({"status": "ok", "action": "reset_maint"})
+        return web.json_response({"status": "ok", "action": "reset_maint", "item_key": item_key})
+    elif action == "set_maint_interval":
+        item_key = str(data.get("item_key", "rails"))
+        interval = float(data.get("interval_hours", 100.0))
+        p.set_maintenance_interval(item_key, interval)
+        await app_obj.save_printers_config()
+        return web.json_response({"status": "ok", "action": "set_maint_interval", "item_key": item_key, "interval_hours": interval})
     elif action == "set_filament":
         grams = float(data.get("grams", 1000.0))
         slot_id = data.get("slot_id")
         p.set_slot_grams(grams, slot_id=slot_id)
         await app_obj.save_printers_config()
         return web.json_response({"status": "ok", "action": "set_filament", "grams": grams, "slot_id": slot_id})
+    elif action == "assign_spool":
+        spool_id = str(data.get("spool_id", ""))
+        slot_id = data.get("slot_id")
+        spools = await app_obj.storage.load_spools()
+        spool = spools.get(spool_id)
+        if not spool:
+            return web.json_response({"error": "Spool not found"}, status=404)
+
+        grams = float(spool.get("remaining_grams", 1000.0))
+        p.set_slot_grams(grams, slot_id=slot_id)
+        p.active_spool_id = spool_id
+        if spool.get("type"):
+            p.filament_type = str(spool.get("type"))
+        if spool.get("price_per_kg") or spool.get("price_uah"):
+            p.price_per_kg = float(spool.get("price_per_kg") or spool.get("price_uah"))
+        await app_obj.save_printers_config()
+        return web.json_response({"status": "ok", "action": "assign_spool", "spool": spool, "slot_id": slot_id})
     else:
         return web.json_response({"error": f"Unknown action '{action}'"}, status=400)
 
@@ -433,6 +515,60 @@ async def handle_get_history(request: web.Request) -> web.Response:
         "history": history
     })
 
+async def handle_export_history_csv(request: web.Request) -> web.Response:
+    """GET /api/history/export - Exports completed print jobs history as CSV file."""
+    if not check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    history = await app_obj.storage.load_json(app_obj.storage.history_file, [])
+
+    csv_lines = ["Дата,Принтер,Модель,Вага (г),Матеріал,Собівартість (грн)"]
+    for item in history:
+        ts = item.get("timestamp", 0)
+        dt_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "-"
+        pname = str(item.get("printer_name", "")).replace(",", " ")
+        mname = str(item.get("subtask_name", "")).replace(",", " ")
+        weight = item.get("weight_g", 0.0)
+        ftype = str(item.get("filament_type", "")).replace(",", " ")
+        cost = item.get("cost_uah", 0.0)
+        csv_lines.append(f'"{dt_str}","{pname}","{mname}",{weight},"{ftype}",{cost}')
+
+    csv_body = "\n".join(csv_lines)
+    filename = f"farm_history_{int(time.time())}.csv"
+    return web.Response(
+        body=csv_body.encode("utf-8-sig"),
+        content_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+async def handle_events_sse(request: web.Request) -> web.StreamResponse:
+    """GET /api/events - Server-Sent Events (SSE) streaming live telemetry to WebApp."""
+    response = web.StreamResponse(
+        status=200,
+        reason='OK',
+        headers={
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+            'Access-Control-Allow-Origin': '*'
+        }
+    )
+    await response.prepare(request)
+    app_obj = request.app["app_obj"]
+
+    try:
+        while True:
+            printers_list = [build_printer_telemetry(p) for p in app_obj.printers.values()]
+            data_json = json.dumps(printers_list)
+            sse_msg = f"data: {data_json}\n\n"
+            await response.write(sse_msg.encode('utf-8'))
+            await asyncio.sleep(2.5)
+    except (asyncio.CancelledError, ConnectionResetError):
+        pass
+    return response
+
 async def handle_get_settings(request: web.Request) -> web.Response:
     """GET /api/settings - Global settings."""
     if not check_auth(request):
@@ -472,6 +608,8 @@ def create_http_app(app_obj: Any) -> web.Application:
     # API Endpoints
     web_app.router.add_get("/health", handle_health)
     web_app.router.add_get("/api/printers", handle_get_printers)
+    web_app.router.add_post("/api/printers", handle_create_printer)
+    web_app.router.add_delete("/api/printers/{id}", handle_delete_printer)
     web_app.router.add_get("/api/printers/{id}", handle_get_printer_by_id)
     web_app.router.add_get("/api/printers/{id}/snapshot", handle_get_snapshot)
     web_app.router.add_post("/api/printers/{id}/control", handle_printer_control)
@@ -490,7 +628,9 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_delete("/api/commercial/presets/{id}", handle_delete_preset)
     web_app.router.add_post("/api/commercial/calculate", handle_calculate_commercial)
 
+    web_app.router.add_get("/api/events", handle_events_sse)
     web_app.router.add_get("/api/history", handle_get_history)
+    web_app.router.add_get("/api/history/export", handle_export_history_csv)
     web_app.router.add_get("/api/settings", handle_get_settings)
     web_app.router.add_post("/api/settings", handle_update_settings)
 

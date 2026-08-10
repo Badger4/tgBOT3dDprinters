@@ -139,26 +139,6 @@ async def handle_printer_camera(message: Message, app):
         )
         await msg_wait.delete()
 
-@router.message(F.text.lower().in_(["🎞️ gif анімація", "🎞️ анімація (статус)", "gif", "гіф", "анімація"]))
-async def handle_printer_gif(message: Message, app):
-    chat_id = str(message.chat.id)
-    user = await app.storage.load_user(chat_id)
-    selected_pid = user.get("context_data", {}).get("selected_printer_id")
-    target_printer = app.printers.get(selected_pid) if selected_pid else None
-
-    if not target_printer:
-        return
-
-    msg_wait = await message.answer("🎨 ⏳ Генерую анімацію... Не квап мене, Бака!")
-    gif_bytes = await asyncio.to_thread(generate_printer_status_gif, target_printer)
-    gif_file = types.BufferedInputFile(gif_bytes, filename="printer_status.gif")
-    await message.answer_animation(
-        animation=gif_file,
-        caption=f"🎞️ *Анімація телеметрії: {target_printer.name}*\nТримай та не заважай мені! 📊 `{target_printer.gcode_state}` | ⏳ *{target_printer.mc_percent}%*",
-        parse_mode=ParseMode.MARKDOWN
-    )
-    await msg_wait.delete()
-
 @router.message(F.text.lower().in_(["💡 підсвітка", "підсвітка"]))
 async def handle_toggle_light(message: Message, app):
     chat_id = str(message.chat.id)

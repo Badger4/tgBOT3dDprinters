@@ -1,11 +1,14 @@
 """
 Bambu Lab 3D Printer MQTT client and domain model.
 """
+import io
 import ssl
 import html
 import json
 import uuid
 import time
+import zipfile
+import hashlib
 import asyncio
 from typing import Dict, Any, Optional
 import paho.mqtt.client as mqtt
@@ -13,6 +16,37 @@ from config import logger, STORAGE_DIR
 from services.ftps_client import extract_model_weight, fetch_bambu_ftps_weight, upload_3mf_to_bambu
 from storage.manager import StorageManager
 from models.enums import AMSSlot, GCodeState
+
+DEFAULT_MAINTENANCE_ITEMS = {
+    "rails": {
+        "key": "rails",
+        "name": "Змащення валів & направляючих",
+        "counter_hours": 0.0,
+        "interval_hours": 100.0,
+        "last_reset": 0.0
+    },
+    "nozzle": {
+        "key": "nozzle",
+        "name": "Чистка сопла & екструдера",
+        "counter_hours": 0.0,
+        "interval_hours": 50.0,
+        "last_reset": 0.0
+    },
+    "belts": {
+        "key": "belts",
+        "name": "Перевірка натягу ременів",
+        "counter_hours": 0.0,
+        "interval_hours": 150.0,
+        "last_reset": 0.0
+    },
+    "filter": {
+        "key": "filter",
+        "name": "Заміна вугільного фільтра",
+        "counter_hours": 0.0,
+        "interval_hours": 300.0,
+        "last_reset": 0.0
+    }
+}
 
 class BambuPrinter:
     """Manages Bambu Lab 3D Printer telemetry and MQTT control."""
@@ -31,11 +65,25 @@ class BambuPrinter:
         self.electricity_rate_uah = float(config.get("electricity_rate_uah", 4.32))
         self.active_spool_id = str(config.get("active_spool_id", ""))
 
-        # Maintenance & Print Hours Tracking (Default: 100h interval)
+        # Maintenance & Print Hours Tracking
         self.total_print_hours = float(config.get("total_print_hours", 0.0))
         self.maintenance_hours_counter = float(config.get("maintenance_hours_counter", 0.0))
         self.maintenance_interval_hours = int(config.get("maintenance_interval_hours", 100))
         self.last_maintenance_timestamp = float(config.get("last_maintenance_timestamp", 0.0))
+
+        raw_maint_items = config.get("maintenance_items") or {}
+        self.maintenance_items: Dict[str, Dict[str, Any]] = {}
+        for k, def_item in DEFAULT_MAINTENANCE_ITEMS.items():
+            user_item = raw_maint_items.get(k, {})
+            c_hrs = float(user_item.get("counter_hours", self.maintenance_hours_counter if k == "rails" else 0.0))
+            i_hrs = float(user_item.get("interval_hours", self.maintenance_interval_hours if k == "rails" else def_item["interval_hours"]))
+            self.maintenance_items[k] = {
+                "key": k,
+                "name": def_item["name"],
+                "counter_hours": c_hrs,
+                "interval_hours": i_hrs,
+                "last_reset": float(user_item.get("last_reset", 0.0))
+            }
 
         # Per-slot AMS filament weight tracking (Keys: "0"=A1, "1"=A2, "2"=A3, "3"=A4, "255"=External)
         raw_ams_slots = config.get("ams_slots") or {}
@@ -334,12 +382,18 @@ class BambuPrinter:
         self._client.publish(f"device/{self.serial_number}/request", payload)
         return True
 
+    def pause_print(self) -> bool:
+        return self.pause()
+
     def resume(self) -> bool:
         if not self._client or not self._client.is_connected():
             return False
         payload = json.dumps({"print": {"sequence_id": str(int(time.time())), "command": "resume"}})
         self._client.publish(f"device/{self.serial_number}/request", payload)
         return True
+
+    def resume_print(self) -> bool:
+        return self.resume()
 
     def stop_print(self) -> bool:
         if not self._client or not self._client.is_connected():
@@ -364,6 +418,9 @@ class BambuPrinter:
         self.spd_lvl = level
         return True
 
+    def set_print_speed(self, level: int) -> bool:
+        return self.set_speed_level(level)
+
     def toggle_chamber_light(self, mode: str = "toggle") -> bool:
         """Toggles or sets chamber LED light ('on', 'off', 'toggle')."""
         if not self._client or not self._client.is_connected():
@@ -385,11 +442,15 @@ class BambuPrinter:
         self.chamber_light_state = new_mode
         return True
 
+    def set_chamber_light(self, mode: str = "toggle") -> bool:
+        return self.toggle_chamber_light(mode)
+
     async def start_print_job_async(self, file_bytes: bytes, filename: str, plate_name: str = "plate_1.gcode", use_ams: bool = True) -> tuple[bool, str]:
         """
         Uploads 3MF file via FTPS to printer SD card and publishes MQTT project_file command to start printing.
         Returns (success: bool, user_message: str).
         """
+        import re
         if not self._client or not self._client.is_connected():
             return False, "⚠️ MQTT з'єднання з принтером відсутнє."
 
@@ -398,20 +459,51 @@ class BambuPrinter:
         if not remote_path:
             return False, f"⚠️ Не вдалося завантажити файл по FTPS на {self.name} (перевірте IP {self.ip} та SD-карту)."
 
-        # 2. Prepare MQTT project_file command
-        sub_path = plate_name if plate_name and plate_name.startswith("Metadata/") else "Metadata/slice_info.config"
+        # Wait 2.0s for printer firmware to finalize MicroSD FAT32 flush
+        await asyncio.sleep(2.0)
+
+        # 2. Prepare MQTT project_file command with correct file:///sdcard/ URL path and MD5 hash
         clean_file = remote_path.split("/")[-1]
-        url_path = f"file:///{remote_path}" if not remote_path.startswith("file://") else remote_path
+        if remote_path.startswith("file:///sdcard/"):
+            url_path = remote_path
+        elif remote_path.startswith("sdcard/"):
+            url_path = f"file:///{remote_path}"
+        elif remote_path.startswith("/"):
+            url_path = f"file:///sdcard{remote_path}"
+        else:
+            url_path = f"file:///sdcard/{remote_path}"
+
+        # Dynamically verify sub_path inside 3MF container
+        sub_path = "Metadata/slice_info.config"
+        if zipfile.is_zipfile(io.BytesIO(file_bytes)):
+            try:
+                with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+                    names = zf.namelist()
+                    if plate_name and f"Metadata/{plate_name}" in names:
+                        sub_path = f"Metadata/{plate_name}"
+                    elif plate_name and plate_name in names:
+                        sub_path = plate_name
+                    elif "Metadata/slice_info.config" in names:
+                        sub_path = "Metadata/slice_info.config"
+                    else:
+                        gc_meta = [n for n in names if n.startswith("Metadata/") and n.endswith(".gcode")]
+                        if gc_meta:
+                            sub_path = gc_meta[0]
+            except Exception as e_zip:
+                logger.warning(f"Failed zip sub_path scan for {filename}: {e_zip}")
+
+        md5_str = hashlib.md5(file_bytes).hexdigest()
+        clean_subtask = re.sub(r'[^a-zA-Z0-9_]', '_', filename.rsplit('.', 1)[0])
 
         payload = {
             "print": {
                 "sequence_id": str(int(time.time())),
                 "command": "project_file",
                 "param": sub_path,
-                "subtask_name": filename.replace(".3mf", "").replace(".gcode", ""),
+                "subtask_name": clean_subtask,
                 "url": url_path,
-                "file": clean_file,
-                "md5": "",
+                "file": remote_path,
+                "md5": md5_str,
                 "timelapse": True,
                 "bed_type": "auto",
                 "use_ams": use_ams
@@ -420,7 +512,7 @@ class BambuPrinter:
 
         try:
             self._client.publish(f"device/{self.serial_number}/request", json.dumps(payload))
-            logger.info(f"🚀 Sent MQTT project_file command for {clean_file} to [{self.name}]")
+            logger.info(f"🚀 Sent MQTT project_file command for {clean_file} (url: {url_path}, md5: {md5_str}) to [{self.name}]")
             return True, f"✅ Файл <code>{html.escape(filename)}</code> успішно відправлено по FTPS та запущено на друк на <b>{html.escape(self.name)}</b>!"
         except Exception as e:
             logger.error(f"Error publishing MQTT project_file for [{self.name}]: {e}")
@@ -448,14 +540,41 @@ class BambuPrinter:
             return
         self.total_print_hours = round(self.total_print_hours + hours, 2)
         self.maintenance_hours_counter = round(self.maintenance_hours_counter + hours, 2)
-        logger.info(f"⏱️ Updated print hours for [{self.name}]: +{hours:.2f}h (Total: {self.total_print_hours:.1f}h, Counter: {self.maintenance_hours_counter:.1f}h)")
+        for k, item in self.maintenance_items.items():
+            item["counter_hours"] = round(item.get("counter_hours", 0.0) + hours, 2)
+        logger.info(f"⏱️ Updated print hours for [{self.name}]: +{hours:.2f}h (Total: {self.total_print_hours:.1f}h)")
         self._trigger_save()
 
-    def reset_maintenance_counter(self):
-        """Resets the maintenance hours counter after servicing."""
-        self.maintenance_hours_counter = 0.0
-        self.last_maintenance_timestamp = time.time()
-        logger.info(f"🧹 Maintenance counter reset for [{self.name}]")
+    def reset_maintenance_counter(self, item_key: str = "rails"):
+        """Resets a specific maintenance item's counter after servicing."""
+        now_ts = time.time()
+        if item_key == "all":
+            self.maintenance_hours_counter = 0.0
+            self.last_maintenance_timestamp = now_ts
+            for item in self.maintenance_items.values():
+                item["counter_hours"] = 0.0
+                item["last_reset"] = now_ts
+        elif item_key in self.maintenance_items:
+            self.maintenance_items[item_key]["counter_hours"] = 0.0
+            self.maintenance_items[item_key]["last_reset"] = now_ts
+            if item_key == "rails":
+                self.maintenance_hours_counter = 0.0
+                self.last_maintenance_timestamp = now_ts
+        else:
+            self.maintenance_hours_counter = 0.0
+            self.last_maintenance_timestamp = now_ts
+
+        logger.info(f"🧹 Maintenance counter ({item_key}) reset for [{self.name}]")
+        self._trigger_save()
+
+    def set_maintenance_interval(self, item_key: str, interval_hours: float):
+        """Sets target maintenance interval in hours for a specific item."""
+        val = max(1.0, float(interval_hours))
+        if item_key in self.maintenance_items:
+            self.maintenance_items[item_key]["interval_hours"] = val
+        if item_key == "rails":
+            self.maintenance_interval_hours = int(val)
+        logger.info(f"⚙️ Maintenance interval for [{self.name}] ({item_key}) set to {val}h")
         self._trigger_save()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -477,6 +596,7 @@ class BambuPrinter:
             "maintenance_hours_counter": self.maintenance_hours_counter,
             "maintenance_interval_hours": self.maintenance_interval_hours,
             "last_maintenance_timestamp": self.last_maintenance_timestamp,
+            "maintenance_items": self.maintenance_items,
             "gcode_state": self.gcode_state,
             "nozzle_temper": self.nozzle_temper,
             "bed_temper": self.bed_temper,

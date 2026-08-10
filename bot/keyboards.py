@@ -58,11 +58,11 @@ def get_notification_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_maintenance_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
+def get_maintenance_inline_keyboard(printer_id: str, item_key: str = "rails", item_name: str = "ТО") -> InlineKeyboardMarkup:
     """Inline keyboard attached to maintenance alerts to reset counter instantly."""
     buttons = [
         [
-            InlineKeyboardButton(text="🧹 Провести ТО (Скинути лічильник)", callback_data=f"notify_maint_reset_{printer_id}")
+            InlineKeyboardButton(text=f"🧹 Провести {item_name} (Скинути)", callback_data=f"notify_maint_reset_{printer_id}_{item_key}")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

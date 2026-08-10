@@ -72,9 +72,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnStop = document.getElementById("btn-action-stop");
     const btnLight = document.getElementById("btn-action-light");
     const btnResetMaint = document.getElementById("btn-reset-maint");
+    const btnActionDelete = document.getElementById("btn-action-delete");
     const modalMaintHours = document.getElementById("modal-maint-hours");
     const modalMaintBar = document.getElementById("modal-maint-bar");
     const speedBtns = document.querySelectorAll(".speed-btn");
+
+    // Add Printer Modal Elements
+    const addPrinterBtn = document.getElementById("add-printer-btn");
+    const addPrinterModal = document.getElementById("add-printer-modal");
+    const closeAddPrinterModalBtn = document.getElementById("close-add-printer-modal");
+    const savePrinterSubmitBtn = document.getElementById("save-printer-submit");
 
     // Spool Modal Elements
     const spoolModal = document.getElementById("spool-modal");
@@ -100,7 +107,34 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // 3. Fetch & Render Printers Telemetry
+    // 3. SSE Live Event Stream Listener & Telemetry Fetching
+    function initSSEStream() {
+        if (!window.EventSource) return;
+        try {
+            const evtSource = new EventSource("/api/events");
+            evtSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (Array.isArray(data) && data.length > 0) {
+                        printersData = data;
+                        renderPrinters(printersData);
+                        if (selectedPrinterId && printerModal.classList.contains("active")) {
+                            const currentP = printersData.find(p => p.id === selectedPrinterId);
+                            if (currentP) updatePrinterModalContent(currentP);
+                        }
+                    }
+                } catch (e) {
+                    console.error("SSE parse error:", e);
+                }
+            };
+            evtSource.onerror = function() {
+                evtSource.close();
+            };
+        } catch (e) {
+            console.error("SSE initialization failed:", e);
+        }
+    }
+
     async function fetchPrinters() {
         try {
             const res = await fetch("/api/printers");
@@ -212,13 +246,60 @@ document.addEventListener("DOMContentLoaded", () => {
             btnResume.style.display = "none";
         }
 
-        // Maintenance
-        const maintCounter = p.maintenance_hours_counter || 0.0;
-        const maintInterval = p.maintenance_interval_hours || 100;
-        const maintPct = Math.min(100, (maintCounter / maintInterval) * 100);
-        modalMaintHours.textContent = `${maintCounter.toFixed(1)} / ${maintInterval} год`;
-        modalMaintBar.style.width = `${maintPct}%`;
+        // Detailed Maintenance Items Grid
+        const maintListContainer = document.getElementById("modal-maint-list");
+        if (maintListContainer) {
+            const maintItems = p.maintenance_items || {
+                "rails": { "key": "rails", "name": "Змащення валів & направляючих", "counter_hours": p.maintenance_hours_counter || 0.0, "interval_hours": p.maintenance_interval_hours || 100.0 }
+            };
+
+            maintListContainer.innerHTML = Object.values(maintItems).map(item => {
+                const cHrs = (item.counter_hours || 0.0).toFixed(1);
+                const iHrs = (item.interval_hours || 100.0).toFixed(0);
+                const pct = Math.min(100, Math.round(((item.counter_hours || 0.0) / (item.interval_hours || 100.0)) * 100));
+                const isOverdue = (item.counter_hours || 0.0) >= (item.interval_hours || 100.0);
+
+                return `
+                    <div class="maint-item-card ${isOverdue ? 'overdue' : ''}">
+                        <div class="maint-item-header">
+                            <span class="maint-item-title">${item.name} ${isOverdue ? '⚠️' : ''}</span>
+                            <div class="maint-item-inputs">
+                                <small style="font-size:11px; color:#94a3b8;">${cHrs} /</small>
+                                <input type="number" class="maint-input-interval" data-key="${item.key}" value="${iHrs}" step="10" min="1" title="Натисніть Enter або клацніть поза полем для збереження годин">
+                                <small style="font-size:11px; color:#94a3b8;">год</small>
+                                <button class="btn btn-xs btn-outline-warning btn-reset-maint-item" data-key="${item.key}" style="margin-left:4px;" title="Скинути лічильник">
+                                    <i class="fa-solid fa-rotate"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="progress-bar-wrap sm">
+                            <div class="progress-bar ${isOverdue ? 'red' : 'amber'}" style="width: ${pct}%;"></div>
+                        </div>
+                    </div>`;
+            }).join("");
+
+            // Add Event Listeners for Resetting & Interval Input
+            maintListContainer.querySelectorAll(".btn-reset-maint-item").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const k = btn.getAttribute("data-key");
+                    sendPrinterAction({ action: "reset_maint", item_key: k });
+                });
+            });
+
+            maintListContainer.querySelectorAll(".maint-input-interval").forEach(input => {
+                input.addEventListener("change", () => {
+                    const k = input.getAttribute("data-key");
+                    const val = parseFloat(input.value);
+                    if (val > 0) {
+                        sendPrinterAction({ action: "set_maint_interval", item_key: k, interval_hours: val });
+                    }
+                });
+            });
+        }
     }
+
+    let autoCamInterval = null;
+    const autoCamToggle = document.getElementById("auto-cam-toggle");
 
     function loadCameraSnapshot(pId) {
         cameraImg.style.display = "block";
@@ -226,10 +307,33 @@ document.addEventListener("DOMContentLoaded", () => {
         cameraImg.src = `/api/printers/${pId}/snapshot?t=${Date.now()}`;
     }
 
+    if (autoCamToggle) {
+        autoCamToggle.addEventListener("change", () => {
+            if (autoCamToggle.checked) {
+                if (selectedPrinterId) loadCameraSnapshot(selectedPrinterId);
+                if (autoCamInterval) clearInterval(autoCamInterval);
+                autoCamInterval = setInterval(() => {
+                    if (selectedPrinterId && printerModal.classList.contains("active") && autoCamToggle.checked) {
+                        loadCameraSnapshot(selectedPrinterId);
+                    } else {
+                        if (autoCamInterval) clearInterval(autoCamInterval);
+                        autoCamInterval = null;
+                    }
+                }, 5000);
+            } else {
+                if (autoCamInterval) clearInterval(autoCamInterval);
+                autoCamInterval = null;
+            }
+        });
+    }
+
     closeModalBtn.addEventListener("click", () => {
         triggerHaptic("light");
         printerModal.classList.remove("active");
         selectedPrinterId = null;
+        if (autoCamInterval) clearInterval(autoCamInterval);
+        autoCamInterval = null;
+        if (autoCamToggle) autoCamToggle.checked = false;
     });
 
     refreshCamBtn.addEventListener("click", () => {
@@ -258,16 +362,19 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    btnPause.addEventListener("click", () => sendPrinterAction({ action: "pause" }));
-    btnResume.addEventListener("click", () => sendPrinterAction({ action: "resume" }));
-    btnStop.addEventListener("click", () => {
+    const btnNotify = document.getElementById("btn-action-notify");
+
+    if (btnPause) btnPause.addEventListener("click", () => sendPrinterAction({ action: "pause" }));
+    if (btnResume) btnResume.addEventListener("click", () => sendPrinterAction({ action: "resume" }));
+    if (btnStop) btnStop.addEventListener("click", () => {
         if (confirm("Ви дійсно хочете ЗУПИНИТИ друк?")) {
             sendPrinterAction({ action: "stop" });
         }
     });
-    btnLight.addEventListener("click", () => sendPrinterAction({ action: "light_toggle" }));
-    btnResetMaint.addEventListener("click", () => {
-        if (confirm("Скинути лічильник ТО (100 годин)?")) {
+    if (btnLight) btnLight.addEventListener("click", () => sendPrinterAction({ action: "light_toggle" }));
+    if (btnNotify) btnNotify.addEventListener("click", () => sendPrinterAction({ action: "toggle_notify" }));
+    if (btnResetMaint) btnResetMaint.addEventListener("click", () => {
+        if (confirm("Скинути лічильник ТО?")) {
             sendPrinterAction({ action: "reset_maint" });
         }
     });
@@ -278,6 +385,88 @@ document.addEventListener("DOMContentLoaded", () => {
             sendPrinterAction({ action: "set_speed", level: level });
         });
     });
+
+    if (addPrinterBtn) {
+        addPrinterBtn.addEventListener("click", () => {
+            triggerHaptic("medium");
+            addPrinterModal.classList.add("active");
+        });
+    }
+
+    if (closeAddPrinterModalBtn) {
+        closeAddPrinterModalBtn.addEventListener("click", () => {
+            triggerHaptic("light");
+            addPrinterModal.classList.remove("active");
+        });
+    }
+
+    if (savePrinterSubmitBtn) {
+        savePrinterSubmitBtn.addEventListener("click", async () => {
+            const name = document.getElementById("new-p-name").value.trim();
+            const ip = document.getElementById("new-p-ip").value.trim();
+            const accessCode = document.getElementById("new-p-code").value.trim();
+            const serialNumber = document.getElementById("new-p-sn").value.trim();
+
+            if (!name || !ip || !accessCode || !serialNumber) {
+                alert("Заповніть всі поля!");
+                return;
+            }
+
+            triggerHaptic("medium");
+            savePrinterSubmitBtn.disabled = true;
+            savePrinterSubmitBtn.textContent = "Збереження...";
+
+            try {
+                const res = await fetch("/api/printers", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name, ip, accessCode, serialNumber })
+                });
+                const data = await res.json();
+                if (data.status === "ok") {
+                    addPrinterModal.classList.remove("active");
+                    document.getElementById("add-printer-form").reset();
+                    fetchPrinters();
+                } else {
+                    alert("Помилка додавання принтера: " + (data.error || "Невідомо"));
+                }
+            } catch (e) {
+                console.error("Add printer error:", e);
+                alert("Помилка з'єднання при додаванні принтера.");
+            } finally {
+                savePrinterSubmitBtn.disabled = false;
+                savePrinterSubmitBtn.textContent = "Зберегти принтер";
+            }
+        });
+    }
+
+    if (btnActionDelete) {
+        btnActionDelete.addEventListener("click", async () => {
+            if (!selectedPrinterId) return;
+            if (confirm("Ви дійсно хочете ВИДАЛИТИ цей принтер з системи?")) {
+                triggerHaptic("medium");
+                try {
+                    const res = await fetch(`/api/printers/${selectedPrinterId}`, {
+                        method: "DELETE"
+                    });
+                    const data = await res.json();
+                    if (data.status === "ok") {
+                        printerModal.classList.remove("active");
+                        selectedPrinterId = null;
+                        fetchPrinters();
+                    } else {
+                        alert("Помилка видалення принтера: " + (data.error || "Невідомо"));
+                    }
+                } catch (e) {
+                    console.error("Delete printer error:", e);
+                    alert("Помилка при видаленні принтера.");
+                }
+            }
+        });
+    }
+
+    let editingSpoolId = null;
+    let selectedSpoolForAssign = null;
 
     // 6. Tab 2: Materials & AMS
     async function loadMaterials() {
@@ -300,18 +489,26 @@ document.addEventListener("DOMContentLoaded", () => {
                     const activeKey = String(p.active_slot_key || "255");
                     const slots = p.ams_slots || {};
                     const slotKeys = ["0", "1", "2", "3", "255"];
-                    const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": "VT" };
+                    const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": "VT (Зовнішній)" };
 
                     return `
-                        <div class="ams-printer-block">
-                            <div class="ams-printer-title"><i class="fa-solid fa-print"></i> ${p.name}</div>
+                        <div class="ams-printer-block glass-card p-3 mb-3">
+                            <div class="ams-printer-title d-flex justify-content-between align-items-center mb-2">
+                                <strong><i class="fa-solid fa-print color-blue"></i> ${escapeHtml(p.name)}</strong>
+                                <small class="text-muted">Тип: ${escapeHtml(p.filament_type || 'PLA')} • ${p.price_per_kg || 650} ₴/кг</small>
+                            </div>
                             <div class="ams-slots-grid">
                                 ${slotKeys.map(k => {
                                     const grams = slots[k] !== undefined ? slots[k] : 1000;
                                     const isActive = (k === activeKey);
                                     return `
                                         <div class="ams-slot-card ${isActive ? 'active-slot' : ''}">
-                                            <div class="slot-tag">${slotLabels[k]} ${isActive ? '⚡' : ''}</div>
+                                            <div class="slot-tag d-flex justify-content-between align-items-center">
+                                                <span>${slotLabels[k]} ${isActive ? '⚡' : ''}</span>
+                                                <button class="btn btn-xs btn-outline btn-edit-slot-grams" data-printer="${p.id}" data-slot="${k}" title="Встановити залишок">
+                                                    <i class="fa-solid fa-pencil"></i>
+                                                </button>
+                                            </div>
                                             <div class="slot-spool-icon"><i class="fa-solid fa-spool"></i></div>
                                             <div class="slot-weight">${grams}g</div>
                                         </div>`;
@@ -319,6 +516,30 @@ document.addEventListener("DOMContentLoaded", () => {
                             </div>
                         </div>`;
                 }).join("");
+
+                // Add click handlers for AMS slot weight edit buttons
+                document.querySelectorAll(".btn-edit-slot-grams").forEach(btn => {
+                    btn.addEventListener("click", async (e) => {
+                        e.stopPropagation();
+                        const pId = btn.getAttribute("data-printer");
+                        const slotId = btn.getAttribute("data-slot");
+                        const inputVal = prompt("Введіть новий залишок у грамах (наприклад: 850 або 1000 - 150):");
+                        if (inputVal !== null && inputVal.trim() !== "") {
+                            try {
+                                let grams = eval(inputVal.replace(/[^0-9\+\-\*\/\.\(\)]/g, ''));
+                                grams = Math.max(0, roundToTwo(parseFloat(grams) || 0));
+                                await fetch(`/api/printers/${pId}/control`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ action: "set_filament", grams, slot_id: slotId })
+                                });
+                                loadMaterials();
+                            } catch (err) {
+                                alert("Некоректне значення ваги.");
+                            }
+                        }
+                    });
+                });
             }
 
             // Render Spool Inventory
@@ -328,22 +549,57 @@ document.addEventListener("DOMContentLoaded", () => {
                 spoolsList.innerHTML = `<p class="text-muted text-center p-3">Склад порожній. Натисніть "+ Нова котушка", щоб додати.</p>`;
             } else {
                 spoolsList.innerHTML = spoolsArray.map(s => `
-                    <div class="spool-item">
-                        <div class="spool-left">
-                            <div class="spool-color-circle" style="background-color: ${s.color || '#6366f1'};"></div>
+                    <div class="spool-item glass-card p-3 mb-2 d-flex justify-content-between align-items-center">
+                        <div class="spool-left d-flex align-items-center gap-2">
+                            <div class="spool-color-circle" style="background-color: ${s.color || '#3b82f6'}; width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3);"></div>
                             <div class="spool-details">
-                                <h4>${s.name}</h4>
-                                <p>${s.type || 'PLA'} • ${s.price_per_kg || 650} ₴/кг</p>
+                                <h4 style="margin:0; font-size:14px;">${escapeHtml(s.name)}</h4>
+                                <small class="text-muted">${escapeHtml(s.type || 'PLA')} • ${s.price_per_kg || s.price_uah || 650} ₴/кг • ${s.remaining_grams || 1000}g</small>
                             </div>
                         </div>
-                        <div class="spool-right text-right">
-                            <strong>${s.remaining_grams || 1000}g</strong>
-                            <button class="icon-btn text-danger btn-delete-spool" data-id="${s.id}" style="margin-left: 10px;">
+                        <div class="spool-right d-flex align-items-center gap-2">
+                            <button class="btn btn-xs btn-primary btn-assign-spool" data-id="${s.id}" title="Встановити на принтер">
+                                <i class="fa-solid fa-truck-ramp-box"></i> На принтер
+                            </button>
+                            <button class="btn btn-xs btn-outline btn-edit-spool" data-id="${s.id}" title="Редагувати">
+                                <i class="fa-solid fa-pen-to-square"></i>
+                            </button>
+                            <button class="btn btn-xs btn-outline-danger btn-delete-spool" data-id="${s.id}" title="Видалити">
                                 <i class="fa-solid fa-trash"></i>
                             </button>
                         </div>
                     </div>`).join("");
 
+                // Assign spool to printer
+                document.querySelectorAll(".btn-assign-spool").forEach(b => {
+                    b.addEventListener("click", () => {
+                        const id = b.getAttribute("data-id");
+                        selectedSpoolForAssign = spools[id];
+                        openAssignSpoolModal(printers);
+                    });
+                });
+
+                // Edit spool
+                document.querySelectorAll(".btn-edit-spool").forEach(b => {
+                    b.addEventListener("click", () => {
+                        const id = b.getAttribute("data-id");
+                        const s = spools[id];
+                        if (s) {
+                            editingSpoolId = s.id;
+                            const titleEl = document.getElementById("spool-modal-title");
+                            if (titleEl) titleEl.textContent = "✏️ Редагувати котушку";
+                            document.getElementById("spool-name").value = s.name || "";
+                            document.getElementById("spool-type").value = s.type || "PLA";
+                            document.getElementById("spool-grams").value = s.remaining_grams || 1000;
+                            document.getElementById("spool-price").value = s.price_per_kg || s.price_uah || 650;
+                            const colEl = document.getElementById("spool-color");
+                            if (colEl) colEl.value = s.color || "#3b82f6";
+                            if (spoolModal) spoolModal.classList.add("active");
+                        }
+                    });
+                });
+
+                // Delete spool
                 document.querySelectorAll(".btn-delete-spool").forEach(b => {
                     b.addEventListener("click", async () => {
                         const id = b.getAttribute("data-id");
@@ -360,36 +616,108 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // Add Spool Form Modal
-    addSpoolBtn.addEventListener("click", () => {
-        triggerHaptic("medium");
-        spoolModal.classList.add("active");
-    });
+    function roundToTwo(num) {
+        return Math.round((num + Number.EPSILON) * 100) / 100;
+    }
 
-    closeSpoolModalBtn.addEventListener("click", () => {
-        spoolModal.classList.remove("active");
-    });
+    function openAssignSpoolModal(printers) {
+        const modal = document.getElementById("assign-spool-modal");
+        const selectPrinter = document.getElementById("assign-printer-select");
+        if (!modal || !selectPrinter) return;
 
-    saveSpoolSubmitBtn.addEventListener("click", async () => {
-        const name = document.getElementById("spool-name").value.trim();
-        const type = document.getElementById("spool-type").value;
-        const grams = parseFloat(document.getElementById("spool-grams").value) || 1000;
-        const price = parseFloat(document.getElementById("spool-price").value) || 650;
+        selectPrinter.innerHTML = printers.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.ip})</option>`).join("");
+        modal.classList.add("active");
+    }
 
-        if (!name) { alert("Введіть назву котушки!"); return; }
+    const confirmAssignBtn = document.getElementById("confirm-assign-spool-btn");
+    if (confirmAssignBtn) {
+        confirmAssignBtn.addEventListener("click", async () => {
+            if (!selectedSpoolForAssign) return;
+            const printerId = document.getElementById("assign-printer-select").value;
+            const slotId = document.getElementById("assign-slot-select").value;
 
-        try {
-            await fetch("/api/spools", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, type, remaining_grams: grams, price_per_kg: price })
-            });
-            spoolModal.classList.remove("active");
-            loadMaterials();
-        } catch (e) {
-            console.error("Failed saving spool:", e);
-        }
-    });
+            try {
+                const res = await fetch(`/api/printers/${printerId}/control`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        action: "assign_spool",
+                        spool_id: selectedSpoolForAssign.id,
+                        slot_id: slotId
+                    })
+                });
+                const result = await res.json();
+                if (result.status === "ok") {
+                    document.getElementById("assign-spool-modal").classList.remove("active");
+                    loadMaterials();
+                    fetchPrinters();
+                } else {
+                    alert("Помилка встановлення: " + (result.error || "Невідомо"));
+                }
+            } catch (err) {
+                console.error("Assign spool error:", err);
+                alert("Помилка з'єднання при встановленні котушки.");
+            }
+        });
+    }
+
+    // Add / Edit Spool Form Modal
+    if (addSpoolBtn) {
+        addSpoolBtn.addEventListener("click", () => {
+            editingSpoolId = null;
+            const titleEl = document.getElementById("spool-modal-title");
+            if (titleEl) titleEl.textContent = "➕ Додати котушку";
+            document.getElementById("spool-name").value = "";
+            document.getElementById("spool-type").value = "PLA";
+            document.getElementById("spool-grams").value = "1000";
+            document.getElementById("spool-price").value = "650";
+            const colEl = document.getElementById("spool-color");
+            if (colEl) colEl.value = "#3b82f6";
+
+            triggerHaptic("medium");
+            if (spoolModal) spoolModal.classList.add("active");
+        });
+    }
+
+    if (closeSpoolModalBtn) {
+        closeSpoolModalBtn.addEventListener("click", () => {
+            if (spoolModal) spoolModal.classList.remove("active");
+        });
+    }
+
+    if (saveSpoolSubmitBtn) {
+        saveSpoolSubmitBtn.addEventListener("click", async () => {
+            const name = document.getElementById("spool-name").value.trim();
+            const type = document.getElementById("spool-type").value;
+            const grams = parseFloat(document.getElementById("spool-grams").value) || 1000;
+            const price = parseFloat(document.getElementById("spool-price").value) || 650;
+            const colEl = document.getElementById("spool-color");
+            const color = colEl ? colEl.value : "#3b82f6";
+
+            if (!name) { alert("Введіть назву котушки!"); return; }
+
+            const payload = {
+                id: editingSpoolId || undefined,
+                name,
+                type,
+                remaining_grams: grams,
+                price_per_kg: price,
+                color
+            };
+
+            try {
+                await fetch("/api/spools", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                if (spoolModal) spoolModal.classList.remove("active");
+                loadMaterials();
+            } catch (e) {
+                console.error("Failed saving spool:", e);
+            }
+        });
+    }
 
     // 8. Tab 3: History
     async function loadHistory() {
@@ -527,13 +855,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    document.getElementById("calc-preset-select").addEventListener("change", recalculateCommercial);
-    document.getElementById("calc-weight-g").addEventListener("input", recalculateCommercial);
-    document.getElementById("calc-time-mins").addEventListener("input", recalculateCommercial);
+    document.getElementById("calc-preset-select")?.addEventListener("change", recalculateCommercial);
+    document.getElementById("calc-weight-g")?.addEventListener("input", recalculateCommercial);
+    document.getElementById("calc-time-mins")?.addEventListener("input", recalculateCommercial);
 
     // Preset Modal handlers
     const presetModal = document.getElementById("preset-modal");
-    document.getElementById("add-preset-btn").addEventListener("click", () => {
+    document.getElementById("add-preset-btn")?.addEventListener("click", () => {
         editingPresetId = null;
         const titleEl = document.getElementById("preset-modal-title");
         if (titleEl) titleEl.textContent = "➕ Створити пресет ціноутворення";
@@ -546,12 +874,12 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("preset-profit").value = "100%";
 
         triggerHaptic("light");
-        presetModal.classList.add("active");
+        if (presetModal) presetModal.classList.add("active");
     });
-    document.getElementById("close-preset-modal").addEventListener("click", () => {
-        presetModal.classList.remove("active");
+    document.getElementById("close-preset-modal")?.addEventListener("click", () => {
+        if (presetModal) presetModal.classList.remove("active");
     });
-    document.getElementById("save-preset-submit").addEventListener("click", async () => {
+    document.getElementById("save-preset-submit")?.addEventListener("click", async () => {
         triggerHaptic("medium");
         const name = document.getElementById("preset-name").value.trim();
         const raw_price = document.getElementById("preset-price-g").value;
@@ -632,7 +960,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    document.getElementById("save-settings-btn").addEventListener("click", async () => {
+    document.getElementById("save-settings-btn")?.addEventListener("click", async () => {
         triggerHaptic("medium");
         const notify_start = document.getElementById("setting-notify-start").checked;
         const notify_finish = document.getElementById("setting-notify-finish").checked;
@@ -821,9 +1149,10 @@ document.addEventListener("DOMContentLoaded", () => {
         fetchPrinters();
     });
 
-    // Initial Load & Polling Loop
+    // Initial Load & Fail-Safe Polling Loop (Runs always every 3s)
     fetchPrinters();
     pollInterval = setInterval(fetchPrinters, 3000);
+    initSSEStream();
 });
 
 

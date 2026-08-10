@@ -57,16 +57,34 @@ class PrinterBotApp:
         user = await self.storage.load_user(user_id)
         return bool(user.get("is_approved", False))
 
+    async def safe_send_message(self, chat_id: str, text: str, parse_mode: Optional[str] = ParseMode.MARKDOWN, reply_markup: Optional[Any] = None) -> bool:
+        if not self.bot:
+            return False
+        user = await self.storage.load_user(chat_id)
+        if user.get("chat_active") is False:
+            return False
+        try:
+            await self.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_markup=reply_markup)
+            return True
+        except Exception as e:
+            err_str = str(e).lower()
+            if "chat not found" in err_str or "bot was blocked" in err_str or "user is deactivated" in err_str:
+                logger.info(f"🚫 Marked chat {chat_id} as inactive ({e})")
+                user["chat_active"] = False
+                await self.storage.save_user(user)
+            else:
+                logger.warning(f"Failed sending message to {chat_id}: {e}")
+            return False
+
     async def send_notification(self, event_type: str, text: str, reply_markup: Optional[Any] = None):
         users = await self.storage.load_all_users()
         for chat_id, udata in users.items():
+            if udata.get("chat_active") is False:
+                continue
             user_allows = udata.get("notify", {}).get(event_type, True)
             is_app = udata.get("is_approved", False) or await self.is_user_admin(chat_id)
-            if user_allows and is_app and self.bot:
-                try:
-                    await self.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
-                except Exception as e:
-                    logger.warning(f"Failed sending notification to {chat_id}: {e}")
+            if user_allows and is_app:
+                await self.safe_send_message(chat_id, text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     async def monitoring_loop(self):
         logger.info("⚙️ [Monitoring] Background printer monitor loop started!")
@@ -145,6 +163,8 @@ class PrinterBotApp:
                         if p.mc_remaining_time > 0:
                             all_users = await self.storage.load_all_users()
                             for chat_id, udata in all_users.items():
+                                if udata.get("chat_active") is False:
+                                    continue
                                 is_app = udata.get("is_approved", False) or await self.is_user_admin(chat_id)
                                 if not is_app:
                                     continue
@@ -160,17 +180,17 @@ class PrinterBotApp:
                                             f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
                                             f"⏱️ Друк завершиться приблизно через *{p.mc_remaining_time} хв*! Іди вже готуйся! 😤"
                                         )
-                                        try:
-                                            await self.bot.send_message(chat_id=chat_id, text=time_txt, parse_mode=ParseMode.MARKDOWN)
+                                        sent = await self.safe_send_message(chat_id, time_txt, parse_mode=ParseMode.MARKDOWN)
+                                        if sent:
                                             st[time_key] = True
-                                        except Exception as e:
-                                            logger.warning(f"Failed sending time notification to {chat_id}: {e}")
                                 elif p.mc_remaining_time > min_time:
                                     st[time_key] = False
 
                     # Low Filament Threshold Warning
                     all_users = await self.storage.load_all_users()
                     for chat_id, udata in all_users.items():
+                        if udata.get("chat_active") is False:
+                            continue
                         is_app = udata.get("is_approved", False) or await self.is_user_admin(chat_id)
                         if not is_app:
                             continue
@@ -187,11 +207,9 @@ class PrinterBotApp:
                                     f"🧵 **Залишок на бабіні:** *{p.filament_grams}g* (поріг: ≤{int(min_fil)}g)\n"
                                     f"⚠️ На бабіні замало пластику! Підготуй нову котушку, не кажи потім, що я не попереджала, Бака! 😤"
                                 )
-                                try:
-                                    await self.bot.send_message(chat_id=chat_id, text=fil_txt, parse_mode=ParseMode.MARKDOWN)
+                                sent = await self.safe_send_message(chat_id, fil_txt, parse_mode=ParseMode.MARKDOWN)
+                                if sent:
                                     st[fil_key] = True
-                                except Exception as e:
-                                    logger.warning(f"Failed sending low filament notification to {chat_id}: {e}")
                         elif p.filament_grams > min_fil:
                             st[fil_key] = False
 
@@ -235,19 +253,24 @@ class PrinterBotApp:
                     elif not getattr(p, "hms_errors", None):
                         st["notifiedHMS"] = False
 
-                    # 6. Maintenance & Lubing Alert (100h threshold)
-                    if p.maintenance_hours_counter >= p.maintenance_interval_hours:
-                        if not st.get("notifiedMaintenance"):
-                            maint_txt = (
-                                f"🧹 *Час провести ТО на принтері {p.name}!*\n"
-                                f"⏱️ Принтер відпрацював *{p.maintenance_hours_counter:.1f} годин* (поріг ТО: {p.maintenance_interval_hours} год)!\n"
-                                f"🔧 Прочистіть сопло, змастіть валі та перевірте натяг ременів, Бака! 🧼✨"
-                            )
-                            from bot.keyboards import get_maintenance_inline_keyboard
-                            await self.send_notification("pause", maint_txt, reply_markup=get_maintenance_inline_keyboard(p.id))
-                            st["notifiedMaintenance"] = True
-                    else:
-                        st["notifiedMaintenance"] = False
+                    # 6. Maintenance & Lubing Alerts (Per-item thresholds)
+                    for item_k, item in p.maintenance_items.items():
+                        c_hrs = item.get("counter_hours", 0.0)
+                        i_hrs = item.get("interval_hours", 100.0)
+                        notif_key = f"notifiedMaint_{item_k}"
+                        if c_hrs >= i_hrs:
+                            if not st.get(notif_key):
+                                item_name = item.get("name", "ТО")
+                                maint_txt = (
+                                    f"🧹 *Час провести {item_name} на принтері {p.name}!*\n"
+                                    f"⏱️ Відпрацьовано: *{c_hrs:.1f} годин* (встановлений поріг: {int(i_hrs)} год)!\n"
+                                    f"🔧 Проведіть технічне обслуговування, Бака! 🧼✨"
+                                )
+                                from bot.keyboards import get_maintenance_inline_keyboard
+                                await self.send_notification("pause", maint_txt, reply_markup=get_maintenance_inline_keyboard(p.id, item_k, item_name))
+                                st[notif_key] = True
+                        else:
+                            st[notif_key] = False
 
                     st["lastState"] = curr_state
 
