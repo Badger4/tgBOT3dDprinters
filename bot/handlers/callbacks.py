@@ -89,6 +89,9 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             return
 
     elif data.startswith("approve_user_"):
+        if not await app.is_user_admin(str(callback.from_user.id)):
+            await callback.answer("⛔ Тільки адміністратор може керувати доступами!", show_alert=True)
+            return
         target_uid = data.replace("approve_user_", "")
         user = await app.storage.load_user(target_uid)
         user["is_approved"] = True
@@ -102,6 +105,9 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
         return
 
     elif data.startswith("reject_user_"):
+        if not await app.is_user_admin(str(callback.from_user.id)):
+            await callback.answer("⛔ Тільки адміністратор може керувати доступами!", show_alert=True)
+            return
         target_uid = data.replace("reject_user_", "")
         user = await app.storage.load_user(target_uid)
         user["is_approved"] = False
@@ -114,6 +120,9 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
         return
 
     elif data.startswith("make_admin_"):
+        if not await app.is_user_admin(str(callback.from_user.id)):
+            await callback.answer("⛔ Тільки адміністратор може керувати доступами!", show_alert=True)
+            return
         target_uid = data.replace("make_admin_", "")
         user = await app.storage.load_user(target_uid)
         user["is_approved"] = True

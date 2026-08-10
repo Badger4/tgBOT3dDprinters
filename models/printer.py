@@ -582,7 +582,7 @@ class BambuPrinter:
             "id": self.id,
             "name": self.name,
             "ip": self.ip,
-            "accessCode": self.access_code,
+            "accessCode": "••••••••" if self.access_code else "",
             "serialNumber": self.serial_number,
             "spoolDbFile": self.spool_db_file,
             "filament_grams": self.filament_grams,
