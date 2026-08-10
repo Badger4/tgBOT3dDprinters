@@ -346,9 +346,6 @@ document.addEventListener("DOMContentLoaded", () => {
                             <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0;">
                                 <strong>${spoolName}</strong> <small class="text-muted">(${spoolType})</small>
                             </div>
-                        </div>`ce:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0;">
-                                <strong>${spoolName}</strong> <small class="text-muted">(${spoolType})</small>
-                            </div>
                         </div>
                         <div class="d-flex align-items-center justify-content-between" style="font-size:11px;">
                             <span>${grams}g</span>
