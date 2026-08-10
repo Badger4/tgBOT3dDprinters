@@ -68,6 +68,28 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             await callback.answer(f"💡 Підсвітка {printer.name}: {new_state.upper()}", show_alert=True)
             return
 
+    elif data.startswith("notify_calibrate_") or data.startswith("calibrate_printer_"):
+        p_id = data.replace("notify_calibrate_", "").replace("calibrate_printer_", "")
+        printer = app.printers.get(p_id)
+        if printer:
+            if printer.gcode_state == "RUNNING":
+                await callback.answer("⚠️ Неможливо калібрувати під час друку!", show_alert=True)
+                return
+            ok = printer.start_calibration()
+            if ok:
+                await callback.answer(f"🎯 Запущено калібрування на {printer.name}!", show_alert=True)
+                try:
+                    await callback.message.reply(
+                        f"🎯 **Запущено автоматичне калібрування на {printer.name}!**\n"
+                        f"⚙️ Принтер виконує вирівнювання столу та тест резонансів (G32).",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except Exception:
+                    pass
+            else:
+                await callback.answer("⚠️ Не вдалося відправити команду калібрування.", show_alert=True)
+            return
+
     elif data.startswith("notify_maint_reset_"):
         parts = data.replace("notify_maint_reset_", "").split("_")
         p_id = parts[0]

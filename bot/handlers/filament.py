@@ -47,25 +47,37 @@ def parse_slot_key_from_text(text: str) -> str:
         return "255"
     return "0"
 
-@router.message(F.text.lower().in_(["🧵 філамент", "редагувати філамент", "філамент"]))
+@router.message(F.text.lower().in_(["🧵 філамент & ams", "філамент & ams", "🧵 філамент", "редагувати філамент", "філамент", "📦 склад котушок", "склад котушок"]))
 async def handle_filament_menu(message: Message, app):
     chat_id = str(message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        return
+
     user = await app.storage.load_user(chat_id)
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
-    if not target_printer:
-        return
+    spools = await app.storage.load_spools()
+    spool_count = len(spools)
 
-    await message.answer(
-        f"🧵 <b>Менеджер Філаменту для {html.escape(target_printer.name)}</b>\n"
-        f"📦 Поточний залишок: <b>{target_printer.filament_grams}g</b>\n"
-        f"🧵 Тип: <b>{html.escape(target_printer.filament_type)}</b>\n"
-        f"💰 Ціна за 1 кг: <b>{target_printer.price_per_kg} грн</b>\n\n"
-        f"Оберіть дію:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=get_filament_menu_keyboard()
-    )
+    if target_printer:
+        txt = (
+            f"🧵 <b>Менеджер Філаменту — {html.escape(target_printer.name)}</b>\n"
+            f"📦 <b>Поточний залишок:</b> {target_printer.filament_grams}g\n"
+            f"🧵 <b>Тип нитки:</b> {html.escape(target_printer.filament_type)}\n"
+            f"💰 <b>Вартість:</b> {target_printer.price_per_kg} грн/кг\n"
+            f"🏬 <b>Котушок на складі:</b> {spool_count} шт.\n\n"
+            f"Оберіть потрібну дію:"
+        )
+    else:
+        txt = (
+            f"🧵 <b>Менеджер Філаменту & AMS 3D Ферми</b>\n"
+            f"🏬 <b>Всього котушок на складі:</b> {spool_count} шт.\n"
+            f"🖨️ <b>Принтерів у фермі:</b> {len(app.printers)} шт.\n\n"
+            f"Оберіть розділ меню:"
+        )
+
+    await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard())
 
 @router.message(F.text.lower().in_(["🌈 слоти ams", "слоти ams", "ams"]))
 async def handle_ams_slots(message: Message, app):
@@ -156,7 +168,7 @@ async def handle_select_spool_warehouse(message: Message, app):
     await app.storage.save_user(user)
     await message.answer("📦 <b>Оберіть котушку зі складу:</b>", parse_mode=ParseMode.HTML, reply_markup=get_spools_keyboard(spools))
 
-@router.message(F.text == "✏️ Ручне введення ваги")
+@router.message(F.text.lower().in_(["⚖️ змінити залишок ваги", "змінити залишок ваги", "✏️ ручне введення ваги", "ручне введення ваги"]))
 async def handle_manual_weight_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)

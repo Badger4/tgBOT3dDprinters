@@ -445,6 +445,36 @@ class BambuPrinter:
     def set_chamber_light(self, mode: str = "toggle") -> bool:
         return self.toggle_chamber_light(mode)
 
+    def start_calibration(self) -> bool:
+        """
+        Triggers full automatic Bambu Lab calibration (vibration frequency calibration + auto bed leveling).
+        Publishes MQTT calibration command and G32 gcode line.
+        """
+        if not self._client or not self._client.is_connected():
+            return False
+        
+        # 1. Native Bambu Lab calibration command (Option 63 = Full Calibration)
+        payload_cal = json.dumps({
+            "print": {
+                "sequence_id": str(int(time.time())),
+                "command": "calibration",
+                "option": 63
+            }
+        })
+        self._client.publish(f"device/{self.serial_number}/request", payload_cal)
+
+        # 2. Backup G32 gcode_line command for compatibility across firmware versions
+        payload_g32 = json.dumps({
+            "print": {
+                "sequence_id": str(int(time.time()) + 1),
+                "command": "gcode_line",
+                "param": "G32\n"
+            }
+        })
+        self._client.publish(f"device/{self.serial_number}/request", payload_g32)
+        logger.info(f"🎯 Triggered automatic calibration (G32 / option 63) for [{self.name}] ({self.serial_number})")
+        return True
+
     async def start_print_job_async(self, file_bytes: bytes, filename: str, plate_name: str = "plate_1.gcode", use_ams: bool = True) -> tuple[bool, str]:
         """
         Uploads 3MF file via FTPS to printer SD card and publishes MQTT project_file command to start printing.

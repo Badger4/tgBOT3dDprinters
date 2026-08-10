@@ -79,9 +79,9 @@ async def check_auth(request: web.Request) -> bool:
     """
     Multi-layer Security Check with strict Team Authorization:
     1. Validates X-API-Key header or ?token= query parameter against API_SECRET_KEY.
-    2. Validates X-Telegram-Init-Data or ?initData= HMAC signature against TELEGRAM_BOT_TOKEN
+    2. Validates X-Telegram-Init-Data header or ?initData= query parameter HMAC signature against TELEGRAM_BOT_TOKEN
        AND checks if the Telegram user is an APPROVED team member in DB (is_user_approved).
-    3. If Telegram initData is provided but user is NOT approved / revoked / deleted, DENIES access.
+    3. Denies access to unapproved, deleted, or unauthenticated external requests.
     """
     app_obj = request.app.get("app_obj")
 
@@ -102,14 +102,14 @@ async def check_auth(request: web.Request) -> bool:
                     logger.warning(f"⛔ Revoked/unapproved user [{u_id}] attempted WebApp access!")
                     return False
                 return True
-            elif t_user.get("valid") or not u_id:
+            elif t_user.get("valid"):
                 return True
-        else:
-            logger.warning("⛔ Invalid/tampered Telegram initData signature received!")
-            return False
+        logger.warning("⛔ Invalid/tampered Telegram initData signature received!")
+        return False
 
-    # 3. Fallback: If no API_SECRET_KEY configured and no initData, allow local network dev access
-    if not API_SECRET_KEY and not init_data:
+    # 3. Allow direct local unit test requests (aiohttp AioHTTPTestCase test client without tunnel)
+    is_tunnel_req = bool(request.headers.get("X-Forwarded-For") or request.headers.get("X-Forwarded-Host") or request.headers.get("Bypass-Tunnel-Reminder"))
+    if not API_SECRET_KEY and not is_tunnel_req and request.remote in ("127.0.0.1", "::1", None):
         return True
 
     return False
@@ -347,11 +347,11 @@ async def handle_printer_control(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok", "action": "set_filament", "grams": grams, "slot_id": slot_id})
     elif action == "assign_spool":
         spool_id = str(data.get("spool_id", ""))
-        slot_id = data.get("slot_id")
+        slot_id = str(data.get("slot_id") or "255")
         spools = await app_obj.storage.load_spools()
         spool = spools.get(spool_id)
         if not spool:
-            return web.json_response({"error": "Spool not found"}, status=404)
+            return web.json_response({"error": "Котушку не знайдено на складі"}, status=404)
 
         grams = float(spool.get("remaining_grams", 1000.0))
         p.set_slot_grams(grams, slot_id=slot_id)
@@ -360,8 +360,31 @@ async def handle_printer_control(request: web.Request) -> web.Response:
             p.filament_type = str(spool.get("type"))
         if spool.get("price_per_kg") or spool.get("price_uah"):
             p.price_per_kg = float(spool.get("price_per_kg") or spool.get("price_uah"))
+
+        spool["assigned_printer_id"] = p.id
+        spool["assigned_slot_key"] = slot_id
+        spools[spool_id] = spool
+        await app_obj.storage.save_spools(spools)
         await app_obj.save_printers_config()
         return web.json_response({"status": "ok", "action": "assign_spool", "spool": spool, "slot_id": slot_id})
+    elif action == "unassign_spool":
+        slot_id = str(data.get("slot_id") or "255")
+        spools = await app_obj.storage.load_spools()
+        for s_id, s in spools.items():
+            if s.get("assigned_printer_id") == p.id and str(s.get("assigned_slot_key")) == slot_id:
+                s["assigned_printer_id"] = None
+                s["assigned_slot_key"] = None
+                spools[s_id] = s
+        await app_obj.storage.save_spools(spools)
+        return web.json_response({"status": "ok", "action": "unassign_spool", "slot_id": slot_id})
+    elif action == "calibrate":
+        if p.gcode_state == "RUNNING":
+            return web.json_response({"error": "Неможливо запустити калібрування під час друку!"}, status=400)
+        ok = p.start_calibration()
+        if ok:
+            return web.json_response({"status": "ok", "action": "calibrate", "message": "Запущено авто-калібрування!"})
+        else:
+            return web.json_response({"error": "Не вдалося запустити калібрування (перевірте MQTT з'єднання)"}, status=500)
     else:
         return web.json_response({"error": f"Unknown action '{action}'"}, status=400)
 
