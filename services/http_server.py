@@ -378,6 +378,12 @@ async def handle_printer_control(request: web.Request) -> web.Response:
                 spools[s_id] = s
         await app_obj.storage.save_spools(spools)
         return web.json_response({"status": "ok", "action": "unassign_spool", "slot_id": slot_id})
+    elif action == "set_ams_enabled":
+        enabled = bool(data.get("enabled", False))
+        p.ams_enabled = enabled
+        await app_obj.save_printers_config()
+        logger.info(f"⚙️ Set ams_enabled={enabled} for [{p.name}]")
+        return web.json_response({"status": "ok", "action": "set_ams_enabled", "enabled": enabled, "has_ams": p.has_ams})
     elif action == "calibrate":
         if p.gcode_state == "RUNNING":
             return web.json_response({"error": "Неможливо запустити калібрування під час друку!"}, status=400)
