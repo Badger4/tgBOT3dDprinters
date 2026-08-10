@@ -137,7 +137,10 @@ async def security_and_ratelimit_middleware(request: web.Request, handler) -> we
     # Process request
     response = await handler(request)
 
-    # Apply HTTP Security Headers
+    # Apply HTTP Security & Cache-Control Headers
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "ALLOW-FROM https://web.telegram.org"
     response.headers["X-XSS-Protection"] = "1; mode=block"

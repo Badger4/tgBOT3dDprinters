@@ -396,16 +396,10 @@ body {
 /* Spool List & AMS Container */
 .spools-list {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px;
     width: 100%;
     box-sizing: border-box;
-}
-
-@media (max-width: 640px) {
-    .spools-list {
-        grid-template-columns: 1fr;
-    }
 }
 
 .spool-item {
@@ -1008,26 +1002,20 @@ body {
 
 .ams-container {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px;
     width: 100%;
     box-sizing: border-box;
-}
-
-@media (max-width: 640px) {
-    .ams-container {
-        grid-template-columns: 1fr;
-    }
 }
 
 .ams-printer-block {
     background: rgba(30, 41, 59, 0.5);
     border: 1px solid var(--border-glass);
     border-radius: var(--radius-md);
-    padding: 12px;
+    padding: 10px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     margin-bottom: 0 !important;
     box-sizing: border-box;
     width: 100%;
