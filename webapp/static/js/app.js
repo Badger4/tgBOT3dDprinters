@@ -297,13 +297,38 @@ document.addEventListener("DOMContentLoaded", () => {
                 const grams = slots[k] !== undefined ? slots[k] : 1000;
                 const isActive = (k === activeKey);
                 const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && String(s.assigned_slot_key) === k);
-                const spoolColor = assignedSpool ? (assignedSpool.color || '#3b82f6') : (isActive ? '#22c55e' : '#64748b');
-                const spoolName = assignedSpool ? escapeHtml(assignedSpool.name) : (isActive ? 'Активна нитка' : 'Порожньо / Стандарт');
-                const spoolType = assignedSpool ? escapeHtml(assignedSpool.type) : escapeHtml(p.filament_type || 'PLA');
-                const pct = Math.min(100, Math.max(0, Math.round((grams / 1000) * 100)));
+                const trayInfo = (p.ams_trays_info || {})[k] || {};
+                const isTrayEmpty = trayInfo.empty === true;
+
+                let spoolColor = '#64748b';
+                let spoolName = 'Порожньо';
+                let spoolType = '—';
+                let pct = Math.min(100, Math.max(0, Math.round((grams / 1000) * 100)));
+
+                if (assignedSpool) {
+                    spoolColor = assignedSpool.color || '#3b82f6';
+                    spoolName = escapeHtml(assignedSpool.name);
+                    spoolType = escapeHtml(assignedSpool.type);
+                } else if (!isTrayEmpty && (trayInfo.type || trayInfo.color)) {
+                    spoolColor = trayInfo.color || (isActive ? '#22c55e' : '#3b82f6');
+                    spoolType = escapeHtml(trayInfo.type);
+                    spoolName = trayInfo.sub_brands ? `${spoolType} ${escapeHtml(trayInfo.sub_brands)}` : `Bambu ${spoolType}`;
+                    if (trayInfo.remain !== undefined && trayInfo.remain >= 0) {
+                        pct = trayInfo.remain;
+                    }
+                } else if (isActive && !isTrayEmpty) {
+                    spoolColor = '#22c55e';
+                    spoolName = 'Активна нитка';
+                    spoolType = escapeHtml(p.filament_type || 'PLA');
+                } else if (isTrayEmpty) {
+                    spoolColor = '#334155';
+                    spoolName = 'Порожній слот';
+                    spoolType = 'Порожньо';
+                    pct = 0;
+                }
 
                 return `
-                    <div class="ams-slot-card ${isActive ? 'active-slot' : ''}">
+                    <div class="ams-slot-card ${isActive ? 'active-slot' : ''} ${isTrayEmpty ? 'empty-slot' : ''}">
                         <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
                             <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
                             <div class="d-flex gap-1">
@@ -319,6 +344,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         <div class="d-flex align-items-center gap-2 mb-1" style="min-width:0;">
                             <div class="spool-color-dot" style="background-color:${spoolColor}; width:14px; height:14px; border-radius:50%; border:1px solid rgba(255,255,255,0.4); flex-shrink:0;"></div>
                             <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0;">
+                                <strong>${spoolName}</strong> <small class="text-muted">(${spoolType})</small>
+                            </div>
+                        </div>`ce:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0;">
                                 <strong>${spoolName}</strong> <small class="text-muted">(${spoolType})</small>
                             </div>
                         </div>
@@ -639,13 +667,38 @@ document.addEventListener("DOMContentLoaded", () => {
                                     const grams = slots[k] !== undefined ? slots[k] : 1000;
                                     const isActive = (k === activeKey);
                                     const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && String(s.assigned_slot_key) === k);
-                                    const spoolColor = assignedSpool ? (assignedSpool.color || '#3b82f6') : (isActive ? '#22c55e' : '#64748b');
-                                    const spoolName = assignedSpool ? escapeHtml(assignedSpool.name) : (isActive ? 'Активний нитка' : 'Порожньо / Стандарт');
-                                    const spoolType = assignedSpool ? escapeHtml(assignedSpool.type) : escapeHtml(p.filament_type || 'PLA');
-                                    const pct = Math.min(100, Math.max(0, Math.round((grams / 1000) * 100)));
+                                    const trayInfo = (p.ams_trays_info || {})[k] || {};
+                                    const isTrayEmpty = trayInfo.empty === true;
+
+                                    let spoolColor = '#64748b';
+                                    let spoolName = 'Порожньо';
+                                    let spoolType = '—';
+                                    let pct = Math.min(100, Math.max(0, Math.round((grams / 1000) * 100)));
+
+                                    if (assignedSpool) {
+                                        spoolColor = assignedSpool.color || '#3b82f6';
+                                        spoolName = escapeHtml(assignedSpool.name);
+                                        spoolType = escapeHtml(assignedSpool.type);
+                                    } else if (!isTrayEmpty && (trayInfo.type || trayInfo.color)) {
+                                        spoolColor = trayInfo.color || (isActive ? '#22c55e' : '#3b82f6');
+                                        spoolType = escapeHtml(trayInfo.type);
+                                        spoolName = trayInfo.sub_brands ? `${spoolType} ${escapeHtml(trayInfo.sub_brands)}` : `Bambu ${spoolType}`;
+                                        if (trayInfo.remain !== undefined && trayInfo.remain >= 0) {
+                                            pct = trayInfo.remain;
+                                        }
+                                    } else if (isActive && !isTrayEmpty) {
+                                        spoolColor = '#22c55e';
+                                        spoolName = 'Активна нитка';
+                                        spoolType = escapeHtml(p.filament_type || 'PLA');
+                                    } else if (isTrayEmpty) {
+                                        spoolColor = '#334155';
+                                        spoolName = 'Порожній слот';
+                                        spoolType = 'Порожньо';
+                                        pct = 0;
+                                    }
 
                                     return `
-                                        <div class="ams-slot-card ${isActive ? 'active-slot' : ''}">
+                                        <div class="ams-slot-card ${isActive ? 'active-slot' : ''} ${isTrayEmpty ? 'empty-slot' : ''}">
                                             <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
                                                 <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
                                                 <div class="d-flex gap-1">
@@ -655,19 +708,22 @@ document.addEventListener("DOMContentLoaded", () => {
                                                     ${assignedSpool ? `
                                                     <button class="btn btn-xs btn-outline-danger btn-unassign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Зняти котушку">
                                                         <i class="fa-solid fa-xmark"></i>
-                                                    </button>` : ''}
+                                                     </button>` : ''}
                                                 </div>
                                             </div>
-                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                            <div class="d-flex align-items-center gap-2 mb-1" style="min-width:0;">
                                                 <div class="spool-color-dot" style="background-color:${spoolColor}; width:14px; height:14px; border-radius:50%; border:1px solid rgba(255,255,255,0.4); flex-shrink:0;"></div>
-                                                <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px;">
-                                                    <strong>${spoolType}</strong> <span class="text-muted">(${spoolName})</span>
+                                                <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0;">
+                                                    <strong>${spoolName}</strong> <small class="text-muted">(${spoolType})</small>
                                                 </div>
                                             </div>
-                                            <div class="progress-bar-wrap sm mb-1">
-                                                <div class="progress-bar ${pct < 15 ? 'red' : pct < 35 ? 'amber' : 'green'}" style="width: ${pct}%;"></div>
+                                            <div class="d-flex align-items-center justify-content-between" style="font-size:11px;">
+                                                <span>${grams}g</span>
+                                                <span class="text-muted">${pct}%</span>
                                             </div>
-                                            <div class="slot-weight" style="font-size:12px; text-align:right; font-weight:600;">${grams}g <small style="font-size:10px; color:#94a3b8;">(${pct}%)</small></div>
+                                            <div class="progress-bar-wrap sm mt-1">
+                                                <div class="progress-bar ${pct < 15 ? 'red' : 'green'}" style="width: ${pct}%;"></div>
+                                            </div>
                                         </div>`;
                                 }).join("")}
                             </div>
