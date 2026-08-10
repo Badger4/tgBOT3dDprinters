@@ -75,27 +75,41 @@ def verify_telegram_init_data(init_data: str, bot_token: str) -> Optional[dict]:
         logger.warning(f"Telegram initData verification error: {e}")
     return None
 
-def check_auth(request: web.Request) -> bool:
+async def check_auth(request: web.Request) -> bool:
     """
-    Multi-layer Security Check:
+    Multi-layer Security Check with strict Team Authorization:
     1. Validates X-API-Key header or ?token= query parameter against API_SECRET_KEY.
-    2. Validates X-Telegram-Init-Data or ?initData= cryptographic HMAC signature against TELEGRAM_BOT_TOKEN.
-    3. If neither is provided and API_SECRET_KEY is configured, denies access.
+    2. Validates X-Telegram-Init-Data or ?initData= HMAC signature against TELEGRAM_BOT_TOKEN
+       AND checks if the Telegram user is an APPROVED team member in DB (is_user_approved).
+    3. If Telegram initData is provided but user is NOT approved / revoked / deleted, DENIES access.
     """
-    # 1. Check API Key
+    app_obj = request.app.get("app_obj")
+
+    # 1. Check API Key for server-to-server / webhook integrations
     req_key = request.headers.get("X-API-Key") or request.query.get("token", "")
     if API_SECRET_KEY and req_key == API_SECRET_KEY:
         return True
 
-    # 2. Check Telegram WebApp initData HMAC
+    # 2. Check Telegram WebApp initData HMAC + DB User Approval
     init_data = request.headers.get("X-Telegram-Init-Data") or request.query.get("initData", "")
     if init_data:
         t_user = verify_telegram_init_data(init_data, TELEGRAM_BOT_TOKEN)
-        if t_user:
-            return True
+        if t_user and isinstance(t_user, dict):
+            u_id = str(t_user.get("id") or "")
+            if u_id and app_obj and hasattr(app_obj, "is_user_approved"):
+                is_approved = await app_obj.is_user_approved(u_id)
+                if not is_approved:
+                    logger.warning(f"⛔ Revoked/unapproved user [{u_id}] attempted WebApp access!")
+                    return False
+                return True
+            elif t_user.get("valid") or not u_id:
+                return True
+        else:
+            logger.warning("⛔ Invalid/tampered Telegram initData signature received!")
+            return False
 
-    # 3. Fallback: If no API_SECRET_KEY configured, allow local access
-    if not API_SECRET_KEY:
+    # 3. Fallback: If no API_SECRET_KEY configured and no initData, allow local network dev access
+    if not API_SECRET_KEY and not init_data:
         return True
 
     return False
@@ -186,7 +200,7 @@ def build_printer_telemetry(p: Any) -> dict:
 
 async def handle_get_printers(request: web.Request) -> web.Response:
     """GET /api/printers - Live telemetry array for WebApp / HA / Grafana."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -195,7 +209,7 @@ async def handle_get_printers(request: web.Request) -> web.Response:
 
 async def handle_create_printer(request: web.Request) -> web.Response:
     """POST /api/printers - Adds a new Bambu printer."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -232,7 +246,7 @@ async def handle_create_printer(request: web.Request) -> web.Response:
 
 async def handle_delete_printer(request: web.Request) -> web.Response:
     """DELETE /api/printers/{id} - Removes a Bambu printer."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -249,7 +263,7 @@ async def handle_delete_printer(request: web.Request) -> web.Response:
 
 async def handle_get_printer_by_id(request: web.Request) -> web.Response:
     """GET /api/printers/{id} - Single printer telemetry."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -262,7 +276,7 @@ async def handle_get_printer_by_id(request: web.Request) -> web.Response:
 
 async def handle_get_snapshot(request: web.Request) -> web.Response:
     """GET /api/printers/{id}/snapshot - Live JPEG frame for WebApp / Home Assistant."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -279,7 +293,7 @@ async def handle_get_snapshot(request: web.Request) -> web.Response:
 
 async def handle_printer_control(request: web.Request) -> web.Response:
     """POST /api/printers/{id}/control - Remote actions."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -353,7 +367,7 @@ async def handle_printer_control(request: web.Request) -> web.Response:
 
 async def handle_file_upload(request: web.Request) -> web.Response:
     """POST /api/files/upload - Accepts 3MF / GCode upload and parses metadata."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -428,7 +442,7 @@ async def handle_file_upload(request: web.Request) -> web.Response:
 
 async def handle_start_print_job(request: web.Request) -> web.Response:
     """POST /api/printers/{id}/print_file - Uploads file via FTPS to printer and starts print."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -458,7 +472,7 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
 
 async def handle_get_spools(request: web.Request) -> web.Response:
     """GET /api/spools - Filament spool inventory."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -467,7 +481,7 @@ async def handle_get_spools(request: web.Request) -> web.Response:
 
 async def handle_save_spool(request: web.Request) -> web.Response:
     """POST /api/spools - Add or update a spool."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -491,7 +505,7 @@ async def handle_save_spool(request: web.Request) -> web.Response:
 
 async def handle_delete_spool(request: web.Request) -> web.Response:
     """DELETE /api/spools/{id} - Remove a spool from inventory."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -512,7 +526,7 @@ async def load_commercial_presets(app_obj: Any) -> dict:
 
 async def handle_get_presets(request: web.Request) -> web.Response:
     """GET /api/commercial/presets - List commercial pricing presets."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -521,7 +535,7 @@ async def handle_get_presets(request: web.Request) -> web.Response:
 
 async def handle_save_preset(request: web.Request) -> web.Response:
     """POST /api/commercial/presets - Create or update commercial preset."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -566,7 +580,7 @@ async def handle_save_preset(request: web.Request) -> web.Response:
 
 async def handle_delete_preset(request: web.Request) -> web.Response:
     """DELETE /api/commercial/presets/{id} - Remove commercial preset."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -580,7 +594,7 @@ async def handle_delete_preset(request: web.Request) -> web.Response:
 
 async def handle_calculate_commercial(request: web.Request) -> web.Response:
     """POST /api/commercial/calculate - Calculate pricing breakdown."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -602,7 +616,7 @@ async def handle_calculate_commercial(request: web.Request) -> web.Response:
 
 async def handle_get_history(request: web.Request) -> web.Response:
     """GET /api/history - Completed print jobs history."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -619,7 +633,7 @@ async def handle_get_history(request: web.Request) -> web.Response:
 
 async def handle_export_history_csv(request: web.Request) -> web.Response:
     """GET /api/history/export - Exports completed print jobs history as CSV file."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -673,7 +687,7 @@ async def handle_events_sse(request: web.Request) -> web.StreamResponse:
 
 async def handle_get_settings(request: web.Request) -> web.Response:
     """GET /api/settings - Global settings."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
@@ -682,7 +696,7 @@ async def handle_get_settings(request: web.Request) -> web.Response:
 
 async def handle_update_settings(request: web.Request) -> web.Response:
     """POST /api/settings - Save global settings."""
-    if not check_auth(request):
+    if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
