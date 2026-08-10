@@ -395,8 +395,8 @@ body {
 
 /* Spool List & AMS Container */
 .spools-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    display: flex;
+    flex-direction: column;
     gap: 8px;
     width: 100%;
     box-sizing: border-box;
@@ -683,8 +683,16 @@ body {
 /* Telemetry Grid inside Modal */
 .telemetry-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+@media (max-width: 380px) {
+    .telemetry-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 .telem-box {
@@ -1001,9 +1009,9 @@ body {
 }
 
 .ams-container {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
     width: 100%;
     box-sizing: border-box;
 }
