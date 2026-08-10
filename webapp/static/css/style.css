@@ -595,7 +595,7 @@ body {
     border: 1px solid var(--border-glass);
     border-radius: var(--radius-lg);
     width: 100%;
-    max-width: 480px;
+    max-width: 520px;
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 0 20px 50px rgba(0,0,0,0.8);
@@ -944,5 +944,46 @@ body {
     border-radius: 4px;
     color: #38bdf8;
     text-align: center;
+}
+
+/* AMS Slots & Spool Grid System */
+.ams-slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.ams-slot-card {
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.ams-slot-card:hover {
+    border-color: rgba(59, 130, 246, 0.4);
+    background: rgba(30, 41, 59, 0.8);
+}
+
+.ams-slot-card.active-slot {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.12), rgba(15, 23, 42, 0.8));
+    border: 1px solid rgba(34, 197, 94, 0.4);
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.15);
+}
+
+.slot-tag {
+    font-size: 11px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.spool-color-dot {
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
 }
 
