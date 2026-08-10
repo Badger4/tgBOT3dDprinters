@@ -126,10 +126,17 @@ class BambuPrinter:
         self.ams_humidity_idx: int = 1
         self.active_ams_tray: int = 255
         self.ams_exist_bits: str = str(config.get("ams_exist_bits", "0"))
+        raw_ams_enabled = config.get("ams_enabled")
+        self.ams_enabled: Optional[bool] = bool(raw_ams_enabled) if raw_ams_enabled is not None else None
 
     @property
     def has_ams(self) -> bool:
         """Returns True if printer has at least 1 active AMS unit connected with valid trays."""
+        if self.ams_enabled is False:
+            return False
+        if self.ams_enabled is True:
+            return True
+
         exist_bits = str(getattr(self, "ams_exist_bits", ""))
         if exist_bits in ["0", "0000"]:
             return False
