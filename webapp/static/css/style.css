@@ -287,11 +287,12 @@ body {
     text-transform: uppercase;
 }
 
-.status-RUNNING { background: rgba(16, 185, 129, 0.2); color: var(--emerald); border: 1px solid var(--emerald); box-shadow: 0 0 10px var(--emerald-glow); }
-.status-PAUSE { background: rgba(245, 158, 11, 0.2); color: var(--amber); border: 1px solid var(--amber); box-shadow: 0 0 10px var(--amber-glow); }
+.status-RUNNING, .status-PRINTING { background: rgba(16, 185, 129, 0.2); color: var(--emerald); border: 1px solid var(--emerald); box-shadow: 0 0 10px var(--emerald-glow); }
+.status-PAUSE, .status-PAUSED, .status-PREPARE { background: rgba(245, 158, 11, 0.2); color: var(--amber); border: 1px solid var(--amber); box-shadow: 0 0 10px var(--amber-glow); }
 .status-FINISH { background: rgba(168, 85, 247, 0.2); color: var(--purple); border: 1px solid var(--purple); }
+.status-FAILED { background: rgba(239, 68, 68, 0.2); color: var(--rose); border: 1px solid var(--rose); box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
 .status-IDLE { background: rgba(6, 182, 212, 0.2); color: var(--cyan); border: 1px solid var(--cyan); }
-.status-OFFLINE { background: rgba(244, 63, 94, 0.2); color: var(--rose); border: 1px solid var(--rose); }
+.status-OFFLINE, .status-OFF { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid #64748b; }
 
 /* Progress Bar */
 .progress-container {
