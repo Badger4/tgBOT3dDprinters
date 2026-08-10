@@ -171,6 +171,20 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>`;
     }
 
+    function formatRemainingTime(mins) {
+        if (!mins || mins <= 0) return "";
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        if (h > 0) return `${h}г ${m}хв`;
+        return `${m} хв`;
+    }
+
+    function cleanSubtaskName(subtask, isPrinting) {
+        if (!subtask) return isPrinting ? "Друк..." : "Вільний";
+        const clean = String(subtask).replace(/^Metadata\//i, "").replace(/\.gcode$/i, "").replace(/\.3mf$/i, "").trim();
+        return clean || (isPrinting ? "Друк..." : "Вільний");
+    }
+
     function renderPrinters(printers) {
         if (!printers || printers.length === 0) {
             printersGrid.innerHTML = `
@@ -187,16 +201,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
         printersGrid.innerHTML = printers.map(p => {
             const isPrinting = p.state === "RUNNING";
-            const progress = p.progress_pct || 0;
-            const modelName = p.subtask_name || (isPrinting ? "Друк..." : "Вільний");
-            const usedWeight = p.job_weight_g > 0 ? `${p.job_weight_g}g` : "-";
+            const progress = p.state === "FINISH" ? 100 : (p.state === "IDLE" || p.state === "OFF" || p.state === "OFFLINE" ? 0 : (p.progress_pct || 0));
+            const modelName = cleanSubtaskName(p.subtask_name, isPrinting);
+            const timeStr = formatRemainingTime(p.remaining_mins);
 
             return `
                 <div class="printer-card" data-id="${p.id}">
                     <div class="printer-card-header">
                         <div class="printer-name-group">
-                            <h3>${p.name}</h3>
-                            <div class="printer-model-sub"><i class="fa-solid fa-file-code"></i> ${modelName}</div>
+                            <h3>${escapeHtml(p.name)}</h3>
+                            <div class="printer-model-sub"><i class="fa-solid fa-file-code"></i> ${escapeHtml(modelName)}</div>
                         </div>
                         <span class="status-pill status-${p.state}">${p.state}</span>
                     </div>
@@ -204,7 +218,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="progress-container">
                         <div class="progress-header">
                             <span>Прогрес: ${progress}%</span>
-                            <span>${p.remaining_mins > 0 ? p.remaining_mins + ' хв' : ''}</span>
+                            <span>${timeStr}</span>
                         </div>
                         <div class="progress-bar-wrap">
                             <div class="progress-bar ${p.state === 'PAUSE' ? 'amber' : ''}" style="width: ${progress}%;"></div>
@@ -215,7 +229,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <span><i class="fa-solid fa-temperature-high color-red"></i> ${p.nozzle_temp}°C</span>
                         <span><i class="fa-solid fa-hot-tub-person color-orange"></i> ${p.bed_temp}°C</span>
                         <span><i class="fa-solid fa-layer-group color-blue"></i> ${p.current_layer}/${p.total_layers}</span>
-                        <span><i class="fa-solid fa-spool color-purple"></i> ${p.filament_type} (${p.filament_grams_left}g)</span>
+                        <span><i class="fa-solid fa-spool color-purple"></i> ${escapeHtml(p.filament_type || 'PLA')} (${p.filament_grams_left}g)</span>
                     </div>
                 </div>`;
         }).join("");
@@ -258,15 +272,15 @@ document.addEventListener("DOMContentLoaded", () => {
         modalNozzleTemp.textContent = `${p.nozzle_temp}°C`;
         modalBedTemp.textContent = `${p.bed_temp}°C`;
         modalLayer.textContent = `${p.current_layer} / ${p.total_layers}`;
-        modalTime.textContent = p.remaining_mins > 0 ? `${p.remaining_mins} хв` : "0 хв";
+        modalTime.textContent = p.remaining_mins > 0 ? formatRemainingTime(p.remaining_mins) : "0 хв";
 
         const modalSubtask = document.getElementById("modal-subtask-name");
         const modalProgText = document.getElementById("modal-progress-text");
         const modalProgBar = document.getElementById("modal-progress-bar");
         if (modalSubtask && modalProgText && modalProgBar) {
             const isPrinting = p.state === "RUNNING";
-            const progress = p.progress_pct || 0;
-            const modelName = p.subtask_name || (isPrinting ? "Друк..." : "Вільний");
+            const progress = p.state === "FINISH" ? 100 : (p.state === "IDLE" || p.state === "OFF" || p.state === "OFFLINE" ? 0 : (p.progress_pct || 0));
+            const modelName = cleanSubtaskName(p.subtask_name, isPrinting);
             modalSubtask.innerHTML = `<i class="fa-solid fa-file-code color-blue"></i> ${escapeHtml(modelName)}`;
             modalProgText.textContent = `${progress}%`;
             modalProgBar.style.width = `${progress}%`;
@@ -1000,15 +1014,25 @@ document.addEventListener("DOMContentLoaded", () => {
             const selectEl = document.getElementById("calc-preset-select");
             const listEl = document.getElementById("presets-list");
 
-            selectEl.innerHTML = Object.values(currentPresets).map(p => 
+            const presetList = [];
+            const seenKeys = new Set();
+            for (const p of Object.values(currentPresets || {})) {
+                const key = (p.name || p.id || "").trim();
+                if (key && !seenKeys.has(key)) {
+                    seenKeys.add(key);
+                    presetList.push(p);
+                }
+            }
+
+            selectEl.innerHTML = presetList.map(p => 
                 `<option value="${p.id}">${escapeHtml(p.name)}</option>`
             ).join("");
 
-            if (Object.keys(currentPresets).length > 0) {
-                if (!selectEl.value) selectEl.value = Object.keys(currentPresets)[0];
+            if (presetList.length > 0) {
+                if (!selectEl.value) selectEl.value = presetList[0].id;
             }
 
-            listEl.innerHTML = Object.values(currentPresets).map(p => `
+            listEl.innerHTML = presetList.map(p => `
                 <div class="spool-item">
                     <div class="spool-left">
                         <i class="fa-solid fa-calculator color-orange" style="font-size:20px;"></i>
