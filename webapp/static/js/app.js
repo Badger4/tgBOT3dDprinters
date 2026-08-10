@@ -230,11 +230,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 4. Printer Details Modal
-    function openPrinterModal(pId) {
+    async function openPrinterModal(pId) {
         triggerHaptic("medium");
         selectedPrinterId = pId;
         const p = printersData.find(x => x.id === pId);
         if (!p) return;
+
+        try {
+            const sRes = await fetch("/api/spools");
+            if (sRes.ok) {
+                window.latestSpools = await sRes.json();
+            }
+        } catch (e) {
+            console.error("Error fetching spools for modal:", e);
+        }
 
         updatePrinterModalContent(p);
         loadCameraSnapshot(pId);
@@ -264,6 +273,93 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
             btnPause.style.display = "inline-flex";
             btnResume.style.display = "none";
+        }
+
+        // Filament & AMS Slots in Modal
+        const amsToggle = document.getElementById("modal-ams-toggle");
+        const amsSlotsContainer = document.getElementById("modal-ams-slots-container");
+        if (amsToggle && amsSlotsContainer) {
+            amsToggle.checked = Boolean(p.has_ams);
+
+            amsToggle.onchange = () => {
+                const isChecked = amsToggle.checked;
+                sendPrinterAction({ action: "set_ams_enabled", enabled: isChecked });
+            };
+
+            const hasAms = Boolean(p.has_ams);
+            const activeKey = String(p.active_slot_key || "255");
+            const slots = p.ams_slots || {};
+            const slotKeys = hasAms ? ["0", "1", "2", "3", "255"] : ["255"];
+            const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач" };
+            const spoolsList = Object.values(window.latestSpools || {});
+
+            amsSlotsContainer.innerHTML = slotKeys.map(k => {
+                const grams = slots[k] !== undefined ? slots[k] : 1000;
+                const isActive = (k === activeKey);
+                const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && String(s.assigned_slot_key) === k);
+                const spoolColor = assignedSpool ? (assignedSpool.color || '#3b82f6') : (isActive ? '#22c55e' : '#64748b');
+                const spoolName = assignedSpool ? escapeHtml(assignedSpool.name) : (isActive ? 'Активна нитка' : 'Порожньо / Стандарт');
+                const spoolType = assignedSpool ? escapeHtml(assignedSpool.type) : escapeHtml(p.filament_type || 'PLA');
+                const pct = Math.min(100, Math.max(0, Math.round((grams / 1000) * 100)));
+
+                return `
+                    <div class="ams-slot-card ${isActive ? 'active-slot' : ''}">
+                        <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
+                            <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
+                            <div class="d-flex gap-1">
+                                <button class="btn btn-xs btn-outline btn-edit-slot-grams" data-printer="${p.id}" data-slot="${k}" title="Встановити залишок (г)">
+                                    <i class="fa-solid fa-pencil"></i>
+                                </button>
+                                ${assignedSpool ? `
+                                <button class="btn btn-xs btn-outline-danger btn-unassign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Зняти котушку">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>` : ''}
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <div class="spool-color-dot" style="background-color:${spoolColor}; width:14px; height:14px; border-radius:50%; border:1px solid rgba(255,255,255,0.4); flex-shrink:0;"></div>
+                            <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px;">
+                                <strong>${spoolName}</strong> <small class="text-muted">(${spoolType})</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center justify-content-between" style="font-size:11px;">
+                            <span>${grams}g</span>
+                            <span class="text-muted">${pct}%</span>
+                        </div>
+                        <div class="progress-bar-wrap sm mt-1">
+                            <div class="progress-bar ${pct < 15 ? 'red' : 'green'}" style="width: ${pct}%;"></div>
+                        </div>
+                    </div>`;
+            }).join("");
+
+            amsSlotsContainer.querySelectorAll(".btn-edit-slot-grams").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const sId = btn.getAttribute("data-slot");
+                    const curG = (p.ams_slots || {})[sId] !== undefined ? p.ams_slots[sId] : 1000;
+                    const val = prompt(`Введіть новий залишок ваги (в грамах) для слоту ${slotLabels[sId]}:`, curG);
+                    if (val !== null && val.trim() !== "") {
+                        try {
+                            const parsed = evalMathSimple(val.trim());
+                            if (!isNaN(parsed) && parsed >= 0) {
+                                sendPrinterAction({ action: "set_slot_grams", slot_id: sId, grams: parsed });
+                            } else {
+                                alert("Некоректне число!");
+                            }
+                        } catch (e) {
+                            alert("Помилка математичного виразу!");
+                        }
+                    }
+                });
+            });
+
+            amsSlotsContainer.querySelectorAll(".btn-unassign-slot-spool").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const sId = btn.getAttribute("data-slot");
+                    if (confirm("Зняти котушку зі слоту?")) {
+                        sendPrinterAction({ action: "unassign_spool", slot_id: sId });
+                    }
+                });
+            });
         }
 
         // Detailed Maintenance Items Grid
