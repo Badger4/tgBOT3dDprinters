@@ -13,8 +13,8 @@ def get_main_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     
     keyboard.extend([
         [KeyboardButton(text="🖨️ Принтери"), KeyboardButton(text="📊 Стан ферми")],
-        [KeyboardButton(text="📜 Історія друку"), KeyboardButton(text="💰 Комерція")],
-        [KeyboardButton(text="🔔 Сповіщення")]
+        [KeyboardButton(text="🧵 Філамент & AMS"), KeyboardButton(text="💰 Комерція")],
+        [KeyboardButton(text="🔔 Налаштування сповіщень")]
     ])
     if is_admin:
         keyboard.append([KeyboardButton(text="👑 Адмінка")])
@@ -40,10 +40,10 @@ def get_printer_menu_keyboard(printer: BambuPrinter) -> ReplyKeyboardMarkup:
 
     keyboard = [
         [KeyboardButton(text="📊 Статус"), KeyboardButton(text="📷 Камера")],
-        [KeyboardButton(text="🎞️ GIF Анімація")],
         [KeyboardButton(text="🎛️ Керування принтером"), KeyboardButton(text="🧵 Філамент")],
-        [KeyboardButton(text="🧹 Скинути лічильник ТО"), KeyboardButton(text=notify_str)],
-        [KeyboardButton(text="🗑️ Видалити принтер"), KeyboardButton(text="🖨️ Назад до принтерів")]
+        [KeyboardButton(text="🎯 Калібрувати"), KeyboardButton(text=notify_str)],
+        [KeyboardButton(text="🧹 Скинути лічильник ТО"), KeyboardButton(text="🗑️ Видалити принтер")],
+        [KeyboardButton(text="🖨️ Назад до принтерів")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 

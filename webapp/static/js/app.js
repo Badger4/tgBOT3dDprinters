@@ -114,7 +114,8 @@ document.addEventListener("DOMContentLoaded", () => {
     function initSSEStream() {
         if (!window.EventSource) return;
         try {
-            const evtSource = new EventSource("/api/events");
+            const initDataParam = tg?.initData ? "?initData=" + encodeURIComponent(tg.initData) : "";
+            const evtSource = new EventSource("/api/events" + initDataParam);
             evtSource.onmessage = function(event) {
                 try {
                     const data = JSON.parse(event.data);
@@ -323,7 +324,8 @@ document.addEventListener("DOMContentLoaded", () => {
     function loadCameraSnapshot(pId) {
         cameraImg.style.display = "block";
         cameraImg.nextElementSibling.style.display = "none";
-        cameraImg.src = `/api/printers/${pId}/snapshot?t=${Date.now()}`;
+        const initDataParam = tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : "";
+        cameraImg.src = `/api/printers/${pId}/snapshot?t=${Date.now()}${initDataParam}`;
     }
 
     if (autoCamToggle) {
@@ -382,6 +384,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const btnNotify = document.getElementById("btn-action-notify");
+    const btnCalibrate = document.getElementById("btn-action-calibrate");
 
     if (btnPause) btnPause.addEventListener("click", () => sendPrinterAction({ action: "pause" }));
     if (btnResume) btnResume.addEventListener("click", () => sendPrinterAction({ action: "resume" }));
@@ -392,6 +395,16 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     if (btnLight) btnLight.addEventListener("click", () => sendPrinterAction({ action: "light_toggle" }));
     if (btnNotify) btnNotify.addEventListener("click", () => sendPrinterAction({ action: "toggle_notify" }));
+    if (btnCalibrate) btnCalibrate.addEventListener("click", () => {
+        const p = printersData.find(x => x.id === selectedPrinterId);
+        if (p && p.state === "RUNNING") {
+            alert("⚠️ Неможливо запустити калібрування під час друку!");
+            return;
+        }
+        if (confirm("Запустити повне автоматичне калібрування принтера (G32 / Vibrations & Bed Leveling)?")) {
+            sendPrinterAction({ action: "calibrate" });
+        }
+    });
     if (btnResetMaint) btnResetMaint.addEventListener("click", () => {
         if (confirm("Скинути лічильник ТО?")) {
             sendPrinterAction({ action: "reset_maint" });
@@ -502,8 +515,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // Render AMS for printers
             if (!printers || printers.length === 0) {
-                container.innerHTML = `<p class="text-muted">Немає активних принтерів</p>`;
+                container.innerHTML = `<p class="text-muted text-center p-3">Немає активних принтерів</p>`;
             } else {
+                const spoolsList = Object.values(spools || {});
+
                 container.innerHTML = printers.map(p => {
                     const activeKey = String(p.active_slot_key || "255");
                     const slots = p.ams_slots || {};
@@ -514,29 +529,49 @@ document.addEventListener("DOMContentLoaded", () => {
                         <div class="ams-printer-block glass-card p-3 mb-3">
                             <div class="ams-printer-title d-flex justify-content-between align-items-center mb-2">
                                 <strong><i class="fa-solid fa-print color-blue"></i> ${escapeHtml(p.name)}</strong>
-                                <small class="text-muted">Тип: ${escapeHtml(p.filament_type || 'PLA')} • ${p.price_per_kg || 650} ₴/кг</small>
+                                <small class="text-muted">Тип: <b>${escapeHtml(p.filament_type || 'PLA')}</b> • ${p.price_per_kg || 650} ₴/кг</small>
                             </div>
                             <div class="ams-slots-grid">
                                 ${slotKeys.map(k => {
                                     const grams = slots[k] !== undefined ? slots[k] : 1000;
                                     const isActive = (k === activeKey);
+                                    const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && String(s.assigned_slot_key) === k);
+                                    const spoolColor = assignedSpool ? (assignedSpool.color || '#3b82f6') : (isActive ? '#22c55e' : '#64748b');
+                                    const spoolName = assignedSpool ? escapeHtml(assignedSpool.name) : (isActive ? 'Активний нитка' : 'Порожньо / Стандарт');
+                                    const spoolType = assignedSpool ? escapeHtml(assignedSpool.type) : escapeHtml(p.filament_type || 'PLA');
+                                    const pct = Math.min(100, Math.max(0, Math.round((grams / 1000) * 100)));
+
                                     return `
                                         <div class="ams-slot-card ${isActive ? 'active-slot' : ''}">
-                                            <div class="slot-tag d-flex justify-content-between align-items-center">
-                                                <span>${slotLabels[k]} ${isActive ? '⚡' : ''}</span>
-                                                <button class="btn btn-xs btn-outline btn-edit-slot-grams" data-printer="${p.id}" data-slot="${k}" title="Встановити залишок">
-                                                    <i class="fa-solid fa-pencil"></i>
-                                                </button>
+                                            <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
+                                                <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
+                                                <div class="d-flex gap-1">
+                                                    <button class="btn btn-xs btn-outline btn-edit-slot-grams" data-printer="${p.id}" data-slot="${k}" title="Встановити залишок (г)">
+                                                        <i class="fa-solid fa-pencil"></i>
+                                                    </button>
+                                                    ${assignedSpool ? `
+                                                    <button class="btn btn-xs btn-outline-danger btn-unassign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Зняти котушку">
+                                                        <i class="fa-solid fa-xmark"></i>
+                                                    </button>` : ''}
+                                                </div>
                                             </div>
-                                            <div class="slot-spool-icon"><i class="fa-solid fa-spool"></i></div>
-                                            <div class="slot-weight">${grams}g</div>
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <div class="spool-color-dot" style="background-color:${spoolColor}; width:14px; height:14px; border-radius:50%; border:1px solid rgba(255,255,255,0.4); flex-shrink:0;"></div>
+                                                <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px;">
+                                                    <strong>${spoolType}</strong> <span class="text-muted">(${spoolName})</span>
+                                                </div>
+                                            </div>
+                                            <div class="progress-bar-wrap sm mb-1">
+                                                <div class="progress-bar ${pct < 15 ? 'red' : pct < 35 ? 'amber' : 'green'}" style="width: ${pct}%;"></div>
+                                            </div>
+                                            <div class="slot-weight" style="font-size:12px; text-align:right; font-weight:600;">${grams}g <small style="font-size:10px; color:#94a3b8;">(${pct}%)</small></div>
                                         </div>`;
                                 }).join("")}
                             </div>
                         </div>`;
                 }).join("");
 
-                // Add click handlers for AMS slot weight edit buttons
+                // Edit slot grams
                 document.querySelectorAll(".btn-edit-slot-grams").forEach(btn => {
                     btn.addEventListener("click", async (e) => {
                         e.stopPropagation();
@@ -556,6 +591,23 @@ document.addEventListener("DOMContentLoaded", () => {
                             } catch (err) {
                                 alert("Некоректне значення ваги.");
                             }
+                        }
+                    });
+                });
+
+                // Unassign spool from slot
+                document.querySelectorAll(".btn-unassign-slot-spool").forEach(btn => {
+                    btn.addEventListener("click", async (e) => {
+                        e.stopPropagation();
+                        const pId = btn.getAttribute("data-printer");
+                        const slotId = btn.getAttribute("data-slot");
+                        if (confirm("Зняти котушку з цього слоту?")) {
+                            await fetch(`/api/printers/${pId}/control`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ action: "unassign_spool", slot_id: slotId })
+                            });
+                            loadMaterials();
                         }
                     });
                 });
