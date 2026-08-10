@@ -125,11 +125,28 @@ class BambuPrinter:
         self.ams_units: list = []
         self.ams_humidity_idx: int = 1
         self.active_ams_tray: int = 255
+        self.ams_exist_bits: str = str(config.get("ams_exist_bits", "0"))
 
     @property
     def has_ams(self) -> bool:
-        """Returns True if printer has at least 1 active AMS unit connected."""
-        return bool(self.ams_units and len(self.ams_units) > 0)
+        """Returns True if printer has at least 1 active AMS unit connected with valid trays."""
+        exist_bits = str(getattr(self, "ams_exist_bits", ""))
+        if exist_bits in ["0", "0000"]:
+            return False
+
+        if not self.ams_units or not isinstance(self.ams_units, list):
+            return False
+
+        total_trays = 0
+        for unit in self.ams_units:
+            if isinstance(unit, dict):
+                trays = unit.get("tray", [])
+                if isinstance(trays, list):
+                    for t in trays:
+                        if isinstance(t, dict) and (t.get("tray_type") or t.get("id") is not None):
+                            total_trays += 1
+
+        return total_trays > 0
 
     def get_active_slot_key(self) -> str:
         s_key = str(self.active_ams_tray)
@@ -285,6 +302,8 @@ class BambuPrinter:
 
             if "ams" in print_data and isinstance(print_data["ams"], dict):
                 ams_info = print_data["ams"]
+                if "ams_exist_bits" in ams_info:
+                    self.ams_exist_bits = str(ams_info["ams_exist_bits"])
                 if "tray_now" in ams_info:
                     try:
                         self.active_ams_tray = int(ams_info["tray_now"])
