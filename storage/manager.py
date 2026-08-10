@@ -212,6 +212,36 @@ class StorageManager:
 
         await asyncio.to_thread(_save_user_db)
 
+    async def delete_user(self, user_id: str) -> bool:
+        """Permanently deletes a user from SQLite database and legacy files."""
+        user_id_str = str(user_id)
+        if user_id_str == str(ADMIN_CHAT_ID):
+            logger.warning(f"Attempted to delete main admin {user_id_str}")
+            return False
+
+        def _delete_db():
+            conn = sqlite3.connect(self.db_path, timeout=20.0)
+            try:
+                conn.execute("DELETE FROM users WHERE user_id = ?", (user_id_str,))
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"SQLite delete_user error for {user_id_str}: {e}")
+                return False
+            finally:
+                conn.close()
+
+        res = await asyncio.to_thread(_delete_db)
+
+        # Remove legacy files if present
+        for f in [self.base_dir / f"user_{user_id_str}.kas", self.base_dir / f"user_{user_id_str}.json", self.users_dir / f"user_{user_id_str}.json"]:
+            if f.exists():
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+        return res
+
     async def load_all_users(self) -> Dict[str, Dict[str, Any]]:
         def _get_all_db_users():
             conn = sqlite3.connect(self.db_path, timeout=20.0)
