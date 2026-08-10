@@ -279,26 +279,50 @@ class BambuPrinter:
             if not print_data:
                 return
 
-            if "gcode_state" in print_data:
-                self.gcode_state = print_data["gcode_state"]
-            if "nozzle_temper" in print_data:
-                self.nozzle_temper = round(print_data["nozzle_temper"])
-            if "bed_temper" in print_data:
-                self.bed_temper = round(print_data["bed_temper"])
-            if "mc_percent" in print_data:
-                self.mc_percent = print_data["mc_percent"]
-            if "mc_remaining_time" in print_data:
-                self.mc_remaining_time = print_data["mc_remaining_time"]
-            if "layer_num" in print_data:
-                self.layer_num = print_data["layer_num"]
-            if "total_layer_num" in print_data:
-                self.total_layer_num = print_data["total_layer_num"]
-            if "subtask_name" in print_data:
-                self.subtask_name = print_data["subtask_name"]
-            if "spd_lvl" in print_data:
-                self.spd_lvl = print_data["spd_lvl"]
-            if "spd_mag" in print_data:
-                self.spd_mag = print_data["spd_mag"]
+            if "gcode_state" in print_data and print_data["gcode_state"]:
+                self.gcode_state = str(print_data["gcode_state"]).upper()
+            if "nozzle_temper" in print_data and print_data["nozzle_temper"] is not None:
+                try:
+                    self.nozzle_temper = round(float(print_data["nozzle_temper"]))
+                except (ValueError, TypeError):
+                    pass
+            if "bed_temper" in print_data and print_data["bed_temper"] is not None:
+                try:
+                    self.bed_temper = round(float(print_data["bed_temper"]))
+                except (ValueError, TypeError):
+                    pass
+            if "mc_percent" in print_data and print_data["mc_percent"] is not None:
+                try:
+                    self.mc_percent = max(0, min(100, int(print_data["mc_percent"])))
+                except (ValueError, TypeError):
+                    pass
+            if "mc_remaining_time" in print_data and print_data["mc_remaining_time"] is not None:
+                try:
+                    self.mc_remaining_time = max(0, int(print_data["mc_remaining_time"]))
+                except (ValueError, TypeError):
+                    pass
+            if "layer_num" in print_data and print_data["layer_num"] is not None:
+                try:
+                    self.layer_num = max(0, int(print_data["layer_num"]))
+                except (ValueError, TypeError):
+                    pass
+            if "total_layer_num" in print_data and print_data["total_layer_num"] is not None:
+                try:
+                    self.total_layer_num = max(0, int(print_data["total_layer_num"]))
+                except (ValueError, TypeError):
+                    pass
+            if "subtask_name" in print_data and print_data["subtask_name"] is not None:
+                self.subtask_name = str(print_data["subtask_name"])
+            if "spd_lvl" in print_data and print_data["spd_lvl"] is not None:
+                try:
+                    self.spd_lvl = int(print_data["spd_lvl"])
+                except (ValueError, TypeError):
+                    pass
+            if "spd_mag" in print_data and print_data["spd_mag"] is not None:
+                try:
+                    self.spd_mag = int(print_data["spd_mag"])
+                except (ValueError, TypeError):
+                    pass
 
             if "lights_report" in print_data and isinstance(print_data["lights_report"], list):
                 for light in print_data["lights_report"]:
