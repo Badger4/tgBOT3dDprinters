@@ -467,7 +467,7 @@ async def handle_file_upload(request: web.Request) -> web.Response:
         return web.json_response({
             "status": "ok",
             "file_token": file_token,
-            "filename": filename,
+            "filename": safe_filename,
             "printer_model": meta["printer_model"],
             "filament_type": meta["filament_type"],
             "weight_g": meta["weight_g"],
