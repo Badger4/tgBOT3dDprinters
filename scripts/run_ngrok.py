@@ -14,8 +14,7 @@ from pyngrok import ngrok, exception
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-AUTHTOKEN = "YOUR_NGROK_AUTHTOKEN_PLACEHOLDER"
-ENV_PATH = Path(__file__).parent.parent / ".env"
+AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "")
 
 def update_env_webapp_url(new_url: str):
     """Updates WEBAPP_URL in .env file."""
@@ -49,7 +48,8 @@ def get_active_ngrok_url():
 
 def run_daemon():
     print("🚀 Initializing Ngrok HTTPS Tunnel Daemon...")
-    ngrok.set_auth_token(AUTHTOKEN)
+    if AUTHTOKEN:
+        ngrok.set_auth_token(AUTHTOKEN)
 
     while True:
         try:
