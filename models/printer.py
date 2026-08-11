@@ -423,14 +423,14 @@ class BambuPrinter:
                 self._ftps_attempted = True
                 self._try_ftps_fetch()
 
-            if self.gcode_state == "RUNNING":
+            if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING"]:
                 if not self._is_printing:
                     self._is_printing = True
 
                 if self._current_job_grams > 0 and not self._job_deducted:
                     active_key = self.get_active_slot_key()
                     old_w = self.get_slot_grams(active_key)
-                    new_w = round(old_w - self._current_job_grams, 2)
+                    new_w = max(0.0, round(old_w - self._current_job_grams, 2))
                     self.set_slot_grams(new_w, active_key)
                     self._job_deducted = True
                     self.last_job_grams = self._current_job_grams
@@ -441,11 +441,11 @@ class BambuPrinter:
                 if self.gcode_state == "FINISH" and self._is_printing:
                     logger.info(f"🎉 Print finished on [{self.name}]!")
                     if not self._job_deducted:
-                        deduct_w = self._current_job_grams or self.last_job_grams
+                        deduct_w = self._current_job_grams or self.last_job_grams or 30.0
                         if deduct_w > 0:
                             active_key = self.get_active_slot_key()
                             old_w = self.get_slot_grams(active_key)
-                            new_w = round(old_w - deduct_w, 2)
+                            new_w = max(0.0, round(old_w - deduct_w, 2))
                             self.set_slot_grams(new_w, active_key)
                             self._job_deducted = True
                             self.last_job_grams = deduct_w
@@ -626,6 +626,27 @@ class BambuPrinter:
 
         md5_str = hashlib.md5(file_bytes).hexdigest()
         clean_subtask = re.sub(r'[^a-zA-Z0-9_]', '_', filename.rsplit('.', 1)[0])
+
+        # Pre-calculate filament weight from uploaded 3MF file
+        try:
+            m_info = parse_3mf_file(file_bytes, filename)
+            w_g = float(m_info.get("weight_g") or 0.0)
+            if w_g > 0:
+                self._current_job_grams = w_g
+                self._job_deducted = False
+                logger.info(f"⚖️ Parsed 3MF weight {w_g}g for [{self.name}]")
+
+                # Deduct immediately from active slot
+                active_key = self.get_active_slot_key()
+                old_w = self.get_slot_grams(active_key)
+                new_w = max(0.0, round(old_w - w_g, 2))
+                self.set_slot_grams(new_w, active_key)
+                self._job_deducted = True
+                self.last_job_grams = w_g
+                logger.info(f"💾 Auto-deducted {w_g}g from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g")
+                self._trigger_save()
+        except Exception as e_w:
+            logger.warning(f"Could not parse 3MF weight in start_print_job_async: {e_w}")
 
         payload = {
             "print": {
