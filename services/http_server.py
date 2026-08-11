@@ -25,8 +25,9 @@ PRESETS_FILE = STORAGE_DIR / "commercial_presets.json"
 
 # IP Rate Limiting storage: ip -> list of request timestamps
 IP_REQUEST_LOGS: dict[str, list[float]] = {}
-MAX_REQ_PER_MINUTE = 120
-MAX_UPLOADS_PER_MINUTE = 10
+IP_UPLOAD_LOGS: dict[str, list[float]] = {}
+MAX_REQ_PER_MINUTE = 300
+MAX_UPLOADS_PER_MINUTE = 30
 
 DEFAULT_PRESETS = {
     "default_pla": {
@@ -116,14 +117,17 @@ async def check_auth(request: web.Request) -> bool:
 
 @web.middleware
 async def security_and_ratelimit_middleware(request: web.Request, handler) -> web.StreamResponse:
-    client_ip = request.remote or "127.0.0.1"
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    client_ip = forwarded.split(",")[0].strip() if forwarded else (request.remote or "127.0.0.1")
     now = time.time()
 
-    # Clean up old timestamps (> 60s)
-    timestamps = [t for t in IP_REQUEST_LOGS.get(client_ip, []) if now - t < 60.0]
+    is_upload = (request.path == "/api/files/upload")
+    target_logs = IP_UPLOAD_LOGS if is_upload else IP_REQUEST_LOGS
+    limit = MAX_UPLOADS_PER_MINUTE if is_upload else MAX_REQ_PER_MINUTE
 
-    # Check upload limit vs general limit
-    limit = MAX_UPLOADS_PER_MINUTE if request.path == "/api/files/upload" else MAX_REQ_PER_MINUTE
+    # Clean up old timestamps (> 60s)
+    timestamps = [t for t in target_logs.get(client_ip, []) if now - t < 60.0]
+
     if len(timestamps) >= limit:
         logger.warning(f"⛔ Rate limit exceeded for IP [{client_ip}] on {request.path}")
         return web.json_response(
@@ -132,7 +136,7 @@ async def security_and_ratelimit_middleware(request: web.Request, handler) -> we
         )
 
     timestamps.append(now)
-    IP_REQUEST_LOGS[client_ip] = timestamps
+    target_logs[client_ip] = timestamps
 
     # Process request
     response = await handler(request)
