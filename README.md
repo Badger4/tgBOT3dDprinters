@@ -23,7 +23,7 @@
 
 ### 1. Перехід у папку проєкту
 ```bash
-cd C:\Users\zemko\Downloads\qwerty\python_project
+cd /path/to/your/project
 ```
 
 ### 2. Створення та активація віртуального середовища (опціонально)
@@ -41,8 +41,8 @@ pip install -r requirements.txt
 ### 4. Налаштування `.env`
 Перейменуйте `.env.example` у `.env` та вкажіть ваш токен бота і Chat ID адміністратора:
 ```env
-TELEGRAM_BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN_PLACEHOLDER
-ADMIN_CHAT_ID=682533628
+TELEGRAM_BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
+ADMIN_CHAT_ID=YOUR_ADMIN_CHAT_ID
 STORAGE_DIR=./printers_storage
 ```
 
