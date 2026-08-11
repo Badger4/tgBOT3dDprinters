@@ -1,6 +1,7 @@
 """
 Domain model and calculation engine for Commercial Pricing Presets.
 """
+import math
 from typing import Dict, Any, Tuple
 
 def parse_val_or_percent(val_str: str, base_amount: float, hours: float = 1.0) -> Tuple[float, bool]:
@@ -12,13 +13,16 @@ def parse_val_or_percent(val_str: str, base_amount: float, hours: float = 1.0) -
     if s.endswith("%"):
         try:
             pct = float(s[:-1].strip())
+            if math.isnan(pct) or math.isinf(pct):
+                return 0.0, True
             return round(base_amount * (pct / 100.0), 2), True
         except ValueError:
             return 0.0, True
     else:
         try:
             val = float(s)
-            # If fixed UAH, scale hourly expenses by time hours if hours > 0
+            if math.isnan(val) or math.isinf(val):
+                return 0.0, False
             return round(val * hours, 2), False
         except ValueError:
             return 0.0, False

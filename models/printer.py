@@ -54,7 +54,8 @@ class BambuPrinter:
         self.id = str(config.get("id") or uuid.uuid4())
         self.name = config.get("name", "Bambu Printer")
         self.ip = config.get("ip", "")
-        self.access_code = str(config.get("accessCode") or config.get("code") or "")
+        raw_code = config.get("accessCode") or config.get("code") or ""
+        self.access_code = str(raw_code).strip() if isinstance(raw_code, (str, int, float)) else ""
         self.serial_number = str(config.get("serialNumber") or config.get("serial") or "")
         self.spool_db_file = config.get("spoolDbFile", f"./spool_{self.id}.json")
         self.filament_grams = float(config.get("filament_grams", 1000.0))
@@ -188,7 +189,11 @@ class BambuPrinter:
             self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=client_uid)
         except Exception:
             self._client = mqtt.Client(client_id=client_uid)
-        self._client.username_pw_set("bblp", self.access_code)
+        try:
+            acc_code_str = str(self.access_code or "")[:128]
+            self._client.username_pw_set("bblp", acc_code_str)
+        except Exception as e:
+            logger.warning(f"Failed setting username_pw_set for [{self.name}]: {e}")
 
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
