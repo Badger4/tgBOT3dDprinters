@@ -100,36 +100,37 @@ def extract_model_weight(print_data: Dict[str, Any]) -> float:
 def parse_weight_from_gcode_text(text: str) -> float:
     """Parses filament weight in grams from G-code text comments targeting 'filament used [g] ='."""
     for line in text.splitlines():
-        line_lower = line.lower()
-        if "[mm]" in line_lower or "length" in line_lower or "cm3" in line_lower:
+        line_clean = line.strip()
+        if not line_clean.startswith(";"):
             continue
-        
-        # Priority 1: Explicit 'filament used [g] = <number>' or 'total filament used [g] = <number>'
-        m = re.search(r'(?:total\s+)?filament\s+used\s*\[g\]\s*[:=]\s*([\d\.]+)', line, re.IGNORECASE)
-        if m:
-            try:
-                val = float(m.group(1))
-                if 0 < val < 5000:
-                    return val
-            except ValueError:
-                pass
+        line_lower = line_clean.lower()
 
-        # Priority 2: Fallback weight comment keys
+        # Look for weight comment keywords
         if any(k in line_lower for k in [
-            "filament_used_[g]", "filament used (g)", "filament weight",
+            "filament used [g]", "total filament used [g]", "filament weight",
             "total filament weight", "filament_weight_total", "extruder_weight_total",
-            "weight [g]", "filament_used_g", "filament_used"
+            "filament_used_g", "filament_used", "weight [g]", "used_g"
         ]):
-            m = re.search(r'(?:=|\:)\s*([\d\.]+)', line)
-            if not m:
-                m = re.search(r'\]\s*=\s*([\d\.]+)', line)
-            if m:
+            # Skip lines describing only [mm] length without weight
+            if "[mm]" in line_lower and "[g]" not in line_lower and "weight" not in line_lower:
+                continue
+
+            after_eq = line_clean.split("=", 1)[-1] if "=" in line_clean else line_clean.split(":", 1)[-1]
+            after_eq_clean = after_eq.split("(")[0]
+
+            numbers = re.findall(r'\b\d+(?:[\.,]\d+)?\b', after_eq_clean)
+            valid_weights = []
+            for num_str in numbers:
                 try:
-                    val = float(m.group(1))
-                    if 0 < val < 5000:
-                        return val
+                    val = float(num_str.replace(",", "."))
+                    if 0.05 <= val <= 5000:
+                        valid_weights.append(val)
                 except ValueError:
                     pass
+
+            if valid_weights:
+                return round(sum(valid_weights), 2)
+
     return 0.0
 
 def parse_weight_from_3mf_bytes(data_bytes: bytes) -> float:

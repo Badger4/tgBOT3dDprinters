@@ -14,6 +14,10 @@ from pyngrok import ngrok, exception
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
+from dotenv import load_dotenv
+
+ENV_PATH = Path(__file__).parent.parent / ".env"
+load_dotenv(ENV_PATH, override=True)
 AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "")
 
 def update_env_webapp_url(new_url: str):

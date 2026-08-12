@@ -11,9 +11,10 @@ import re
 import hmac
 import hashlib
 import urllib.parse
+import gc
 from typing import Any, Optional
 from aiohttp import web
-from config import logger, HTTP_PORT, API_SECRET_KEY, STORAGE_DIR, TELEGRAM_BOT_TOKEN
+from config import logger, HTTP_PORT, API_SECRET_KEY, STORAGE_DIR, TELEGRAM_BOT_TOKEN, SSE_INTERVAL_SECONDS
 from services.camera_stream import capture_real_camera_photo
 from services.gcode_parser import parse_3mf_file, check_compatibility
 from models.commercial import calculate_commercial_price
@@ -424,26 +425,6 @@ async def handle_file_upload(request: web.Request) -> web.Response:
         clean_base = re.sub(r'[^a-zA-Z0-9_]', '_', raw_name.rsplit('.', 1)[0])
         safe_filename = f"{clean_base}{clean_ext}"
 
-        content_buf = bytearray()
-        max_bytes = 50 * 1024 * 1024
-        while True:
-            chunk = await field.read_chunk(size=1024 * 1024)
-            if not chunk:
-                break
-            content_buf.extend(chunk)
-            if len(content_buf) > max_bytes:
-                return web.json_response({"error": "Файл перевищує максимальний дозволений розмір 50 MB"}, status=413)
-
-        content = bytes(content_buf)
-
-        # Validate .3mf ZIP magic bytes
-        if clean_ext == ".3mf" and not content.startswith(b"PK\x03\x04"):
-            return web.json_response({"error": "Недійсний підпис .3mf файлу"}, status=400)
-
-        meta = parse_3mf_file(content, safe_filename)
-        if not meta.get("valid"):
-            return web.json_response({"error": meta.get("error", "Недійсний файл .3mf")}, status=400)
-
         upload_dir = STORAGE_DIR / "uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
         file_token = f"{int(time.time())}_{safe_filename}"
@@ -451,7 +432,37 @@ async def handle_file_upload(request: web.Request) -> web.Response:
         if upload_dir.resolve() not in save_path.parents:
             return web.json_response({"error": "Illegal file path"}, status=400)
 
-        save_path.write_bytes(content)
+        max_bytes = 50 * 1024 * 1024
+        total_bytes = 0
+        first_chunk = None
+
+        with save_path.open("wb") as out_f:
+            while True:
+                chunk = await field.read_chunk(size=256 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    out_f.close()
+                    save_path.unlink(missing_ok=True)
+                    return web.json_response({"error": "Файл перевищує максимальний дозволений розмір 50 MB"}, status=413)
+                if first_chunk is None:
+                    first_chunk = chunk
+                out_f.write(chunk)
+
+        # Validate .3mf ZIP magic bytes on first chunk
+        if clean_ext == ".3mf" and first_chunk and not first_chunk.startswith(b"PK\x03\x04"):
+            save_path.unlink(missing_ok=True)
+            return web.json_response({"error": "Недійсний підпис .3mf файлу"}, status=400)
+
+        content = save_path.read_bytes()
+        meta = parse_3mf_file(content, safe_filename)
+        del content
+        gc.collect()
+
+        if not meta.get("valid"):
+            save_path.unlink(missing_ok=True)
+            return web.json_response({"error": meta.get("error", "Недійсний файл .3mf")}, status=400)
 
         printers_info = []
         for p_id, p in app_obj.printers.items():
@@ -729,7 +740,7 @@ async def handle_events_sse(request: web.Request) -> web.StreamResponse:
             data_json = json.dumps(printers_list)
             sse_msg = f"data: {data_json}\n\n"
             await response.write(sse_msg.encode('utf-8'))
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(SSE_INTERVAL_SECONDS)
     except (asyncio.CancelledError, ConnectionResetError):
         pass
     return response
