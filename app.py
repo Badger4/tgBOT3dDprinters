@@ -4,6 +4,7 @@ Main Application orchestrating Telegram bot, storage, and printer monitoring.
 import re
 import time
 import asyncio
+import gc
 from typing import Dict, Any, Optional
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
@@ -222,8 +223,21 @@ class PrinterBotApp:
                     # 3. Finish Notification
                     if curr_state == "FINISH" and st["lastState"] != "FINISH":
                         if p.notify and not st["notifiedFinish"]:
-                            finish_txt = f"🎉 *Принтер {p.name} нарешті завершив друк!*\n📦 **Залишок на бабіні:** *{p.filament_grams}g*\nІди й негайно зніми деталь зі столу, скільки можна чекати?! 😤🧹"
-                            await self.send_notification("finish", finish_txt)
+                            used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
+                            finish_txt = f"🎉 *Принтер {p.name} нарешті завершив друк!*\n"
+                            if p.subtask_name:
+                                finish_txt += f"📄 **Модель:** `{p.subtask_name}`\n"
+                            if used_w > 0:
+                                finish_txt += f"⚖️ **Списано:** `{used_w}g`\n"
+                            finish_txt += f"📦 **Залишок на бабіні:** *{p.get_slot_grams()}g*\nІди й негайно зніми деталь зі столу, скільки можна чекати?! 😤🧹"
+
+                            reply_kb = None
+                            if used_w == 0.0:
+                                from bot.keyboards import get_deduct_weight_inline_keyboard
+                                reply_kb = get_deduct_weight_inline_keyboard(p.id)
+                                finish_txt += "\n\n❓ *Вагу файлу не вдалося визначити автоматично.* Оберіть скільки грам списати:"
+
+                            await self.send_notification("finish", finish_txt, reply_markup=reply_kb)
                             st["notifiedFinish"] = True
                             st["notifiedStart"] = False
                             st["notifiedPause"] = False
@@ -275,6 +289,7 @@ class PrinterBotApp:
                     st["lastState"] = curr_state
 
                 sleep_interval = 5 if is_any_printing else 15
+                gc.collect()
                 await asyncio.sleep(sleep_interval)
 
             except asyncio.CancelledError:

@@ -2,6 +2,7 @@
 Bambu Lab 3D Printer MQTT client and domain model.
 """
 import io
+import re
 import ssl
 import html
 import json
@@ -413,15 +414,46 @@ class BambuPrinter:
             if filament:
                 self.filament_type = filament
 
+            # Always sync active slot weight to printer's main filament_grams property
+            self.filament_grams = self.get_slot_grams()
+
             # Extract model weight
             w_val = extract_model_weight(print_data)
             if w_val > 0 and self._current_job_grams == 0.0:
                 self._current_job_grams = w_val
 
-            # ALWAYS trigger FTPS fetch to download 3MF from SD card and extract exact weight from slice_info.config / .gcode
-            if self.gcode_state in ["RUNNING", "PAUSE"] and not self._ftps_fetching and not self._ftps_attempted:
-                self._ftps_attempted = True
-                self._try_ftps_fetch()
+            # Check OrcaSlicer cache file if weight is still 0.0
+            if self._current_job_grams == 0.0:
+                cache_file = STORAGE_DIR / "last_sliced_weight.json"
+                if cache_file.exists():
+                    try:
+                        c_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                        c_w = float(c_data.get("weight", 0.0))
+                        if c_w > 0:
+                            self._current_job_grams = c_w
+                            logger.info(f"💡 Loaded OrcaSlicer cached weight {c_w}g for [{self.name}]")
+                    except Exception as e:
+                        logger.warning(f"Error reading OrcaSlicer weight cache: {e}")
+
+            # Check subtask filename regex if weight is still 0.0
+            if self._current_job_grams == 0.0 and self.subtask_name:
+                m_fname = re.search(r'(?:_|\b)(\d+(?:[\.,]\d+)?)\s*(?:g|г|gram|grams)\b', self.subtask_name, re.IGNORECASE)
+                if m_fname:
+                    try:
+                        w_fname = float(m_fname.group(1).replace(",", "."))
+                        if 0 < w_fname < 5000:
+                            self._current_job_grams = w_fname
+                            logger.info(f"💡 Extracted weight {w_fname}g from subtask_name for [{self.name}]")
+                    except ValueError:
+                        pass
+
+            # Trigger FTPS fetch to download 3MF/gcode from printer SD card and extract exact weight from slice_info.config / .gcode
+            if self.gcode_state in ["RUNNING", "PAUSE"] and self._current_job_grams == 0.0:
+                now_ts = time.time()
+                if not self._ftps_fetching and getattr(self, "_ftps_attempts", 0) < 5 and (now_ts - getattr(self, "_last_ftps_time", 0.0) >= 8.0):
+                    self._ftps_attempts = getattr(self, "_ftps_attempts", 0) + 1
+                    self._last_ftps_time = now_ts
+                    self._try_ftps_fetch()
 
             if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING"]:
                 if not self._is_printing:
@@ -438,10 +470,35 @@ class BambuPrinter:
                     self._trigger_save()
 
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
-                if self.gcode_state == "FINISH" and self._is_printing:
-                    logger.info(f"🎉 Print finished on [{self.name}]!")
+                if self.gcode_state == "FINISH":
                     if not self._job_deducted:
-                        deduct_w = self._current_job_grams or self.last_job_grams or 30.0
+                        if self._current_job_grams == 0.0:
+                            cache_file = STORAGE_DIR / "last_sliced_weight.json"
+                            if cache_file.exists():
+                                try:
+                                    c_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                                    c_w = float(c_data.get("weight", 0.0))
+                                    c_ts = float(c_data.get("timestamp", 0.0))
+                                    c_fname = str(c_data.get("filename") or c_data.get("path") or "").lower()
+                                    s_name = str(self.subtask_name or "").lower()
+                                    fname_match = bool(c_fname and s_name and (c_fname in s_name or s_name in c_fname))
+                                    recent_slice = bool(c_ts > 0 and (time.time() - c_ts < 900))
+                                    if c_w > 0 and (fname_match or recent_slice):
+                                        self._current_job_grams = c_w
+                                except Exception:
+                                    pass
+
+                        if self._current_job_grams == 0.0 and self.subtask_name:
+                            m_fname = re.search(r'(?:_|\b)(\d+(?:[\.,]\d+)?)\s*(?:g|г|gram|grams)\b', self.subtask_name, re.IGNORECASE)
+                            if m_fname:
+                                try:
+                                    w_fname = float(m_fname.group(1).replace(",", "."))
+                                    if 0 < w_fname < 5000:
+                                        self._current_job_grams = w_fname
+                                except ValueError:
+                                    pass
+
+                        deduct_w = self._current_job_grams or self.last_job_grams
                         if deduct_w > 0:
                             active_key = self.get_active_slot_key()
                             old_w = self.get_slot_grams(active_key)
@@ -455,24 +512,31 @@ class BambuPrinter:
                     if self.finish_timestamp == 0.0:
                         self.finish_timestamp = time.time()
 
-                    cost_info = self.calculate_job_cost(self.last_job_grams or 10.0)
-                    entry = {
-                        "timestamp": time.time(),
-                        "printer_name": self.name,
-                        "subtask_name": self.subtask_name or "Модель",
-                        "weight_g": self.last_job_grams or 0.0,
-                        "filament_type": self.filament_type,
-                        "cost_uah": cost_info["total_cost"]
-                    }
-                    if self._main_loop and self._main_loop.is_running():
-                        asyncio.run_coroutine_threadsafe(self.storage.add_history_entry(entry), self._main_loop)
+                    if self._is_printing:
+                        logger.info(f"🎉 Print finished on [{self.name}]!")
+                        cost_info = self.calculate_job_cost(self.last_job_grams or 0.0)
+                        entry = {
+                            "timestamp": time.time(),
+                            "printer_name": self.name,
+                            "subtask_name": self.subtask_name or "Модель",
+                            "weight_g": self.last_job_grams or 0.0,
+                            "filament_type": self.filament_type,
+                            "cost_uah": cost_info["total_cost"]
+                        }
+                        if self._main_loop and self._main_loop.is_running():
+                            asyncio.run_coroutine_threadsafe(self.storage.add_history_entry(entry), self._main_loop)
 
-                elif self.gcode_state != "FINISH":
+                    self._is_printing = False
+
+                else:
+                    # IDLE or FAILED state reset
                     self.finish_timestamp = 0.0
-                self._is_printing = False
-                self._job_deducted = False
-                self._ftps_attempted = False
-                self._current_job_grams = 0.0
+                    self._is_printing = False
+                    self._job_deducted = False
+                    self._ftps_attempted = False
+                    self._ftps_attempts = 0
+                    self._last_ftps_time = 0.0
+                    self._current_job_grams = 0.0
 
         except Exception as e:
             logger.error(f"Error processing MQTT message for [{self.name}]: {e}")

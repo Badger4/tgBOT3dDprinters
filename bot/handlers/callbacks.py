@@ -20,13 +20,16 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
 
             printer = app.printers.get(p_id)
             if printer and grams > 0:
-                old_w = printer.filament_grams
-                printer.filament_grams = round(printer.filament_grams - grams, 2)
+                active_key = printer.get_active_slot_key()
+                old_w = printer.get_slot_grams(active_key)
+                new_w = max(0.0, round(old_w - grams, 2))
+                printer.set_slot_grams(new_w, active_key)
+                printer.last_job_grams = grams
                 await app.save_printers_config()
-                await callback.answer(f"✅ Списано {grams}g! Новий залишок: {printer.filament_grams}g", show_alert=True)
+                await callback.answer(f"✅ Списано {grams}g зі слота {active_key}! Новий залишок: {new_w}g", show_alert=True)
                 try:
                     await callback.message.reply(
-                        f"✅ **Списано {grams}g для {printer.name}!**\n📦 Старий залишок: *{old_w}g* ➔ Новий залишок: *{printer.filament_grams}g*",
+                        f"✅ **Списано {grams}g для {printer.name}!**\n🧵 **Слот AMS:** `{active_key}`\n📦 Старий залишок: *{old_w}g* ➔ Новий залишок: *{new_w}g*",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:

@@ -17,6 +17,7 @@ STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./printers_storage")).resolve()
 HTTP_PORT = int(os.getenv("HTTP_PORT", "8080"))
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "").strip()
 WEBAPP_URL = os.getenv("WEBAPP_URL", f"http://localhost:{HTTP_PORT}").strip()
+SSE_INTERVAL_SECONDS = float(os.getenv("SSE_INTERVAL_SECONDS", "5.0"))
 
 # Force UTF-8 encoding for Windows standard output streams
 if hasattr(sys.stdout, 'reconfigure'):

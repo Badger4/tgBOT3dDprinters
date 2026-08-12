@@ -67,6 +67,23 @@ def get_maintenance_inline_keyboard(printer_id: str, item_key: str = "rails", it
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+def get_deduct_weight_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
+    """Builds interactive inline buttons to let user manually select deducted weight."""
+    buttons = [
+        [
+            InlineKeyboardButton(text="2g", callback_data=f"deduct_w_{printer_id}_2"),
+            InlineKeyboardButton(text="5g", callback_data=f"deduct_w_{printer_id}_5"),
+            InlineKeyboardButton(text="10g", callback_data=f"deduct_w_{printer_id}_10"),
+            InlineKeyboardButton(text="15g", callback_data=f"deduct_w_{printer_id}_15"),
+        ],
+        [
+            InlineKeyboardButton(text="25g", callback_data=f"deduct_w_{printer_id}_25"),
+            InlineKeyboardButton(text="50g", callback_data=f"deduct_w_{printer_id}_50"),
+            InlineKeyboardButton(text="100g", callback_data=f"deduct_w_{printer_id}_100"),
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 def get_printer_control_keyboard(printer: BambuPrinter) -> ReplyKeyboardMarkup:
     pause_resume_btn = KeyboardButton(text="▶️ Відновити друк") if printer.gcode_state == "PAUSE" else KeyboardButton(text="⏸️ Пауза")
     keyboard = [
