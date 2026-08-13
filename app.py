@@ -43,8 +43,9 @@ class PrinterBotApp:
         self.global_settings = await self.storage.load_json(self.storage.settings_file, self.global_settings)
 
     async def save_printers_config(self):
-        printers_list = [p.to_dict() for p in self.printers.values()]
+        printers_list = [p.to_storage_dict() for p in self.printers.values()]
         await self.storage.save_json(self.storage.printers_file, printers_list)
+
 
     async def is_user_admin(self, user_id: str) -> bool:
         if str(user_id) == str(ADMIN_CHAT_ID):
