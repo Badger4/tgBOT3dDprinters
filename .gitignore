@@ -17,16 +17,12 @@ ENV/
 logs/
 *.log
 
-# Environment variables
+# Environment variables & runtime storage
 .env
-.env.example
-
-# Local storage data (runtime generated)
-printers_storage/*.json
-printers_storage/uploads/
-printers_storage/*.db
-printers_storage/*.txt
+printers_storage/
+printers_storage/*
 !printers_storage/.gitkeep
+
 
 # Temporary executables & scratch
 cloudflared.exe

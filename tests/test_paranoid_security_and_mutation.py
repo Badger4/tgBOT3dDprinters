@@ -51,9 +51,10 @@ class TestSecurityDataIsolationAndFormatting:
         # 1. Verify initial in-memory state
         assert printer.access_code == secret_code
 
-        # 2. Call to_dict (which persists to storage)
+        # 2. Call to_dict (which masks accessCode) and to_storage_dict (unmasked for DB)
         dict_repr = printer.to_dict()
-        assert dict_repr["accessCode"] == secret_code
+        assert dict_repr["accessCode"] == "••••••••"
+        assert printer.to_storage_dict()["accessCode"] == secret_code
         assert printer.access_code == secret_code
 
         # 3. Call build_printer_telemetry (WebApp endpoint payload)
@@ -74,13 +75,14 @@ class TestSecurityDataIsolationAndFormatting:
         }
         printer = BambuPrinter(config, storage)
 
-        # Save to SQLite DB and JSON
-        printers_dict = {printer.id: printer.to_dict()}
+        # Save to SQLite DB and JSON using to_storage_dict
+        printers_dict = {printer.id: printer.to_storage_dict()}
         await storage.save_json(storage.printers_file, printers_dict)
 
         # Reload from storage
         reloaded_dict = await storage.load_json(storage.printers_file, {})
         assert reloaded_dict["p_db_1"]["accessCode"] == raw_code
+
 
         # Verify object created from reloaded dict retains exact raw_code
         reloaded_printer = BambuPrinter(reloaded_dict["p_db_1"], storage)

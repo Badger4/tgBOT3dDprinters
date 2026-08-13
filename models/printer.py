@@ -794,12 +794,12 @@ class BambuPrinter:
         logger.info(f"⚙️ Maintenance interval for [{self.name}] ({item_key}) set to {val}h")
         self._trigger_save()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, for_storage: bool = False) -> Dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
             "ip": self.ip,
-            "accessCode": self.access_code,
+            "accessCode": self.access_code if for_storage else ("••••••••" if self.access_code else ""),
             "serialNumber": self.serial_number,
             "spoolDbFile": self.spool_db_file,
             "filament_grams": self.filament_grams,
@@ -827,3 +827,8 @@ class BambuPrinter:
             "spd_mag": self.spd_mag,
             "ams_slots": self.ams_slots
         }
+
+    def to_storage_dict(self) -> Dict[str, Any]:
+        """Returns unmasked dictionary representation for internal SQLite / JSON storage persistence."""
+        return self.to_dict(for_storage=True)
+
