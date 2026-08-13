@@ -2,9 +2,11 @@
 
 **[ English ]** | [ Українська ](README_UA.md)
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Badger4/tgBOT3dDprinters/releases/tag/v1.0.0)
 [![CI Tests](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml/badge.svg)](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+
 
 A feature-rich, high-performance **Telegram Bot & WebApp SPA** written in **Python 3.10+** for monitoring, managing, and controlling Bambu Lab 3D printer farms in real-time over local MQTT, FTPS, and HTTP REST API.
 

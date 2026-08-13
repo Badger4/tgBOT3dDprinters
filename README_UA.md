@@ -2,9 +2,11 @@
 
 [ English ](README.md) | **[ Українська ]**
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Badger4/tgBOT3dDprinters/releases/tag/v1.0.0)
 [![CI Tests](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml/badge.svg)](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+
 
 Повна версія Telegram-бота для управління фермою 3D-принтерів Bambu Lab на мові **Python 3.10+**.
 
