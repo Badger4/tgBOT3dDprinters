@@ -14,7 +14,8 @@ import urllib.parse
 import gc
 from typing import Any, Optional
 from aiohttp import web
-from config import logger, HTTP_PORT, API_SECRET_KEY, STORAGE_DIR, TELEGRAM_BOT_TOKEN, SSE_INTERVAL_SECONDS, WEBAPP_URL
+from config import logger, HTTP_PORT, API_SECRET_KEY, STORAGE_DIR, TELEGRAM_BOT_TOKEN, SSE_INTERVAL_SECONDS, WEBAPP_URL, __version__
+
 
 from services.camera_stream import capture_real_camera_photo
 from services.gcode_parser import parse_3mf_file, check_compatibility
@@ -238,10 +239,12 @@ async def handle_health(request: web.Request) -> web.Response:
 
     return web.json_response({
         "status": "ok",
+        "version": __version__,
         "uptime_seconds": uptime,
         "total_printers": len(printers),
         "active_printers": active
     })
+
 
 def build_printer_telemetry(p: Any) -> dict:
     used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)

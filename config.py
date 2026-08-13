@@ -1,7 +1,10 @@
 """
 Configuration settings for 3D Printer Farm Telegram Bot.
 """
+__version__ = "1.0.0"
+
 import os
+
 import sys
 import logging
 from pathlib import Path

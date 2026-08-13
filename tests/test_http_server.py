@@ -21,8 +21,10 @@ class TestHTTPServer(AioHTTPTestCase):
         self.assertEqual(resp.status, 200)
         data = await resp.json()
         self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["version"], "1.0.0")
         self.assertIn("uptime_seconds", data)
         self.assertIn("total_printers", data)
+
 
     @unittest_run_loop
     async def test_get_printers_empty(self):
