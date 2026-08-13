@@ -6,6 +6,10 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont
 
 # Cached fonts to prevent re-reading files from disk on every frame
+FONT_TITLE: Any
+FONT_BODY: Any
+FONT_SMALL: Any
+
 try:
     FONT_TITLE = ImageFont.truetype("arial.ttf", 18)
     FONT_BODY = ImageFont.truetype("arial.ttf", 14)
@@ -14,6 +18,7 @@ except Exception:
     FONT_TITLE = ImageFont.load_default()
     FONT_BODY = ImageFont.load_default()
     FONT_SMALL = ImageFont.load_default()
+
 
 def generate_printer_status_gif(printer: Any) -> bytes:
     """Generates an instant dynamic animated GIF showing live 3D printing simulation & telemetry."""

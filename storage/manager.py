@@ -7,7 +7,8 @@ import time
 import sqlite3
 import asyncio
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, cast
+
 import aiofiles
 from config import logger, ADMIN_CHAT_ID
 
@@ -180,12 +181,18 @@ class StorageManager:
             except Exception as e:
                 logger.error(f"Error reading legacy user file {target_path}: {e}")
 
+
         user_data["user_id"] = user_id_str
+
+
         if user_id_str == str(ADMIN_CHAT_ID):
             user_data["is_approved"] = True
-            if "admin" not in user_data:
+            if not isinstance(user_data.get("admin"), dict):
                 user_data["admin"] = {}
-            user_data["admin"]["access_admin"] = True
+            admin_dict = cast(Dict[str, Any], user_data["admin"])
+            admin_dict["access_admin"] = True
+
+
 
         await self.save_user(user_data)
         if legacy_kas.exists():

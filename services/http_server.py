@@ -187,12 +187,13 @@ async def security_and_ratelimit_middleware(request: web.Request, handler) -> we
     return response
 
 
-async def handle_serve_index(request: web.Request) -> web.FileResponse:
+async def handle_serve_index(request: web.Request) -> web.StreamResponse:
     """Serves the main Telegram WebApp single-page application."""
     index_file = WEBAPP_DIR / "index.html"
     if not index_file.exists():
         return web.Response(text="<h1>WebApp index.html not found</h1>", content_type="text/html", status=404)
     return web.FileResponse(index_file)
+
 
 async def handle_health(request: web.Request) -> web.Response:
     """GET /health - System health check endpoint for UptimeRobot / Docker / systemd."""
@@ -445,9 +446,10 @@ async def handle_file_upload(request: web.Request) -> web.Response:
     app_obj = request.app["app_obj"]
     try:
         reader = await request.multipart()
-        field = await reader.next()
-        if not field or not field.filename:
+        field: Any = await reader.next()
+        if not field or not getattr(field, "filename", None):
             return web.json_response({"error": "No file provided"}, status=400)
+
 
         # Sanitize filename & prevent path traversal
         raw_name = Path(field.filename).name
