@@ -39,12 +39,27 @@ pip install -r requirements.txt
 ```
 
 ### 4. Налаштування `.env`
-Перейменуйте `.env.example` у `.env` та вкажіть ваш токен бота і Chat ID адміністратора:
-```env
-TELEGRAM_BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
-ADMIN_CHAT_ID=YOUR_ADMIN_CHAT_ID
-STORAGE_DIR=./printers_storage
+Скопіюйте `.env.example` у `.env` та вкажіть потрібні параметри:
+
+```bash
+cp .env.example .env
 ```
+
+#### 📋 Повний список змінних середовища:
+
+| Змінна | Обов'язкова? | Значення за замовчуванням | Опис |
+| :--- | :---: | :---: | :--- |
+| `TELEGRAM_BOT_TOKEN` | 🔴 Так | — | Токен вашого Telegram-бота від [@BotFather](https://t.me/BotFather) |
+| `ADMIN_CHAT_ID` | 🔴 Так | — | Telegram ID головного адміністратора бота |
+| `STORAGE_DIR` | 🟢 Ні | `./printers_storage` | Шлях до папки збереження БД, логів та конфігурації принтерів |
+| `HTTP_PORT` | 🟢 Ні | `8080` | Порт локального REST API та WebApp сервера |
+| `WEBAPP_URL` | 🟢 Ні | `http://localhost:8080` | HTTPS URL адреса WebApp (Ngrok, Cloudflare Tunnel або домен) |
+| `API_SECRET_KEY` | 🟢 Ні | порожньо | Ключ авторизації для захисту REST API |
+| `SSE_INTERVAL_SECONDS` | 🟢 Ні | `5.0` | Періодичність оновлення живих даних телеметрії WebApp (сек) |
+| `NGROK_AUTHTOKEN` | 🟢 Ні | порожньо | Authtoken з ngrok.com для автоматичного тунелювання WebApp |
+| `ELECTRICITY_COST_PER_KWH` | 🟢 Ні | `4.32` | Тариф електроенергії (грн/кВт·год) для калькулятора себевартості |
+| `LOG_LEVEL` | 🟢 Ні | `INFO` | Рівень деталізації логування (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+
 
 ### 5. Запуск бота
 ```bash
