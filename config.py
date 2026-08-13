@@ -10,14 +10,41 @@ from dotenv import load_dotenv
 ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(ENV_PATH, override=True)
 
+# Helper functions for safe type conversion
+def _get_env_int(key: str, default: int) -> int:
+    val = os.getenv(key, "").strip()
+    if not val:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        sys.stderr.write(f"⚠️ Invalid integer for {key}: '{val}'. Using default {default}.\n")
+        return default
+
+def _get_env_float(key: str, default: float) -> float:
+    val = os.getenv(key, "").strip()
+    if not val:
+        return default
+    try:
+        return float(val)
+    except ValueError:
+        sys.stderr.write(f"⚠️ Invalid float for {key}: '{val}'. Using default {default}.\n")
+        return default
+
 # Environment variables
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
 STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./printers_storage")).resolve()
-HTTP_PORT = int(os.getenv("HTTP_PORT", "8080"))
+HTTP_PORT = _get_env_int("HTTP_PORT", 8080)
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "").strip()
 WEBAPP_URL = os.getenv("WEBAPP_URL", f"http://localhost:{HTTP_PORT}").strip()
-SSE_INTERVAL_SECONDS = float(os.getenv("SSE_INTERVAL_SECONDS", "5.0"))
+SSE_INTERVAL_SECONDS = _get_env_float("SSE_INTERVAL_SECONDS", 5.0)
+NGROK_AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "").strip()
+ELECTRICITY_COST_PER_KWH = _get_env_float("ELECTRICITY_COST_PER_KWH", 4.32)
+
+# Logging level configuration
+LOG_LEVEL_STR = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_LEVEL = getattr(logging, LOG_LEVEL_STR, logging.INFO)
 
 # Force UTF-8 encoding for Windows standard output streams
 if hasattr(sys.stdout, 'reconfigure'):
@@ -39,7 +66,7 @@ from logging.handlers import RotatingFileHandler
 # Setup logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+    level=LOG_LEVEL,
     force=True,
     handlers=[
         RotatingFileHandler(STORAGE_DIR / "printer_bot.log", maxBytes=5*1024*1024, backupCount=3, encoding="utf-8"),
@@ -64,6 +91,10 @@ def validate_config(strict: bool = True):
         else:
             logger.warning(msg)
 
+    if not NGROK_AUTHTOKEN:
+        logger.info("ℹ️ NGROK_AUTHTOKEN is not set. Defaulting to local HTTP server or manual webhook URL.")
+
 if not TELEGRAM_BOT_TOKEN or not ADMIN_CHAT_ID:
     validate_config(strict=False)
+
 
