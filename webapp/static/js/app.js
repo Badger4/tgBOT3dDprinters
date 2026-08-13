@@ -20,7 +20,54 @@ window.fetch = function(url, options = {}) {
     return originalFetch(url, options);
 };
 
+function safeMathEval(expr) {
+    if (!expr) return 0;
+    const clean = String(expr).replace(/[^0-9\+\-\*\/\.\(\)\s]/g, '').trim();
+    if (!clean) return 0;
+    const tokens = clean.match(/\d+(?:\.\d+)?|[+\-*/()]/g);
+    if (!tokens) return 0;
+
+    let idx = 0;
+    function parsePrimary() {
+        if (idx >= tokens.length) return 0;
+        let tok = tokens[idx++];
+        if (tok === '(') {
+            let val = parseAddSub();
+            if (tokens[idx] === ')') idx++;
+            return val;
+        }
+        if (tok === '-') return -parsePrimary();
+        if (tok === '+') return parsePrimary();
+        return parseFloat(tok) || 0;
+    }
+
+    function parseMulDiv() {
+        let left = parsePrimary();
+        while (idx < tokens.length && (tokens[idx] === '*' || tokens[idx] === '/')) {
+            let op = tokens[idx++];
+            let right = parsePrimary();
+            if (op === '*') left *= right;
+            else if (op === '/') left = right !== 0 ? left / right : 0;
+        }
+        return left;
+    }
+
+    function parseAddSub() {
+        let left = parseMulDiv();
+        while (idx < tokens.length && (tokens[idx] === '+' || tokens[idx] === '-')) {
+            let op = tokens[idx++];
+            let right = parseMulDiv();
+            if (op === '+') left += right;
+            else if (op === '-') left -= right;
+        }
+        return left;
+    }
+
+    try { return parseAddSub(); } catch (e) { return 0; }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+
     // 1. Initialize Telegram WebApp SDK
     const tg = window.Telegram?.WebApp;
     if (tg) {
@@ -789,7 +836,8 @@ document.addEventListener("DOMContentLoaded", () => {
                         const inputVal = prompt("Введіть новий залишок у грамах (наприклад: 850 або 1000 - 150):");
                         if (inputVal !== null && inputVal.trim() !== "") {
                             try {
-                                let grams = eval(inputVal.replace(/[^0-9\+\-\*\/\.\(\)]/g, ''));
+                                let grams = safeMathEval(inputVal);
+
                                 grams = Math.max(0, roundToTwo(parseFloat(grams) || 0));
                                 await fetch(`/api/printers/${pId}/control`, {
                                     method: "POST",

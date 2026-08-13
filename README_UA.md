@@ -2,7 +2,12 @@
 
 [ English ](README.md) | **[ Українська ]**
 
+[![CI Tests](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml/badge.svg)](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+
 Повна версія Telegram-бота для управління фермою 3D-принтерів Bambu Lab на мові **Python 3.10+**.
+
 
 ---
 
@@ -78,7 +83,30 @@ python printer.py
 
 ---
 
+## 🔒 Безпека та Обмеження Запитів (Rate Limiting)
+
+REST API WebApp підтримує багаторівневе IP-лімітування запитів та заголовки безпеки для захисту фізичного обладнання 3D-принтерів від спаму та зловживань:
+
+| Категорія ендпоінтів | Маршрути / Методи | Ліміт | Заголовок відповіді | Код помилки |
+| :--- | :--- | :--- | :--- | :--- |
+| **Завантаження файлів** | `/api/files/upload` (POST) | **30 зап/хв** | `X-RateLimit-Limit: 30` | `429 Too Many Requests` |
+| **Команди управління** | `/api/printers/{id}/control`, `/api/commercial/presets` | **20 зап/хв** | `X-RateLimit-Limit: 20` | `429 Too Many Requests` |
+| **Телеметрія та читання** | `/health`, `/api/printers`, `/api/history` | **300 зап/хв** | `X-RateLimit-Limit: 300` | `429 Too Many Requests` |
+
+Заголовки безпеки у кожній відповіді:
+- `Content-Security-Policy`: W3C обмеження вбудовування в іфрейми (`frame-ancestors 'self' https://web.telegram.org https://*.telegram.org;`)
+- `Access-Control-Allow-Origin`: Перевірка білого списку дозволених Origin (Telegram WebApp, `WEBAPP_URL`, localhost)
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+
+### 📢 Повідомлення про Вразливості (Reporting Vulnerabilities)
+Якщо ви виявили потенційну вразливість безпеки, будь ласка, **НЕ створюйте публічних Issue**. Надішліть приватне повідомлення через вкладку [GitHub Security Advisories](https://github.com/Badger4/tgBOT3dDprinters/security/advisories) або зв'яжіться напряму з автором репозиторію. Усі повідомлення розглядаються у найкоротші терміни.
+
+---
+
 ## 📄 Ліцензія & Контриб'ютинг
+
+
 
 - **Ліцензія**: Проєкт розповсюджується під відкритою ліцензією [MIT License](LICENSE).
 - **Контриб'юторам**: Будь ласка, ознайомтеся з керівництвом для розробників у файлі [CONTRIBUTING.md](CONTRIBUTING.md) перед відправкою Pull Request.

@@ -92,7 +92,8 @@ class SensitiveDataFilter(logging.Filter):
         if NGROK_AUTHTOKEN and len(NGROK_AUTHTOKEN) > 5 and NGROK_AUTHTOKEN in text:
             text = text.replace(NGROK_AUTHTOKEN, '[NGROK_AUTHTOKEN_MASKED]')
 
-        text = re.sub(r'(access[_-]?code["\']?\s*[:=]\s*["\']?)([^"\'\s,}{]+)', r'\1••••••••', text, flags=re.IGNORECASE)
+        text = re.sub(r'(access[_-]?code["\']?\s*[:=]\s*["\']?)([^"\'\s,}{&]+)', r'\1••••••••', text, flags=re.IGNORECASE)
+        text = re.sub(r'([?&](?:access[_-]?code|token|api[_-]?key|init[_-]?data|tgWebAppInitData)=)([^"\'\s,&]+)', r'\1••••••••', text, flags=re.IGNORECASE)
         return text
 
 # Ensure storage directory exists
@@ -101,11 +102,12 @@ STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 from logging.handlers import RotatingFileHandler
 
 # Setup logging with SensitiveDataFilter
+sensitive_filter = SensitiveDataFilter()
 file_handler = RotatingFileHandler(STORAGE_DIR / "printer_bot.log", maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
-file_handler.addFilter(SensitiveDataFilter())
+file_handler.addFilter(sensitive_filter)
 
 stream_handler = logging.StreamHandler(sys.stdout)
-stream_handler.addFilter(SensitiveDataFilter())
+stream_handler.addFilter(sensitive_filter)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -113,11 +115,21 @@ logging.basicConfig(
     force=True,
     handlers=[file_handler, stream_handler]
 )
+
+# Explicitly attach filter to Root logger and third-party library loggers (aiohttp, aiogram)
+root_lg = logging.getLogger()
+root_lg.addFilter(sensitive_filter)
+
+for lg_name in ("PrinterBot", "aiohttp.access", "aiohttp.server", "aiohttp.web", "aiogram"):
+    sub_lg = logging.getLogger(lg_name)
+    sub_lg.addFilter(sensitive_filter)
+
 logger = logging.getLogger("PrinterBot")
-logger.addFilter(SensitiveDataFilter())
 
 
-def validate_config(strict: bool = True):
+
+def validate_config(strict: bool = True) -> None:
+
     """Validates essential environment variables on startup."""
     missing = []
     if not TELEGRAM_BOT_TOKEN:

@@ -170,14 +170,14 @@ class BambuPrinter:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()
         return float(self.ams_slots.get(s_key, self.filament_grams))
 
-    def set_slot_grams(self, grams: float, slot_id: Optional[Any] = None):
+    def set_slot_grams(self, grams: float, slot_id: Optional[Any] = None) -> None:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()
         g_val = round(float(grams), 2)
         self.ams_slots[s_key] = g_val
         if s_key == self.get_active_slot_key():
             self.filament_grams = g_val
 
-    def init_mqtt(self):
+    def init_mqtt(self) -> None:
         if not self.ip or not self.serial_number:
             logger.warning(f"[{self.name}] Missing IP or Serial, MQTT disabled.")
             return
@@ -209,7 +209,8 @@ class BambuPrinter:
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
-        self._client.on_error = self._on_error
+        self._client.on_error = self._on_error  # type: ignore[attr-defined]
+
 
         try:
             self._client.connect_async(self.ip, 8883, 60)
@@ -218,13 +219,13 @@ class BambuPrinter:
         except Exception as e:
             logger.error(f"❌ Failed connecting MQTT for [{self.name}]: {e}")
 
-    def destroy(self):
+    def destroy(self) -> None:
         if self._client:
             self._client.loop_stop()
             self._client.disconnect()
             logger.info(f"🛑 Disconnected MQTT for [{self.name}]")
 
-    def _on_connect(self, client, userdata, flags, rc):
+    def _on_connect(self, client: Any, userdata: Any, flags: Any, rc: int) -> None:
         if rc == 0:
             self.is_mqtt_connected = True
             self.last_mqtt_msg_time = time.time()
@@ -237,14 +238,14 @@ class BambuPrinter:
             self.is_mqtt_connected = False
             logger.error(f"❌ MQTT connection error [{self.name}] code: {rc}")
 
-    def _on_disconnect(self, client, userdata, rc):
+    def _on_disconnect(self, client: Any, userdata: Any, rc: int) -> None:
         self.is_mqtt_connected = False
         logger.warning(f"⚠️ MQTT disconnected for [{self.name}] (code: {rc})")
 
-    def _on_error(self, client, userdata, rc):
+    def _on_error(self, client: Any, userdata: Any, rc: Any) -> None:
         logger.error(f"❌ MQTT error [{self.name}]: {rc}")
 
-    def _trigger_save(self):
+    def _trigger_save(self) -> None:
         if self.save_callback:
             try:
                 if self._main_loop and self._main_loop.is_running():
@@ -255,26 +256,27 @@ class BambuPrinter:
             except Exception as e:
                 logger.warning(f"Failed triggering save callback for [{self.name}]: {e}")
 
-    def _try_ftps_fetch(self):
+    def _try_ftps_fetch(self) -> None:
         if self._ftps_fetching or not self.ip or not self.access_code:
             return
         self._ftps_fetching = True
 
-        def _worker():
+        def _worker() -> None:
             try:
-                w = fetch_bambu_ftps_weight(self.ip, self.access_code, self.subtask_name)
-                if w > 0:
-                    self._current_job_grams = w
-                    logger.info(f"💡 FTPS fetched model weight {w}g for [{self.name}]")
-                    if self.gcode_state == "RUNNING" and not self._job_deducted:
-                        active_key = self.get_active_slot_key()
-                        old_w = self.get_slot_grams(active_key)
-                        new_w = round(old_w - self._current_job_grams, 2)
-                        self.set_slot_grams(new_w, active_key)
-                        self._job_deducted = True
-                        self.last_job_grams = self._current_job_grams
-                        logger.info(f"💾 Auto-deducted {self._current_job_grams}g (via FTPS) from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g")
-                        self._trigger_save()
+                if self.ip and self.access_code:
+                    w = fetch_bambu_ftps_weight(self.ip, self.access_code, self.subtask_name)
+                    if w > 0:
+                        self._current_job_grams = w
+                        logger.info(f"💡 FTPS fetched model weight {w}g for [{self.name}]")
+                        if self.gcode_state == "RUNNING" and not self._job_deducted:
+                            active_key = self.get_active_slot_key()
+                            old_w = self.get_slot_grams(active_key)
+                            new_w = round(old_w - self._current_job_grams, 2)
+                            self.set_slot_grams(new_w, active_key)
+                            self._job_deducted = True
+                            self.last_job_grams = self._current_job_grams
+                            logger.info(f"💾 Auto-deducted {self._current_job_grams}g (via FTPS) from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g")
+                            self._trigger_save()
             except Exception as e:
                 logger.warning(f"FTPS worker error for [{self.name}]: {e}")
             finally:
@@ -283,7 +285,8 @@ class BambuPrinter:
         if self._main_loop and self._main_loop.is_running():
             asyncio.run_coroutine_threadsafe(asyncio.to_thread(_worker), self._main_loop)
 
-    def _on_message(self, client, userdata, msg):
+    def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
+
         try:
             self.is_mqtt_connected = True
             self.last_mqtt_msg_time = time.time()
@@ -753,7 +756,7 @@ class BambuPrinter:
             "total_cost": round(filament_cost + electricity_cost, 2)
         }
 
-    def record_print_hours(self, hours: float):
+    def record_print_hours(self, hours: float) -> None:
         """Records completed print hours towards total and maintenance counters."""
         if hours <= 0:
             return
@@ -764,7 +767,7 @@ class BambuPrinter:
         logger.info(f"⏱️ Updated print hours for [{self.name}]: +{hours:.2f}h (Total: {self.total_print_hours:.1f}h)")
         self._trigger_save()
 
-    def reset_maintenance_counter(self, item_key: str = "rails"):
+    def reset_maintenance_counter(self, item_key: str = "rails") -> None:
         """Resets a specific maintenance item's counter after servicing."""
         now_ts = time.time()
         if item_key == "all":
@@ -786,7 +789,8 @@ class BambuPrinter:
         logger.info(f"🧹 Maintenance counter ({item_key}) reset for [{self.name}]")
         self._trigger_save()
 
-    def set_maintenance_interval(self, item_key: str, interval_hours: float):
+    def set_maintenance_interval(self, item_key: str, interval_hours: float) -> None:
+
         """Sets target maintenance interval in hours for a specific item."""
         val = max(1.0, float(interval_hours))
         if item_key in self.maintenance_items:

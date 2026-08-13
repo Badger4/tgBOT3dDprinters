@@ -29,7 +29,7 @@ class StorageManager:
 
         self._init_db()
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         """Initializes SQLite schema with WAL mode for SD card flash protection."""
         conn = sqlite3.connect(self.db_path, timeout=20.0)
         try:
@@ -62,7 +62,7 @@ class StorageManager:
         lock = self._get_lock(path)
         async with lock:
             key = path.name
-            def _query_db():
+            def _query_db() -> Any:
                 conn = sqlite3.connect(self.db_path, timeout=20.0)
                 try:
                     cur = conn.execute("SELECT val FROM kv_store WHERE key = ?", (key,))
@@ -88,7 +88,7 @@ class StorageManager:
                     data = json.loads(content)
                     val_str = json.dumps(data, ensure_ascii=False)
                     now = time.time()
-                    def _save_imported():
+                    def _save_imported() -> None:
                         conn = sqlite3.connect(self.db_path, timeout=20.0)
                         try:
                             conn.execute(
@@ -111,7 +111,7 @@ class StorageManager:
             val_str = json.dumps(data, ensure_ascii=False)
             now = time.time()
 
-            def _write_db():
+            def _write_db() -> bool:
                 conn = sqlite3.connect(self.db_path, timeout=20.0)
                 try:
                     conn.execute(
@@ -131,7 +131,7 @@ class StorageManager:
     async def load_user(self, user_id: str) -> Dict[str, Any]:
         user_id_str = str(user_id)
 
-        def _get_user_db():
+        def _get_user_db() -> Optional[Dict[str, Any]]:
             conn = sqlite3.connect(self.db_path, timeout=20.0)
             try:
                 cur = conn.execute("SELECT data FROM users WHERE user_id = ?", (user_id_str,))
@@ -199,12 +199,12 @@ class StorageManager:
             legacy_kas.unlink(missing_ok=True)
         return user_data
 
-    async def save_user(self, user_data: Dict[str, Any]):
+    async def save_user(self, user_data: Dict[str, Any]) -> None:
         user_id_str = str(user_data["user_id"])
         val_str = json.dumps(user_data, ensure_ascii=False)
         now = time.time()
 
-        def _save_user_db():
+        def _save_user_db() -> None:
             conn = sqlite3.connect(self.db_path, timeout=20.0)
             try:
                 conn.execute(
@@ -226,7 +226,7 @@ class StorageManager:
             logger.warning(f"Attempted to delete main admin {user_id_str}")
             return False
 
-        def _delete_db():
+        def _delete_db() -> bool:
             conn = sqlite3.connect(self.db_path, timeout=20.0)
             try:
                 conn.execute("DELETE FROM users WHERE user_id = ?", (user_id_str,))
@@ -247,16 +247,17 @@ class StorageManager:
                     f.unlink()
                 except Exception:
                     pass
-        return res
+        return bool(res)
 
     async def load_all_users(self) -> Dict[str, Dict[str, Any]]:
-        def _get_all_db_users():
+        def _get_all_db_users() -> Dict[str, Dict[str, Any]]:
             conn = sqlite3.connect(self.db_path, timeout=20.0)
             try:
                 cur = conn.execute("SELECT user_id, data FROM users")
                 return {row[0]: json.loads(row[1]) for row in cur.fetchall()}
             finally:
                 conn.close()
+
 
         users = await asyncio.to_thread(_get_all_db_users)
         
