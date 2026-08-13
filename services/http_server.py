@@ -117,8 +117,21 @@ async def check_auth(request: web.Request) -> bool:
     return False
 
 def _apply_cors_and_security_headers(request: web.Request, response: web.StreamResponse):
-    origin = request.headers.get("Origin", "*")
-    response.headers["Access-Control-Allow-Origin"] = origin if origin else "*"
+    origin = request.headers.get("Origin", "")
+    webapp_clean = WEBAPP_URL.rstrip("/") if WEBAPP_URL else ""
+    allowed_origins = {
+        webapp_clean,
+        "https://web.telegram.org",
+        f"http://localhost:{HTTP_PORT}",
+        f"http://127.0.0.1:{HTTP_PORT}"
+    }
+    allowed_origins.discard("")
+
+    if origin and origin.rstrip("/") in allowed_origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "null"
+
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, PUT, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Telegram-Init-Data, X-API-Key, Bypass-Tunnel-Reminder, Authorization"
     response.headers["Access-Control-Max-Age"] = "86400"
@@ -131,6 +144,7 @@ def _apply_cors_and_security_headers(request: web.Request, response: web.StreamR
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:;"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
 
 @web.middleware
 async def security_and_ratelimit_middleware(request: web.Request, handler) -> web.StreamResponse:
