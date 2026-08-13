@@ -1,75 +1,108 @@
-# 3D Printer Farm Telegram Bot (Python Version)
+# 3D Printer Farm Telegram Bot & WebApp (Bambu Lab)
 
-Повна версія Telegram-бота для управління фермою 3D-принтерів Bambu Lab на мові **Python 3.10+**.
+**[ English ]** | [ Українська ](README_UA.md)
 
-## 🚀 Основні переваги та виправлення:
-1. **Безпека (Security)**:
-   - Відсутність хардкоду токенів та адмін-прав. Все винесено в `.env`.
-   - Повна відмова від `eval()`. Використовується безпечний `ast`-парсер для обчислення ваги філаменту.
-2. **Асинхронність (Async I/O)**:
-   - Побудовано на `asyncio`, `aiogram 3.x` та `aiofiles`.
-   - Немає блокуючих синхронних операцій читання/запису файлів, що зберігає Event Loop чутливим та швидким.
-3. **Надійне управління принтерами**:
-   - Використання унікальних `UUID` для вибору та видалення принтерів (відсутній баг із зсувом індексів масиву).
-   - Автоматичне оновлення залишків філаменту після завершення друку.
-   - Підтримка моніторингу температури сопла/столу, прогресу, шарів та матеріалу з AMS/Virtual Tray.
-4. **Управління доступом та Адмінка**:
-   - Автоматичне підтвердження нових користувачів адміністратором.
-   - Користувачі без доступу мають лише кнопку заявки.
+[![CI Tests](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml/badge.svg)](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+
+A feature-rich, high-performance **Telegram Bot & WebApp SPA** written in **Python 3.10+** for monitoring, managing, and controlling Bambu Lab 3D printer farms in real-time over local MQTT, FTPS, and HTTP REST API.
 
 ---
 
-## 🛠️ Встановлення та запуск
+## 🚀 Key Features
 
-### 1. Перехід у папку проєкту
+- **🔐 Enterprise-Grade Security & Privacy**:
+  - Zero hardcoded secrets: All credentials managed via environment variables (`.env`).
+  - Access Code Masking: LAN MQTT access codes are strictly masked in public REST API/WebApp responses (`••••••••`).
+  - Log Sanitization: Built-in `SensitiveDataFilter` automatically scrubs bot tokens, API keys, and access codes from log files and standard output.
+  - Safe Expression Evaluator: Eliminates security vulnerabilities by using Python's `ast` parser for safe math evaluation.
+
+- **⚡ Async Architecture & Performance**:
+  - Non-blocking asynchronous design built on `asyncio`, `aiogram 3.x`, `aiohttp`, and `aiofiles`.
+  - SQLite WAL (Write-Ahead Logging) storage mode to protect MicroSD cards from flash wear when running on single-board computers like Raspberry Pi.
+
+- **🖨️ Bambu Lab Fleet Management**:
+  - MQTT Real-Time Telemetry: Monitor nozzle/bed temperatures, print progress, layer counts, speed profiles, and active AMS/Virtual Tray spools.
+  - Direct FTPS Integration: Fast print file uploads (3MF / G-Code) and accurate filament weight parsing.
+  - Automated Filament Consumption: Auto-deducts spent filament grams from active AMS slots upon print job completion.
+
+- **📱 Telegram WebApp SPA & Real-Time Monitoring**:
+  - Single-Page Application (SPA) dashboard for interactive printer farm management within Telegram.
+  - Server-Sent Events (SSE) streaming live printer telemetry to WebApp browsers without polling overhead.
+  - Commercial Pricing Calculator: Dynamic cost estimation tool based on material weight, electricity rates, machine depreciation, and customizable profit margins.
+
+- **🤖 **:
+  - Automated snapshot defect detection (spaghetti, bed detachment, nozzle blobs) via  API.
+
+- **👥 Multi-User Access Control & Administration**:
+  - User authorization whitelist with real-time approval/denial workflow for administrators.
+
+---
+
+## 🛠️ Installation & Quick Start
+
+### 1. Clone the Repository
 ```bash
-cd /path/to/your/project
+git clone https://github.com/Badger4/tgBOT3dDprinters.git
+cd tgBOT3dDprinters
 ```
 
-### 2. Створення та активація віртуального середовища (опціонально)
+### 2. Set Up Virtual Environment
 ```bash
-python -m venv venv
-# Windows:
-venv\Scripts\activate
+python -m venv .venv
+# On Windows:
+.venv\Scripts\activate
+# On Linux/macOS:
+source .venv/bin/activate
 ```
 
-### 3. Встановлення залежностей
+### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Налаштування `.env`
-Скопіюйте `.env.example` у `.env` та вкажіть потрібні параметри:
+### 4. Configure Environment Variables (`.env`)
+Copy `.env.example` to `.env` and fill in your credentials:
 
 ```bash
 cp .env.example .env
 ```
 
-#### 📋 Повний список змінних середовища:
+#### 📋 Complete `.env` Environment Variables Reference:
 
-| Змінна | Обов'язкова? | Значення за замовчуванням | Опис |
+| Variable | Required? | Default Value | Description |
 | :--- | :---: | :---: | :--- |
-| `TELEGRAM_BOT_TOKEN` | 🔴 Так | — | Токен вашого Telegram-бота від [@BotFather](https://t.me/BotFather) |
-| `ADMIN_CHAT_ID` | 🔴 Так | — | Telegram ID головного адміністратора бота |
-| `STORAGE_DIR` | 🟢 Ні | `./printers_storage` | Шлях до папки збереження БД, логів та конфігурації принтерів |
-| `HTTP_PORT` | 🟢 Ні | `8080` | Порт локального REST API та WebApp сервера |
-| `WEBAPP_URL` | 🟢 Ні | `http://localhost:8080` | HTTPS URL адреса WebApp (Ngrok, Cloudflare Tunnel або домен) |
-| `API_SECRET_KEY` | 🟢 Ні | порожньо | Ключ авторизації для захисту REST API |
-| `SSE_INTERVAL_SECONDS` | 🟢 Ні | `5.0` | Періодичність оновлення живих даних телеметрії WebApp (сек) |
-| `NGROK_AUTHTOKEN` | 🟢 Ні | порожньо | Authtoken з ngrok.com для автоматичного тунелювання WebApp |
-| `ELECTRICITY_COST_PER_KWH` | 🟢 Ні | `4.32` | Тариф електроенергії (грн/кВт·год) для калькулятора себевартості |
-| `LOG_LEVEL` | 🟢 Ні | `INFO` | Рівень деталізації логування (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `TELEGRAM_BOT_TOKEN` | 🔴 Yes | — | Your Telegram Bot Token obtained from [@BotFather](https://t.me/BotFather) |
+| `ADMIN_CHAT_ID` | 🔴 Yes | — | Telegram Chat ID of the main bot administrator |
+| `STORAGE_DIR` | 🟢 No | `./printers_storage` | Local directory path for SQLite DB, logs, and printer configs |
+| `HTTP_PORT` | 🟢 No | `8080` | Port for the local REST API and WebApp server |
+| `WEBAPP_URL` | 🟢 No | `http://localhost:8080` | Public HTTPS WebApp URL (e.g. Ngrok, Cloudflare Tunnel, or custom domain) |
+| `API_SECRET_KEY` | 🟢 No | empty | Secret API key for protecting external REST API endpoints |
+| `SSE_INTERVAL_SECONDS` | 🟢 No | `5.0` | Server-Sent Events live update frequency in seconds |
+| `NGROK_AUTHTOKEN` | 🟢 No | empty | Ngrok authtoken for automatic WebApp HTTPS tunneling |
+| `ELECTRICITY_COST_PER_KWH` | 🟢 No | `4.32` | Electricity rate (UAH/kWh) for commercial price calculation |
+| `LOG_LEVEL` | 🟢 No | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 
-
-### 5. Запуск бота
+### 5. Run the Application
 ```bash
 python printer.py
 ```
 
 ---
 
-## 📄 Ліцензія & Контриб'ютинг
+## 🧪 Testing & CI
 
-- **Ліцензія**: Проєкт розповсюджується під відкритою ліцензією [MIT License](LICENSE).
-- **Контриб'юторам**: Будь ласка, ознайомтеся з керівництвом для розробників у файлі [CONTRIBUTING.md](CONTRIBUTING.md) перед відправкою Pull Request.
+Run the automated `pytest` test suite:
+```bash
+pytest tests/ --verbose
+```
 
+All pushes and pull requests to `main` are automatically verified by [GitHub Actions CI](.github/workflows/ci.yml) across Python 3.10, 3.11, 3.12, and 3.13.
+
+---
+
+## 📄 License & Contributing
+
+- **License**: Released under the open-source [MIT License](LICENSE).
+- **Contributing**: Contributions are welcome! Please read the developer guidelines in [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a Pull Request.
