@@ -116,33 +116,12 @@ async def check_auth(request: web.Request) -> bool:
 
     return False
 
-@web.middleware
-async def security_and_ratelimit_middleware(request: web.Request, handler) -> web.StreamResponse:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    client_ip = forwarded.split(",")[0].strip() if forwarded else (request.remote or "127.0.0.1")
-    now = time.time()
-
-    is_upload = (request.path == "/api/files/upload")
-    target_logs = IP_UPLOAD_LOGS if is_upload else IP_REQUEST_LOGS
-    limit = MAX_UPLOADS_PER_MINUTE if is_upload else MAX_REQ_PER_MINUTE
-
-    # Clean up old timestamps (> 60s)
-    timestamps = [t for t in target_logs.get(client_ip, []) if now - t < 60.0]
-
-    if len(timestamps) >= limit:
-        logger.warning(f"⛔ Rate limit exceeded for IP [{client_ip}] on {request.path}")
-        return web.json_response(
-            {"error": "Too Many Requests", "message": "Rate limit exceeded. Please wait 60 seconds."},
-            status=429
-        )
-
-    timestamps.append(now)
-    target_logs[client_ip] = timestamps
-
-    # Process request
-    response = await handler(request)
-
-    # Apply HTTP Security & Cache-Control Headers
+def _apply_cors_and_security_headers(request: web.Request, response: web.StreamResponse):
+    origin = request.headers.get("Origin", "*")
+    response.headers["Access-Control-Allow-Origin"] = origin if origin else "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, PUT, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Telegram-Init-Data, X-API-Key, Bypass-Tunnel-Reminder, Authorization"
+    response.headers["Access-Control-Max-Age"] = "86400"
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -152,7 +131,61 @@ async def security_and_ratelimit_middleware(request: web.Request, handler) -> we
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:;"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+@web.middleware
+async def security_and_ratelimit_middleware(request: web.Request, handler) -> web.StreamResponse:
+    # 1. Handle CORS Preflight OPTIONS requests
+    if request.method == "OPTIONS":
+        response = web.Response(status=204)
+        _apply_cors_and_security_headers(request, response)
+        return response
+
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    client_ip = forwarded.split(",")[0].strip() if forwarded else (request.remote or "127.0.0.1")
+    now = time.time()
+
+    is_upload = (request.path == "/api/files/upload")
+    target_logs = IP_UPLOAD_LOGS if is_upload else IP_REQUEST_LOGS
+    limit = MAX_UPLOADS_PER_MINUTE if is_upload else MAX_REQ_PER_MINUTE
+
+    # Clean up old timestamps (> 60s) for current IP
+    timestamps = [t for t in target_logs.get(client_ip, []) if now - t < 60.0]
+
+    # Periodic garbage collection if IP log dictionary exceeds 1000 entries
+    if len(target_logs) > 1000:
+        for ip_key in list(target_logs.keys()):
+            valid_ts = [t for t in target_logs[ip_key] if now - t < 60.0]
+            if valid_ts:
+                target_logs[ip_key] = valid_ts
+            else:
+                target_logs.pop(ip_key, None)
+
+    remaining = max(0, limit - len(timestamps))
+
+    if len(timestamps) >= limit:
+        logger.warning(f"⛔ Rate limit exceeded for IP [{client_ip}] on {request.path}")
+        response = web.json_response(
+            {"error": "Too Many Requests", "message": "Rate limit exceeded. Please wait 60 seconds."},
+            status=429
+        )
+        _apply_cors_and_security_headers(request, response)
+        response.headers["X-RateLimit-Limit"] = str(limit)
+        response.headers["X-RateLimit-Remaining"] = "0"
+        response.headers["X-RateLimit-Reset"] = "60"
+        return response
+
+    timestamps.append(now)
+    target_logs[client_ip] = timestamps
+
+    # Process request
+    response = await handler(request)
+
+    # Apply HTTP Security, CORS & Rate Limit Headers
+    _apply_cors_and_security_headers(request, response)
+    response.headers["X-RateLimit-Limit"] = str(limit)
+    response.headers["X-RateLimit-Remaining"] = str(max(0, remaining - 1))
     return response
+
 
 async def handle_serve_index(request: web.Request) -> web.FileResponse:
     """Serves the main Telegram WebApp single-page application."""
