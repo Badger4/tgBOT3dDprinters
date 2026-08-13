@@ -30,6 +30,18 @@ class TestHTTPServer(AioHTTPTestCase):
         self.assertEqual(resp.status, 200)
         data = await resp.json()
         self.assertEqual(data, [])
+        self.assertIn("X-RateLimit-Limit", resp.headers)
+        self.assertIn("X-RateLimit-Remaining", resp.headers)
+        self.assertIn("Access-Control-Allow-Origin", resp.headers)
+
+    @unittest_run_loop
+    async def test_options_cors_preflight(self):
+        resp = await self.client.request("OPTIONS", "/api/printers")
+        self.assertEqual(resp.status, 204)
+        self.assertIn("Access-Control-Allow-Origin", resp.headers)
+        self.assertIn("Access-Control-Allow-Methods", resp.headers)
+        self.assertIn("Access-Control-Allow-Headers", resp.headers)
 
 if __name__ == "__main__":
     unittest.main()
+
