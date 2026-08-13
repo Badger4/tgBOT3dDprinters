@@ -32,11 +32,9 @@ A feature-rich, high-performance **Telegram Bot & WebApp SPA** written in **Pyth
   - Server-Sent Events (SSE) streaming live printer telemetry to WebApp browsers without polling overhead.
   - Commercial Pricing Calculator: Dynamic cost estimation tool based on material weight, electricity rates, machine depreciation, and customizable profit margins.
 
-- **🤖 **:
-  - Automated snapshot defect detection (spaghetti, bed detachment, nozzle blobs) via  API.
-
 - **👥 Multi-User Access Control & Administration**:
   - User authorization whitelist with real-time approval/denial workflow for administrators.
+
 
 ---
 
@@ -81,6 +79,7 @@ cp .env.example .env
 | `API_SECRET_KEY` | 🟢 No | empty | Secret API key for protecting external REST API endpoints |
 | `SSE_INTERVAL_SECONDS` | 🟢 No | `5.0` | Server-Sent Events live update frequency in seconds |
 | `NGROK_AUTHTOKEN` | 🟢 No | empty | Ngrok authtoken for automatic WebApp HTTPS tunneling |
+
 | `ELECTRICITY_COST_PER_KWH` | 🟢 No | `4.32` | Electricity rate (UAH/kWh) for commercial price calculation |
 | `LOG_LEVEL` | 🟢 No | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 

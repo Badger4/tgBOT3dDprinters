@@ -42,6 +42,7 @@ SSE_INTERVAL_SECONDS = _get_env_float("SSE_INTERVAL_SECONDS", 5.0)
 NGROK_AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "").strip()
 ELECTRICITY_COST_PER_KWH = _get_env_float("ELECTRICITY_COST_PER_KWH", 4.32)
 
+
 # Logging level configuration
 LOG_LEVEL_STR = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_LEVEL = getattr(logging, LOG_LEVEL_STR, logging.INFO)
@@ -90,6 +91,7 @@ class SensitiveDataFilter(logging.Filter):
             text = text.replace(API_SECRET_KEY, '[API_SECRET_KEY_MASKED]')
         if NGROK_AUTHTOKEN and len(NGROK_AUTHTOKEN) > 5 and NGROK_AUTHTOKEN in text:
             text = text.replace(NGROK_AUTHTOKEN, '[NGROK_AUTHTOKEN_MASKED]')
+
         text = re.sub(r'(access[_-]?code["\']?\s*[:=]\s*["\']?)([^"\'\s,}{]+)', r'\1••••••••', text, flags=re.IGNORECASE)
         return text
 
@@ -133,6 +135,7 @@ def validate_config(strict: bool = True):
 
     if not NGROK_AUTHTOKEN:
         logger.info("ℹ️ NGROK_AUTHTOKEN is not set. Defaulting to local HTTP server or manual webhook URL.")
+
 
 if not TELEGRAM_BOT_TOKEN or not ADMIN_CHAT_ID:
     validate_config(strict=False)

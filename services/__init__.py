@@ -1,3 +1,4 @@
 """
-Services package for FTPS, camera, GIF generation, 3MF parsing, and AI vision.
+Services package for FTPS, camera, GIF generation, and 3MF parsing.
 """
+

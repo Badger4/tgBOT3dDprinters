@@ -566,7 +566,7 @@ body {
 .btn-danger { background: var(--rose); color: #fff; box-shadow: 0 4px 15px var(--rose-glow); }
 .btn-neutral { background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid var(--border-glass); }
 .btn-outline { background: transparent; border: 1px solid var(--border-glass); color: var(--text-main); }
-.btn-ai { background: linear-gradient(135deg, #a855f7, #6366f1); color: #fff; box-shadow: 0 4px 20px rgba(168, 85, 247, 0.4); }
+
 
 .btn-sm { padding: 6px 12px; font-size: 12px; }
 .btn-xs { padding: 4px 8px; font-size: 11px; border-radius: var(--radius-sm); }
@@ -679,17 +679,6 @@ body {
     gap: 8px;
 }
 
-.ai-inspect-section { padding: 10px; }
-
-.ai-result-box {
-    background: rgba(168, 85, 247, 0.1);
-    border: 1px solid rgba(168, 85, 247, 0.3);
-    border-radius: var(--radius-md);
-    padding: 12px;
-    margin-top: 10px;
-    font-size: 13px;
-    color: #e9d5ff;
-}
 
 /* Telemetry Grid inside Modal */
 .telemetry-grid {

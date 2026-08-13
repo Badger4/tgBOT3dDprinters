@@ -152,14 +152,6 @@
 - add_history_entry(entry: Dict[str, Any]) -> bool
   Опис: Додає новий запис до історії друку (з обмеженням у 500 останніх деталей).
 
-
---------------------------------------------------------------------------------
-- analyze_printer_frame(image_bytes: bytes, printer_name: str = "3D Printer") -> Dict[str, Any]
-  Опис: Надсилає кадр з камери до нейромережі Google Gemini (gemini-2.5-flash) для 
-        виявлення збоїв (спагетті, відрив деталі, warping, напливи на соплі). 
-        Повертає статус NORMAL або DEFECT_DETECTED, точність та опис українською.
-
-
 9. ФАЙЛ: services/camera_stream.py
 --------------------------------------------------------------------------------
 - check_tcp_port_open(ip: str, port: int, timeout: float = 1.0) -> bool
