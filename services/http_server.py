@@ -148,9 +148,15 @@ def _apply_cors_and_security_headers(request: web.Request, response: web.StreamR
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self' 'unsafe-inline' https: data: blob:; "
+        "default-src 'self' https: data: blob:; "
+        "script-src 'self' https://telegram.org https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+        "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; "
+        "img-src 'self' data: blob: https:; "
+        "connect-src 'self' https: wss: ws:; "
         "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org;"
     )
+
 
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 

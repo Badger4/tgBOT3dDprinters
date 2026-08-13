@@ -139,7 +139,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const closeSpoolModalBtn = document.getElementById("close-spool-modal");
     const saveSpoolSubmitBtn = document.getElementById("save-spool-submit");
 
+    if (addPrinterBtn) {
+        addPrinterBtn.addEventListener("click", () => {
+            triggerHaptic("light");
+            if (addPrinterModal) addPrinterModal.classList.add("active");
+        });
+    }
+
+    const commCalcForm = document.getElementById("comm-calc-form");
+    if (commCalcForm) {
+        commCalcForm.addEventListener("submit", (e) => e.preventDefault());
+    }
+
     // 2. Navigation & Tabs
+
     navButtons.forEach(btn => {
         btn.addEventListener("click", () => {
             triggerHaptic("light");

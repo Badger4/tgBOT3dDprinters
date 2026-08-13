@@ -46,7 +46,7 @@
                 <div class="section-header">
                     <h2><i class="fa-solid fa-print"></i> Стан ферми</h2>
                     <div class="d-flex gap-2 align-items-center">
-                        <button id="add-printer-btn" class="btn btn-primary btn-sm" onclick="document.getElementById('add-printer-modal').classList.add('active')">
+                        <button id="add-printer-btn" class="btn btn-primary btn-sm">
                             <i class="fa-solid fa-plus"></i> Додати принтер
                         </button>
                         <span id="active-badge" class="badge badge-active">
@@ -75,7 +75,7 @@
                 <!-- Calculator Card -->
                 <div class="glass-card mb-4">
                     <h3><i class="fa-solid fa-coins color-orange"></i> Розрахунок вартості друку</h3>
-                    <form id="comm-calc-form" onsubmit="return false;">
+                    <form id="comm-calc-form">
                         <div class="form-group">
                             <label>Пресет ціноутворення</label>
                             <select id="calc-preset-select" class="form-control">
