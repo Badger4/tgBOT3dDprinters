@@ -50,3 +50,11 @@ STORAGE_DIR=./printers_storage
 ```bash
 python printer.py
 ```
+
+---
+
+## 📄 Ліцензія & Контриб'ютинг
+
+- **Ліцензія**: Проєкт розповсюджується під відкритою ліцензією [MIT License](LICENSE).
+- **Контриб'юторам**: Будь ласка, ознайомтеся з керівництвом для розробників у файлі [CONTRIBUTING.md](CONTRIBUTING.md) перед відправкою Pull Request.
+
