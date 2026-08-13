@@ -14,7 +14,8 @@ import urllib.parse
 import gc
 from typing import Any, Optional
 from aiohttp import web
-from config import logger, HTTP_PORT, API_SECRET_KEY, STORAGE_DIR, TELEGRAM_BOT_TOKEN, SSE_INTERVAL_SECONDS
+from config import logger, HTTP_PORT, API_SECRET_KEY, STORAGE_DIR, TELEGRAM_BOT_TOKEN, SSE_INTERVAL_SECONDS, WEBAPP_URL
+
 from services.camera_stream import capture_real_camera_photo
 from services.gcode_parser import parse_3mf_file, check_compatibility
 from models.commercial import calculate_commercial_price
