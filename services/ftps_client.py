@@ -164,8 +164,9 @@ def parse_weight_from_3mf_bytes(data_bytes: bytes) -> float:
         logger.error(f"❌ 3MF zip parse error: {e}", exc_info=True)
     return 0.0
 
-def _connect_bambu_ftps(ip: str, access_code: str, timeout: float = 10.0):
+def _connect_bambu_ftps(ip: str, access_code: str, timeout: float = 10.0) -> Any:
     """Connects to Bambu Lab FTPS trying Port 990 (Implicit) then Port 21 (Explicit)."""
+    ftps: Any = None
     try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
@@ -185,13 +186,15 @@ def _connect_bambu_ftps(ip: str, access_code: str, timeout: float = 10.0):
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        ftps = BambuFTP_TLS(context=ctx)
-        ftps.ssl_version = ssl.PROTOCOL_TLSv1_2
-        ftps.connect(ip, 21, timeout=timeout)
-        ftps.login("bblp", access_code)
-        ftps.prot_p()
-        ftps.set_pasv(True)
-        return ftps
+        ftps_bambu: Any = BambuFTP_TLS(context=ctx)
+        setattr(ftps_bambu, 'ssl_version', ssl.PROTOCOL_TLSv1_2)
+        ftps_bambu.connect(ip, 21, timeout=timeout)
+
+        ftps_bambu.login("bblp", access_code)
+        ftps_bambu.prot_p()
+        ftps_bambu.set_pasv(True)
+        return ftps_bambu
+
     except (ConnectionRefusedError, socket.timeout):
         logger.info(f"ℹ️ FTPS port closed/disabled on {ip}.")
         return None

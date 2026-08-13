@@ -15,8 +15,10 @@ from typing import Dict, Any, Optional
 import paho.mqtt.client as mqtt
 from config import logger, STORAGE_DIR
 from services.ftps_client import extract_model_weight, fetch_bambu_ftps_weight, upload_3mf_to_bambu
+from services.gcode_parser import parse_3mf_file
 from storage.manager import StorageManager
 from models.enums import AMSSlot, GCodeState
+
 
 DEFAULT_MAINTENANCE_ITEMS = {
     "rails": {
