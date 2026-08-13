@@ -28,8 +28,12 @@ PRESETS_FILE = STORAGE_DIR / "commercial_presets.json"
 # IP Rate Limiting storage: ip -> list of request timestamps
 IP_REQUEST_LOGS: dict[str, list[float]] = {}
 IP_UPLOAD_LOGS: dict[str, list[float]] = {}
+IP_CONTROL_LOGS: dict[str, list[float]] = {}
+
 MAX_REQ_PER_MINUTE = 300
 MAX_UPLOADS_PER_MINUTE = 30
+MAX_CONTROL_PER_MINUTE = 20
+
 
 DEFAULT_PRESETS = {
     "default_pla": {
@@ -117,7 +121,7 @@ async def check_auth(request: web.Request) -> bool:
 
     return False
 
-def _apply_cors_and_security_headers(request: web.Request, response: web.StreamResponse):
+def _apply_cors_and_security_headers(request: web.Request, response: web.StreamResponse) -> None:
     origin = request.headers.get("Origin", "")
     webapp_clean = WEBAPP_URL.rstrip("/") if WEBAPP_URL else ""
     allowed_origins = {
@@ -143,15 +147,17 @@ def _apply_cors_and_security_headers(request: web.Request, response: web.StreamR
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:; "
+        "default-src 'self' 'unsafe-inline' https: data: blob:; "
         "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org;"
     )
+
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
 
 
 @web.middleware
-async def security_and_ratelimit_middleware(request: web.Request, handler) -> web.StreamResponse:
+async def security_and_ratelimit_middleware(request: web.Request, handler: Any) -> web.StreamResponse:
+
     # 1. Handle CORS Preflight OPTIONS requests
     if request.method == "OPTIONS":
         response = web.Response(status=204)
@@ -163,11 +169,21 @@ async def security_and_ratelimit_middleware(request: web.Request, handler) -> we
     now = time.time()
 
     is_upload = (request.path == "/api/files/upload")
-    target_logs = IP_UPLOAD_LOGS if is_upload else IP_REQUEST_LOGS
-    limit = MAX_UPLOADS_PER_MINUTE if is_upload else MAX_REQ_PER_MINUTE
+    is_control = ("/control" in request.path or "/commercial/presets" in request.path or "/access_code" in request.path)
+
+    if is_upload:
+        target_logs = IP_UPLOAD_LOGS
+        limit = MAX_UPLOADS_PER_MINUTE
+    elif is_control:
+        target_logs = IP_CONTROL_LOGS
+        limit = MAX_CONTROL_PER_MINUTE
+    else:
+        target_logs = IP_REQUEST_LOGS
+        limit = MAX_REQ_PER_MINUTE
 
     # Clean up old timestamps (> 60s) for current IP
     timestamps = [t for t in target_logs.get(client_ip, []) if now - t < 60.0]
+
 
     # Periodic garbage collection if IP log dictionary exceeds 1000 entries
     if len(target_logs) > 1000:
@@ -868,7 +884,8 @@ def create_http_app(app_obj: Any) -> web.Application:
 
     return web_app
 
-async def start_http_server(app_obj: Any, host: str = "0.0.0.0", port: int = HTTP_PORT):
+async def start_http_server(app_obj: Any, host: str = "0.0.0.0", port: int = HTTP_PORT) -> None:
+
     """Starts async HTTP REST API server on specified port."""
     web_app = create_http_app(app_obj)
     runner = web.AppRunner(web_app)

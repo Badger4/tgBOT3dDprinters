@@ -101,7 +101,30 @@ All pushes and pull requests to `main` are automatically verified by [GitHub Act
 
 ---
 
+## 🔒 Security & Rate Limiting
+
+The WebApp REST API enforces strict multi-tier IP rate limiting and security headers to protect physical 3D printers and server infrastructure from unauthorized abuse or flooding:
+
+| Category | Endpoints / Methods | Rate Limit | Response Header | Status Code |
+| :--- | :--- | :--- | :--- | :--- |
+| **File Uploads** | `/api/files/upload` (POST) | **30 req/min** | `X-RateLimit-Limit: 30` | `429 Too Many Requests` |
+| **Sensitive Control** | `/api/printers/{id}/control`, `/api/commercial/presets` | **20 req/min** | `X-RateLimit-Limit: 20` | `429 Too Many Requests` |
+| **General Telemetry** | `/health`, `/api/printers`, `/api/history` | **300 req/min** | `X-RateLimit-Limit: 300` | `429 Too Many Requests` |
+
+Security headers included on all responses:
+- `Content-Security-Policy`: Modern W3C framing restrictions (`frame-ancestors 'self' https://web.telegram.org https://*.telegram.org;`)
+- `Access-Control-Allow-Origin`: Strict whitelist origin validation (Telegram WebApp, `WEBAPP_URL`, localhost)
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+
+### 📢 Reporting Vulnerabilities
+If you discover a security vulnerability, please do **NOT** open a public issue. Instead, submit a private report via [GitHub Security Advisories](https://github.com/Badger4/tgBOT3dDprinters/security/advisories) or contact the repository maintainer directly. All security reports are reviewed promptly.
+
+---
+
 ## 📄 License & Contributing
+
+
 
 - **License**: Released under the open-source [MIT License](LICENSE).
 - **Contributing**: Contributions are welcome! Please read the developer guidelines in [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a Pull Request.

@@ -50,7 +50,23 @@ class TestHTTPServer(AioHTTPTestCase):
         self.assertEqual(bad_resp.status, 204)
         self.assertEqual(bad_resp.headers.get("Access-Control-Allow-Origin"), "null")
 
+    @unittest_run_loop
+    async def test_control_rate_limiting(self):
+        # Sensitive control limit is 20 req/min
+        for i in range(20):
+            resp = await self.client.request("POST", "/api/printers/printer_test/control", json={"action": "pause"})
+            self.assertIn(resp.status, (200, 400, 404))
+            self.assertEqual(resp.headers.get("X-RateLimit-Limit"), "20")
+
+        # 21st request should trigger 429 Too Many Requests
+        exceeded_resp = await self.client.request("POST", "/api/printers/printer_test/control", json={"action": "pause"})
+        self.assertEqual(exceeded_resp.status, 429)
+        exceeded_data = await exceeded_resp.json()
+        self.assertEqual(exceeded_data["error"], "Too Many Requests")
+        self.assertEqual(exceeded_resp.headers.get("X-RateLimit-Remaining"), "0")
+
 if __name__ == "__main__":
     unittest.main()
+
 
 

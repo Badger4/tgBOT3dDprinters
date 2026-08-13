@@ -12,13 +12,13 @@ from config import logger
 
 class ImplicitFTP_TLS(ftplib.FTP_TLS):
     """FTP_TLS subclass for implicit SSL/TLS on port 990 for Bambu Lab printers."""
-    def connect(self, host='', port=990, timeout=10.0):
+    def connect(self, host: str = '', port: int = 990, timeout: float = 10.0, source_address: Optional[Any] = None) -> str:
         if host != '':
             self.host = host
         if port > 0:
             self.port = port
         self.timeout = timeout if timeout and timeout > 0 else 10.0
-        self.sock = socket.create_connection((self.host, self.port), self.timeout)
+        self.sock = socket.create_connection((self.host, self.port), self.timeout, source_address)
         self.af = self.sock.family
         if not hasattr(self, 'context') or self.context is None:
             self.context = ssl.create_default_context()
@@ -27,21 +27,23 @@ class ImplicitFTP_TLS(ftplib.FTP_TLS):
         self.sock = self.context.wrap_socket(self.sock)
         self.file = self.sock.makefile('r', encoding=self.encoding)
         self.welcome = self.getresp()
-        return self.welcome
+        return str(self.welcome)
 
-    def ntransfercmd(self, cmd, rest=None):
+    def ntransfercmd(self, cmd: str, rest: Optional[Any] = None) -> Any:
         conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
-        if self._prot_p:
+        if getattr(self, "_prot_p", False):
             conn = self.context.wrap_socket(conn, server_hostname=None)
         return conn, size
 
 class BambuFTP_TLS(ftplib.FTP_TLS):
     """FTP_TLS subclass for explicit SSL/TLS on port 21 for Bambu Lab printers."""
-    def ntransfercmd(self, cmd, rest=None):
+    def ntransfercmd(self, cmd: str, rest: Optional[Any] = None) -> Any:
         conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
-        if self._prot_p:
+        if getattr(self, "_prot_p", False):
             conn = self.context.wrap_socket(conn, server_hostname=None)
         return conn, size
+
+
 
 def extract_model_weight(print_data: Dict[str, Any]) -> float:
     """Extracts model weight from Bambu Lab / OrcaSlicer MQTT payload or filename regex."""
