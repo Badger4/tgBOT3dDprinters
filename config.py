@@ -58,22 +58,62 @@ if hasattr(sys.stderr, 'reconfigure'):
     except Exception:
         pass
 
+import re
+
+# Sensitive data filter for secure log rotation
+class SensitiveDataFilter(logging.Filter):
+    """
+    Sanitizes log messages before writing to file or console.
+    Replaces raw access_code, Telegram bot tokens, API keys, and secret tokens with masked placeholders.
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            if isinstance(record.msg, str):
+                record.msg = self._sanitize(record.msg)
+            if record.args:
+                if isinstance(record.args, dict):
+                    record.args = {k: self._sanitize(str(v)) for k, v in record.args.items()}
+                elif isinstance(record.args, tuple):
+                    record.args = tuple(self._sanitize(str(a)) for a in record.args)
+        except Exception:
+            pass
+        return True
+
+    def _sanitize(self, text: str) -> str:
+        if not text:
+            return text
+        text = re.sub(r'\b[0-9]{8,10}:[a-zA-Z0-9_-]{35}\b', '[TELEGRAM_BOT_TOKEN_MASKED]', text)
+        text = re.sub(r'\b3Hg[a-zA-Z0-9_-]{40,50}\b', '[NGROK_AUTHTOKEN_MASKED]', text)
+        if TELEGRAM_BOT_TOKEN and len(TELEGRAM_BOT_TOKEN) > 5 and TELEGRAM_BOT_TOKEN in text:
+            text = text.replace(TELEGRAM_BOT_TOKEN, '[TELEGRAM_BOT_TOKEN_MASKED]')
+        if API_SECRET_KEY and len(API_SECRET_KEY) > 3 and API_SECRET_KEY in text:
+            text = text.replace(API_SECRET_KEY, '[API_SECRET_KEY_MASKED]')
+        if NGROK_AUTHTOKEN and len(NGROK_AUTHTOKEN) > 5 and NGROK_AUTHTOKEN in text:
+            text = text.replace(NGROK_AUTHTOKEN, '[NGROK_AUTHTOKEN_MASKED]')
+        text = re.sub(r'(access[_-]?code["\']?\s*[:=]\s*["\']?)([^"\'\s,}{]+)', r'\1••••••••', text, flags=re.IGNORECASE)
+        return text
+
 # Ensure storage directory exists
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 from logging.handlers import RotatingFileHandler
 
-# Setup logging
+# Setup logging with SensitiveDataFilter
+file_handler = RotatingFileHandler(STORAGE_DIR / "printer_bot.log", maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
+file_handler.addFilter(SensitiveDataFilter())
+
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.addFilter(SensitiveDataFilter())
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=LOG_LEVEL,
     force=True,
-    handlers=[
-        RotatingFileHandler(STORAGE_DIR / "printer_bot.log", maxBytes=5*1024*1024, backupCount=3, encoding="utf-8"),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[file_handler, stream_handler]
 )
 logger = logging.getLogger("PrinterBot")
+logger.addFilter(SensitiveDataFilter())
+
 
 def validate_config(strict: bool = True):
     """Validates essential environment variables on startup."""
