@@ -36,12 +36,21 @@ class TestHTTPServer(AioHTTPTestCase):
 
     @unittest_run_loop
     async def test_options_cors_preflight(self):
-        resp = await self.client.request("OPTIONS", "/api/printers")
+        # 1. Test allowed Telegram WebApp origin
+        headers = {"Origin": "https://web.telegram.org"}
+        resp = await self.client.request("OPTIONS", "/api/printers", headers=headers)
         self.assertEqual(resp.status, 204)
-        self.assertIn("Access-Control-Allow-Origin", resp.headers)
+        self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "https://web.telegram.org")
         self.assertIn("Access-Control-Allow-Methods", resp.headers)
         self.assertIn("Access-Control-Allow-Headers", resp.headers)
 
+        # 2. Test disallowed origin returns "null"
+        bad_headers = {"Origin": "https://malicious-hacker-site.com"}
+        bad_resp = await self.client.request("OPTIONS", "/api/printers", headers=bad_headers)
+        self.assertEqual(bad_resp.status, 204)
+        self.assertEqual(bad_resp.headers.get("Access-Control-Allow-Origin"), "null")
+
 if __name__ == "__main__":
     unittest.main()
+
 
