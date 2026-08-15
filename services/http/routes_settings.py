@@ -195,16 +195,48 @@ async def handle_get_history(request: web.Request) -> web.Response:
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
-    history = await app_obj.storage.load_json(app_obj.storage.history_file, [])
-    total_grams = sum(item.get("weight_g", 0.0) for item in history)
-    total_cost = sum(item.get("cost_uah", 0.0) for item in history)
+    if hasattr(app_obj, "storage") and hasattr(app_obj.storage, "load_history"):
+        history = await app_obj.storage.load_history()
+    else:
+        history = await app_obj.storage.load_json(app_obj.storage.history_file, [])
+
+    total_grams = sum(float(item.get("weight_g", 0.0)) for item in history)
+    total_cost = sum(float(item.get("cost_uah", 0.0)) for item in history)
+
+    normalized_history = []
+    for item in history:
+        ts = item.get("timestamp", 0)
+        dt_str = (
+            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+            if isinstance(ts, (int, float)) and ts > 0
+            else str(ts or "-")
+        )
+        pname = item.get("printer_name") or item.get("printer") or "Принтер"
+        subtask = item.get("subtask_name") or item.get("task") or item.get("model_name") or "Модель"
+        w_g = round(float(item.get("weight_g", 0.0)), 1)
+        cost = round(float(item.get("cost_uah", 0.0)), 2)
+        filament = item.get("filament_type", "PLA")
+        normalized_history.append(
+            {
+                "timestamp": ts,
+                "datetime": dt_str,
+                "printer_name": pname,
+                "printer": pname,
+                "subtask_name": subtask,
+                "task": subtask,
+                "weight_g": w_g,
+                "cost_uah": cost,
+                "filament_type": filament,
+                "note": item.get("note", "Успішно виконано"),
+            }
+        )
 
     return web.json_response(
         {
-            "total_jobs": len(history),
+            "total_jobs": len(normalized_history),
             "total_weight_kg": round(total_grams / 1000.0, 2),
             "total_cost_uah": round(total_cost, 2),
-            "history": history,
+            "history": normalized_history,
         }
     )
 
@@ -215,24 +247,19 @@ async def handle_export_history_csv(request: web.Request) -> web.Response:
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
-    history = await app_obj.storage.load_json(app_obj.storage.history_file, [])
+    if hasattr(app_obj, "storage") and hasattr(app_obj.storage, "load_history"):
+        history = await app_obj.storage.load_history()
+    else:
+        history = await app_obj.storage.load_json(app_obj.storage.history_file, [])
 
-    csv_lines = ["Дата,Принтер,Модель,Вага (г),Матеріал,Собівартість (грн)"]
-    for item in history:
-        ts = item.get("timestamp", 0)
-        dt_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "-"
-        pname = str(item.get("printer_name", "")).replace(",", " ")
-        mname = str(item.get("subtask_name", "")).replace(",", " ")
-        weight = item.get("weight_g", 0.0)
-        ftype = str(item.get("filament_type", "")).replace(",", " ")
-        cost = item.get("cost_uah", 0.0)
-        csv_lines.append(f'"{dt_str}","{pname}","{mname}",{weight},"{ftype}",{cost}')
+    from services.report_generator import generate_csv_report
 
-    csv_body = "\n".join(csv_lines)
+    csv_bytes = generate_csv_report(history)
     filename = f"farm_history_{int(time.time())}.csv"
     return web.Response(
-        body=csv_body.encode("utf-8-sig"),
+        body=csv_bytes,
         content_type="text/csv",
+        charset="utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

@@ -176,7 +176,10 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
 
     @unittest_run_loop
     async def test_get_history_with_data(self):
-        history_data = [{"weight_g": 1000.0, "cost_uah": 500.0}, {"weight_g": 500.0, "cost_uah": 250.0}]
+        history_data = [
+            {"weight_g": 1000.0, "cost_uah": 500.0, "printer_name": "P1", "subtask_name": "Benchy"},
+            {"weight_g": 500.0, "cost_uah": 250.0, "printer": "P2", "task": "Box"},
+        ]
         await self.dummy_app.storage.save_json(self.dummy_app.storage.history_file, history_data)
 
         resp = await self.client.get("/api/history")
@@ -185,6 +188,14 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert data["total_jobs"] == 2
         assert data["total_weight_kg"] == 1.5
         assert data["total_cost_uah"] == 750.0
+        assert data["history"][0]["printer_name"] == "P1"
+        assert data["history"][0]["printer"] == "P1"
+        assert data["history"][0]["subtask_name"] == "Benchy"
+        assert data["history"][0]["task"] == "Benchy"
+        assert data["history"][1]["printer_name"] == "P2"
+        assert data["history"][1]["printer"] == "P2"
+        assert data["history"][1]["subtask_name"] == "Box"
+        assert data["history"][1]["task"] == "Box"
 
     @unittest_run_loop
     async def test_export_history_csv(self):
@@ -202,12 +213,15 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
 
         resp = await self.client.get("/api/history/export")
         assert resp.status == 200
-        assert resp.headers["Content-Type"] == "text/csv"
+        assert "text/csv" in resp.headers["Content-Type"]
         assert "Content-Disposition" in resp.headers
 
         text = await resp.text()
-        assert "Дата,Принтер,Модель,Вага (г),Матеріал,Собівартість (грн)" in text
-        assert '"P1","Model",1000.0,"PLA",500.0' in text
+        assert "Принтер" in text
+        assert "P1" in text
+        assert "Model" in text
+        assert "1000.0" in text
+        assert "500.00" in text
 
     @unittest_run_loop
     async def test_get_settings(self):

@@ -1060,34 +1060,89 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 8. Tab 3: History
+    // 8. Tab 3: History & Analytics
+    function formatHistoryDate(ts, dtStr) {
+        if (dtStr && typeof dtStr === "string" && dtStr !== "-") return dtStr;
+        if (!ts) return "-";
+        if (typeof ts === "number") {
+            const d = new Date(ts * 1000);
+            if (!isNaN(d.getTime())) {
+                return d.toLocaleString("uk-UA", {
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                });
+            }
+        }
+        return String(ts);
+    }
+
     async function loadHistory() {
         try {
             const res = await fetch("/api/history");
             const data = await res.json();
 
-            document.getElementById("stat-total-jobs").textContent = data.total_jobs || 0;
-            document.getElementById("stat-total-weight").textContent = `${data.total_weight_kg || 0} kg`;
-            document.getElementById("stat-total-cost").textContent = `${data.total_cost_uah || 0} ₴`;
+            const statJobsEl = document.getElementById("stat-total-jobs");
+            const statWeightEl = document.getElementById("stat-total-weight");
+            const statCostEl = document.getElementById("stat-total-cost");
+
+            if (statJobsEl) statJobsEl.textContent = data.total_jobs || 0;
+            if (statWeightEl) statWeightEl.textContent = `${data.total_weight_kg || 0} kg`;
+            if (statCostEl) statCostEl.textContent = `${data.total_cost_uah || 0} ₴`;
 
             const tbody = document.getElementById("history-table-body");
+            if (!tbody) return;
             const history = data.history || [];
             if (history.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="5" class="text-center">Журнал історії порожній</td></tr>`;
             } else {
-                tbody.innerHTML = history.slice(-20).reverse().map(item => `
+                tbody.innerHTML = history.slice(-50).reverse().map(item => {
+                    const dateFormatted = formatHistoryDate(item.timestamp, item.datetime);
+                    const printerName = escapeHtml(item.printer_name || item.printer || "Принтер");
+                    const taskName = escapeHtml(item.subtask_name || item.task || "Модель");
+                    const weightVal = item.weight_g !== undefined ? item.weight_g : 0;
+                    const costVal = item.cost_uah !== undefined ? item.cost_uah : 0;
+
+                    return `
                     <tr>
-                        <td>${item.timestamp || '-'}</td>
-                        <td>${item.printer || '-'}</td>
-                        <td><code>${item.task || '-'}</code></td>
-                        <td>${item.weight_g || 0}g</td>
-                        <td><strong>${item.cost_uah || 0} ₴</strong></td>
-                    </tr>`).join("");
+                        <td>${dateFormatted}</td>
+                        <td><strong>${printerName}</strong></td>
+                        <td><code>${taskName}</code></td>
+                        <td>${weightVal}g</td>
+                        <td><strong>${costVal} ₴</strong></td>
+                    </tr>`;
+                }).join("");
             }
         } catch (e) {
             console.error("Failed loading history:", e);
         }
     }
+
+    const exportBtn = document.getElementById("btn-export-history");
+    if (exportBtn) {
+        exportBtn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            try {
+                const res = await fetch("/api/history/export");
+                if (!res.ok) throw new Error("Не вдалося завантажити CSV");
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `farm_print_history_${new Date().toISOString().slice(0, 10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error("Export CSV error:", err);
+                alert("Помилка завантаження CSV звіту: " + (err.message || err));
+            }
+        });
+    }
+
 
     // 9. Tab 2: Commercial Calculator & Presets
     let currentPresets = {};

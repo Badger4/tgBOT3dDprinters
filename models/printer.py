@@ -113,6 +113,7 @@ class BambuPrinter:
         self.save_callback = save_callback
         self._client: mqtt.Client | None = None
         self._is_printing = False
+        self._history_recorded = False
         self._current_job_grams = 0.0
         self._job_deducted = False
         self.last_job_grams = 0.0
@@ -398,6 +399,7 @@ class BambuPrinter:
             if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING"]:
                 if not self._is_printing:
                     self._is_printing = True
+                self._history_recorded = False
 
                 if self._current_job_grams > 0 and not self._job_deducted:
                     active_key = self.get_active_slot_key()
@@ -458,19 +460,23 @@ class BambuPrinter:
                     if self.finish_timestamp == 0.0:
                         self.finish_timestamp = time.time()
 
-                    if self._is_printing:
+                    if not getattr(self, "_history_recorded", False):
                         logger.info(f"🎉 Print finished on [{self.name}]!")
-                        cost_info = self.calculate_job_cost(self.last_job_grams or 0.0)
+                        final_weight = self.last_job_grams or self._current_job_grams or 0.0
+                        if final_weight == 0.0 and self.subtask_name:
+                            final_weight = extract_subtask_weight(self.subtask_name)
+                        cost_info = self.calculate_job_cost(final_weight)
                         entry = {
                             "timestamp": time.time(),
                             "printer_name": self.name,
                             "subtask_name": self.subtask_name or "Модель",
-                            "weight_g": self.last_job_grams or 0.0,
+                            "weight_g": round(float(final_weight), 1),
                             "filament_type": self.filament_type,
-                            "cost_uah": cost_info["total_cost"],
+                            "cost_uah": round(float(cost_info["total_cost"]), 2),
                         }
                         if self._main_loop and self._main_loop.is_running():
                             asyncio.run_coroutine_threadsafe(self.storage.add_history_entry(entry), self._main_loop)
+                        self._history_recorded = True
 
                     self._is_printing = False
 
@@ -483,6 +489,7 @@ class BambuPrinter:
                     self._ftps_attempts = 0
                     self._last_ftps_time = 0.0
                     self._current_job_grams = 0.0
+                    self._history_recorded = False
 
         except Exception as e:
             logger.error(f"Error processing MQTT message for [{self.name}]: {e}")

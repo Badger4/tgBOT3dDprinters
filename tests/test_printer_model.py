@@ -209,6 +209,30 @@ class TestPrinterModel(unittest.TestCase):
         payload = json.loads(payload_str)
         self.assertEqual(payload["print"]["param"], "4")
 
+    @patch("asyncio.run_coroutine_threadsafe")
+    def test_history_recording_on_finish(self, mock_threadsafe) -> None:
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = True
+        self.printer._main_loop = mock_loop
+        self.printer.subtask_name = "Benchy_35g.3mf"
+        self.printer.filament_type = "PLA"
+
+        msg = MagicMock()
+        msg.topic = f"device/{self.printer.serial_number}/report"
+        msg.payload = json.dumps({"print": {"gcode_state": "RUNNING", "mc_percent": 50}}).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+        self.assertTrue(self.printer._is_printing)
+        self.assertFalse(self.printer._history_recorded)
+
+        # Transition to FINISH
+        msg.payload = json.dumps({"print": {"gcode_state": "FINISH", "mc_percent": 100}}).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+        self.assertTrue(self.printer._history_recorded)
+        self.assertFalse(self.printer._is_printing)
+        mock_threadsafe.assert_called_once()
+        coro = mock_threadsafe.call_args[0][0]
+        coro.close()
+
 
 if __name__ == "__main__":
     unittest.main()
