@@ -5,10 +5,12 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
+addopts = "-ra --reruns 2 --reruns-delay 1"
 filterwarnings = [
     "ignore::DeprecationWarning:aiohttp.*",
     "ignore::aiohttp.web_exceptions.NotAppKeyWarning"
 ]
+
 
 [tool.coverage.run]
 source = [

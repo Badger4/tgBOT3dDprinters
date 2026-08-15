@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import time
 from pathlib import Path
@@ -35,6 +36,12 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
 
         web_app = create_http_app(self.dummy_app)
         return web_app
+
+    async def tearDownAsync(self):
+        if hasattr(self, "client") and self.client:
+            await self.client.close()
+        await asyncio.sleep(0.05)
+        await super().tearDownAsync()
 
     def tearDown(self):
         from services.http.middleware import IP_CONTROL_LOGS, IP_REQUEST_LOGS, IP_UPLOAD_LOGS
