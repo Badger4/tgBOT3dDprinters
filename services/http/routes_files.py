@@ -10,7 +10,8 @@ from typing import Any
 
 from aiohttp import web
 
-from config import STORAGE_DIR, logger
+import config
+from config import logger
 from services.gcode_parser import check_compatibility, parse_3mf_file
 from services.http.auth import check_auth
 
@@ -38,10 +39,11 @@ async def handle_file_upload(request: web.Request) -> web.Response:
         clean_base = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name.rsplit(".", 1)[0])
         safe_filename = f"{clean_base}{clean_ext}"
 
-        upload_dir = STORAGE_DIR / "uploads"
+        upload_dir = config.STORAGE_DIR / "uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
         file_token = f"{int(time.time())}_{safe_filename}"
         save_path = (upload_dir / file_token).resolve()
+
         if upload_dir.resolve() not in save_path.parents:
             return web.json_response({"error": "Illegal file path"}, status=400)
 
@@ -123,7 +125,7 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
     try:
         data = await request.json()
         file_token = data.get("file_token", "")
-        save_path = STORAGE_DIR / "uploads" / file_token
+        save_path = config.STORAGE_DIR / "uploads" / file_token
         if not save_path.exists():
             return web.json_response({"error": "Uploaded file not found"}, status=404)
 

@@ -108,18 +108,19 @@ class BaseHTTPTestCase(AioHTTPTestCase):
         await super().tearDownAsync()
 
     def tearDown(self):
-        from services.http.middleware import IP_CONTROL_LOGS, IP_REQUEST_LOGS, IP_UPLOAD_LOGS
+        try:
+            from services.http.middleware import IP_CONTROL_LOGS, IP_REQUEST_LOGS, IP_UPLOAD_LOGS
 
-        IP_REQUEST_LOGS.clear()
-        IP_UPLOAD_LOGS.clear()
-        IP_CONTROL_LOGS.clear()
-        super().tearDown()
-        self.temp_dir_obj.cleanup()
-        import config
-        import services.http.routes_files
+            IP_REQUEST_LOGS.clear()
+            IP_UPLOAD_LOGS.clear()
+            IP_CONTROL_LOGS.clear()
+            super().tearDown()
+        finally:
+            import config
 
-        config.STORAGE_DIR = self.orig_storage_dir
-        services.http.routes_files.STORAGE_DIR = self.orig_storage_dir
+            config.STORAGE_DIR = self.orig_storage_dir
+            if hasattr(self, "temp_dir_obj"):
+                self.temp_dir_obj.cleanup()
 
     async def get_application(self):
         self.dummy_app = DummyApp(self.temp_dir)
@@ -419,6 +420,9 @@ class TestHTTPRoutesFiles(BaseHTTPTestCase):
     @patch("services.http.routes_files.parse_3mf_file")
     @unittest_run_loop
     async def test_file_upload_valid_3mf(self, mock_parse):
+        import config
+
+        self.assertTrue(config.STORAGE_DIR.exists())
         mock_parse.return_value = {
             "valid": True,
             "printer_model": "Bambu Lab P1S",
@@ -434,6 +438,7 @@ class TestHTTPRoutesFiles(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         resp_data = await resp.json()
         self.assertEqual(resp_data["status"], "ok")
+        self.assertTrue((config.STORAGE_DIR / "uploads").exists())
 
     @unittest_run_loop
     async def test_file_upload_invalid_ext(self):

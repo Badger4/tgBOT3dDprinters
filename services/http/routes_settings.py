@@ -8,13 +8,20 @@ from typing import Any
 
 from aiohttp import web
 
-from config import STORAGE_DIR, __version__, logger
+import config
+from config import __version__, logger
 from models.commercial import calculate_commercial_price
 from services.http.auth import check_auth
 
 START_TIME = time.time()
 WEBAPP_DIR = Path(__file__).parent.parent.parent / "webapp"
-PRESETS_FILE = STORAGE_DIR / "commercial_presets.json"
+
+
+def get_presets_file(app_obj: Any) -> Path:
+    if hasattr(app_obj, "storage") and hasattr(app_obj.storage, "base_dir"):
+        return app_obj.storage.base_dir / "commercial_presets.json"
+    return config.STORAGE_DIR / "commercial_presets.json"
+
 
 DEFAULT_PRESETS = {
     "default_pla": {
@@ -67,10 +74,11 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 async def load_commercial_presets(app_obj: Any) -> dict:
-    presets = await app_obj.storage.load_json(PRESETS_FILE, {})
+    presets_file = get_presets_file(app_obj)
+    presets = await app_obj.storage.load_json(presets_file, {})
     if not presets:
         presets = DEFAULT_PRESETS.copy()
-        await app_obj.storage.save_json(PRESETS_FILE, presets)
+        await app_obj.storage.save_json(presets_file, presets)
     else:
         unique_presets = {}
         seen_names = set()
@@ -81,7 +89,7 @@ async def load_commercial_presets(app_obj: Any) -> dict:
                 unique_presets[pid] = p
         if len(unique_presets) != len(presets):
             presets = unique_presets
-            await app_obj.storage.save_json(PRESETS_FILE, presets)
+            await app_obj.storage.save_json(presets_file, presets)
     return presets
 
 
@@ -134,7 +142,8 @@ async def handle_save_preset(request: web.Request) -> web.Response:
             "consumables_val": str(data.get("consumables_val") or "5"),
             "profit_val": str(data.get("profit_val") or "100%"),
         }
-        await app_obj.storage.save_json(PRESETS_FILE, presets)
+        presets_file = get_presets_file(app_obj)
+        await app_obj.storage.save_json(presets_file, presets)
         return web.json_response({"status": "ok", "preset": presets[p_id]})
     except Exception as e:
         logger.error(f"Error saving commercial preset: {e}")
@@ -151,7 +160,8 @@ async def handle_delete_preset(request: web.Request) -> web.Response:
     presets = await load_commercial_presets(app_obj)
     if p_id in presets:
         del presets[p_id]
-        await app_obj.storage.save_json(PRESETS_FILE, presets)
+        presets_file = get_presets_file(app_obj)
+        await app_obj.storage.save_json(presets_file, presets)
         return web.json_response({"status": "ok"})
     return web.json_response({"error": "Preset not found"}, status=404)
 
