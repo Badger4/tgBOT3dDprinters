@@ -353,7 +353,7 @@ class TestCrashScenariosAndIsolation:
         bot_token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 
         # 1. Valid HMAC construction
-        user_dict = {"id": 123456789, "first_name": "TestUser", "username": "testuser"}
+        user_dict = {"id": 999888777, "first_name": "TestUser", "username": "testuser"}
         user_json = json.dumps(user_dict, separators=(",", ":"))
         auth_date = str(int(time.time()))
 
@@ -368,7 +368,8 @@ class TestCrashScenariosAndIsolation:
 
         res_valid = verify_telegram_init_data(valid_init_data, bot_token)
         assert res_valid is not None
-        assert res_valid.get("id") == 123456789
+        assert res_valid.get("id") == 999888777
+
 
         # 2. Tampered hash (forgery attack)
         forged_init_data = valid_init_data.replace(valid_hash, "f0rged_h@sh_1234567890abcdef1234567890abcdef")
