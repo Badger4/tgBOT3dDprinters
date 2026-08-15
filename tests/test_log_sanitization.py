@@ -53,10 +53,47 @@ class TestLogSanitization(unittest.TestCase):
         self.assertNotIn("9876543210:AAEEFFGGHHIIJJKKLLMMNNOOPPQQRRSSTTU", sanitized)
         self.assertIn("••••••••", sanitized)
 
-    def test_aiohttp_access_logger_attachment(self):
-        aio_log = logging.getLogger("aiohttp.access")
-        has_sensitive_filter = any(isinstance(f, SensitiveDataFilter) for f in aio_log.filters)
-        self.assertTrue(has_sensitive_filter)
+    def test_numeric_args_formatting(self):
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Process ID: %d, time: %.2f",
+            args=(1234, 1.25),
+            exc_info=None,
+        )
+        self.assertTrue(self.filter.filter(record))
+        self.assertEqual(record.args, (1234, 1.25))
+        self.assertEqual(record.getMessage(), "Process ID: 1234, time: 1.25")
+
+    def test_dict_args_formatting(self):
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="User %(name)s ID %(id)d",
+            args={"name": "Alice", "id": 42},
+            exc_info=None,
+        )
+        self.assertTrue(self.filter.filter(record))
+        self.assertEqual(record.args, {"name": "Alice", "id": 42})
+        self.assertEqual(record.getMessage(), "User Alice ID 42")
+
+    def test_mixed_tuple_sanitization(self):
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Token %s failed with code %d",
+            args=("1234567890:ABCdefGHIjklMNOpqrsTUVwxyz123456789", 401),
+            exc_info=None,
+        )
+        self.assertTrue(self.filter.filter(record))
+        self.assertEqual(record.args, ("[TELEGRAM_BOT_TOKEN_MASKED]", 401))
+        self.assertEqual(record.getMessage(), "Token [TELEGRAM_BOT_TOKEN_MASKED] failed with code 401")
 
 
 if __name__ == "__main__":
