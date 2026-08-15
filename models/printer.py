@@ -1,24 +1,27 @@
 """
 Bambu Lab 3D Printer MQTT client and domain model.
 """
+
+import asyncio
+import hashlib
+import html
 import io
+import json
 import re
 import ssl
-import html
-import json
-import uuid
 import time
+import uuid
 import zipfile
-import hashlib
-import asyncio
-from typing import Dict, Any, Optional
+from typing import Any
+
 import paho.mqtt.client as mqtt
-from config import logger, STORAGE_DIR
+
+from config import STORAGE_DIR, logger
+from models.enums import AMSSlot
 from services.ftps_client import extract_model_weight, fetch_bambu_ftps_weight, upload_3mf_to_bambu
 from services.gcode_parser import parse_3mf_file
+from services.mqtt_message_parser import extract_subtask_weight, parse_mqtt_payload
 from storage.manager import StorageManager
-from models.enums import AMSSlot, GCodeState
-
 
 DEFAULT_MAINTENANCE_ITEMS = {
     "rails": {
@@ -26,34 +29,36 @@ DEFAULT_MAINTENANCE_ITEMS = {
         "name": "Змащення валів & направляючих",
         "counter_hours": 0.0,
         "interval_hours": 100.0,
-        "last_reset": 0.0
+        "last_reset": 0.0,
     },
     "nozzle": {
         "key": "nozzle",
         "name": "Чистка сопла & екструдера",
         "counter_hours": 0.0,
         "interval_hours": 50.0,
-        "last_reset": 0.0
+        "last_reset": 0.0,
     },
     "belts": {
         "key": "belts",
         "name": "Перевірка натягу ременів",
         "counter_hours": 0.0,
         "interval_hours": 150.0,
-        "last_reset": 0.0
+        "last_reset": 0.0,
     },
     "filter": {
         "key": "filter",
         "name": "Заміна вугільного фільтра",
         "counter_hours": 0.0,
         "interval_hours": 300.0,
-        "last_reset": 0.0
-    }
+        "last_reset": 0.0,
+    },
 }
+
 
 class BambuPrinter:
     """Manages Bambu Lab 3D Printer telemetry and MQTT control."""
-    def __init__(self, config: Dict[str, Any], storage: StorageManager, save_callback: Optional[Any] = None):
+
+    def __init__(self, config: dict[str, Any], storage: StorageManager, save_callback: Any | None = None):
         self.id = str(config.get("id") or uuid.uuid4())
         self.name = config.get("name", "Bambu Printer")
         self.ip = config.get("ip", "")
@@ -76,17 +81,21 @@ class BambuPrinter:
         self.last_maintenance_timestamp = float(config.get("last_maintenance_timestamp", 0.0))
 
         raw_maint_items = config.get("maintenance_items") or {}
-        self.maintenance_items: Dict[str, Dict[str, Any]] = {}
+        self.maintenance_items: dict[str, dict[str, Any]] = {}
         for k, def_item in DEFAULT_MAINTENANCE_ITEMS.items():
             user_item = raw_maint_items.get(k, {})
             c_hrs = float(user_item.get("counter_hours", self.maintenance_hours_counter if k == "rails" else 0.0))
-            i_hrs = float(user_item.get("interval_hours", self.maintenance_interval_hours if k == "rails" else def_item["interval_hours"]))
+            i_hrs = float(
+                user_item.get(
+                    "interval_hours", self.maintenance_interval_hours if k == "rails" else def_item["interval_hours"]
+                )
+            )
             self.maintenance_items[k] = {
                 "key": k,
                 "name": def_item["name"],
                 "counter_hours": c_hrs,
                 "interval_hours": i_hrs,
-                "last_reset": float(user_item.get("last_reset", 0.0))
+                "last_reset": float(user_item.get("last_reset", 0.0)),
             }
 
         # Per-slot AMS filament weight tracking (Keys: "0"=A1, "1"=A2, "2"=A3, "3"=A4, "255"=External)
@@ -96,20 +105,20 @@ class BambuPrinter:
             AMSSlot.A2.value: 1000.0,
             AMSSlot.A3.value: 1000.0,
             AMSSlot.A4.value: 1000.0,
-            AMSSlot.EXTERNAL.value: 1000.0
+            AMSSlot.EXTERNAL.value: 1000.0,
         }
-        self.ams_slots: Dict[str, float] = {k: float(v) for k, v in {**default_slots, **raw_ams_slots}.items()}
+        self.ams_slots: dict[str, float] = {k: float(v) for k, v in {**default_slots, **raw_ams_slots}.items()}
 
         self.storage = storage
         self.save_callback = save_callback
-        self._client: Optional[mqtt.Client] = None
+        self._client: mqtt.Client | None = None
         self._is_printing = False
         self._current_job_grams = 0.0
         self._job_deducted = False
         self.last_job_grams = 0.0
         self._ftps_fetching = False
         self._ftps_attempted = False
-        self._main_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._main_loop: asyncio.AbstractEventLoop | None = None
 
         # Live telemetry
         self.gcode_state = config.get("gcode_state", "IDLE")
@@ -131,8 +140,8 @@ class BambuPrinter:
         self.active_ams_tray: int = 255
         self.ams_exist_bits: str = str(config.get("ams_exist_bits", "0"))
         raw_ams_enabled = config.get("ams_enabled")
-        self.ams_enabled: Optional[bool] = bool(raw_ams_enabled) if raw_ams_enabled is not None else None
-        self.ams_trays_info: Dict[str, dict] = {}
+        self.ams_enabled: bool | None = bool(raw_ams_enabled) if raw_ams_enabled is not None else None
+        self.ams_trays_info: dict[str, dict] = {}
 
     @property
     def has_ams(self) -> bool:
@@ -166,11 +175,11 @@ class BambuPrinter:
             return s_key
         return AMSSlot.EXTERNAL.value if AMSSlot.A1.value in self.ams_slots else AMSSlot.EXTERNAL.value
 
-    def get_slot_grams(self, slot_id: Optional[Any] = None) -> float:
+    def get_slot_grams(self, slot_id: Any | None = None) -> float:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()
         return float(self.ams_slots.get(s_key, self.filament_grams))
 
-    def set_slot_grams(self, grams: float, slot_id: Optional[Any] = None) -> None:
+    def set_slot_grams(self, grams: float, slot_id: Any | None = None) -> None:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()
         g_val = round(float(grams), 2)
         self.ams_slots[s_key] = g_val
@@ -210,7 +219,6 @@ class BambuPrinter:
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
         self._client.on_error = self._on_error  # type: ignore[attr-defined]
-
 
         try:
             self._client.connect_async(self.ip, 8883, 60)
@@ -275,7 +283,9 @@ class BambuPrinter:
                             self.set_slot_grams(new_w, active_key)
                             self._job_deducted = True
                             self.last_job_grams = self._current_job_grams
-                            logger.info(f"💾 Auto-deducted {self._current_job_grams}g (via FTPS) from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g")
+                            logger.info(
+                                f"💾 Auto-deducted {self._current_job_grams}g (via FTPS) from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
+                            )
                             self._trigger_save()
             except Exception as e:
                 logger.warning(f"FTPS worker error for [{self.name}]: {e}")
@@ -286,128 +296,54 @@ class BambuPrinter:
             asyncio.run_coroutine_threadsafe(asyncio.to_thread(_worker), self._main_loop)
 
     def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
-
         try:
             self.is_mqtt_connected = True
             self.last_mqtt_msg_time = time.time()
-            payload = json.loads(msg.payload.decode('utf-8'))
-            print_data = payload.get("print")
-            if not print_data:
+            parsed = parse_mqtt_payload(msg.payload)
+            if not parsed:
                 return
 
-            if "gcode_state" in print_data and print_data["gcode_state"]:
-                self.gcode_state = str(print_data["gcode_state"]).upper()
-            if "nozzle_temper" in print_data and print_data["nozzle_temper"] is not None:
-                try:
-                    self.nozzle_temper = round(float(print_data["nozzle_temper"]))
-                except (ValueError, TypeError):
-                    pass
-            if "bed_temper" in print_data and print_data["bed_temper"] is not None:
-                try:
-                    self.bed_temper = round(float(print_data["bed_temper"]))
-                except (ValueError, TypeError):
-                    pass
-            if "mc_percent" in print_data and print_data["mc_percent"] is not None:
-                try:
-                    self.mc_percent = max(0, min(100, int(print_data["mc_percent"])))
-                except (ValueError, TypeError):
-                    pass
-            if "mc_remaining_time" in print_data and print_data["mc_remaining_time"] is not None:
-                try:
-                    self.mc_remaining_time = max(0, int(print_data["mc_remaining_time"]))
-                except (ValueError, TypeError):
-                    pass
-            if "layer_num" in print_data and print_data["layer_num"] is not None:
-                try:
-                    self.layer_num = max(0, int(print_data["layer_num"]))
-                except (ValueError, TypeError):
-                    pass
-            if "total_layer_num" in print_data and print_data["total_layer_num"] is not None:
-                try:
-                    self.total_layer_num = max(0, int(print_data["total_layer_num"]))
-                except (ValueError, TypeError):
-                    pass
-            if "subtask_name" in print_data and print_data["subtask_name"] is not None:
-                self.subtask_name = str(print_data["subtask_name"])
-            if "spd_lvl" in print_data and print_data["spd_lvl"] is not None:
-                try:
-                    self.spd_lvl = int(print_data["spd_lvl"])
-                except (ValueError, TypeError):
-                    pass
-            if "spd_mag" in print_data and print_data["spd_mag"] is not None:
-                try:
-                    self.spd_mag = int(print_data["spd_mag"])
-                except (ValueError, TypeError):
-                    pass
+            print_data = parsed["print_data"]
+            if "gcode_state" in parsed:
+                self.gcode_state = parsed["gcode_state"]
+            if "nozzle_temper" in parsed:
+                self.nozzle_temper = parsed["nozzle_temper"]
+            if "bed_temper" in parsed:
+                self.bed_temper = parsed["bed_temper"]
+            if "mc_percent" in parsed:
+                self.mc_percent = parsed["mc_percent"]
+            if "mc_remaining_time" in parsed:
+                self.mc_remaining_time = parsed["mc_remaining_time"]
+            if "layer_num" in parsed:
+                self.layer_num = parsed["layer_num"]
+            if "total_layer_num" in parsed:
+                self.total_layer_num = parsed["total_layer_num"]
+            if "subtask_name" in parsed:
+                self.subtask_name = parsed["subtask_name"]
+            if "spd_lvl" in parsed:
+                self.spd_lvl = parsed["spd_lvl"]
+            if "spd_mag" in parsed:
+                self.spd_mag = parsed["spd_mag"]
+            if "chamber_light_state" in parsed:
+                self.chamber_light_state = parsed["chamber_light_state"]
+            if "hms_errors" in parsed:
+                self.hms_errors = parsed["hms_errors"]
 
-            if "lights_report" in print_data and isinstance(print_data["lights_report"], list):
-                for light in print_data["lights_report"]:
-                    if light.get("node") == "chamber_light":
-                        self.chamber_light_state = light.get("mode", "off")
+            if "ams_exist_bits" in parsed:
+                self.ams_exist_bits = parsed["ams_exist_bits"]
+            if "active_ams_tray" in parsed:
+                self.active_ams_tray = parsed["active_ams_tray"]
+            if "ams_units" in parsed:
+                self.ams_units = parsed["ams_units"]
+            if "ams_trays_info" in parsed:
+                self.ams_trays_info.update(parsed["ams_trays_info"])
+            if "ams_humidity_idx" in parsed:
+                self.ams_humidity_idx = parsed["ams_humidity_idx"]
+            if "ams_temp" in parsed:
+                self.ams_temp = parsed["ams_temp"]
 
-            if "hms" in print_data and isinstance(print_data["hms"], list):
-                self.hms_errors = print_data["hms"]
-
-            if "ams" in print_data and isinstance(print_data["ams"], dict):
-                ams_info = print_data["ams"]
-                if "ams_exist_bits" in ams_info:
-                    self.ams_exist_bits = str(ams_info["ams_exist_bits"])
-                if "tray_now" in ams_info:
-                    try:
-                        self.active_ams_tray = int(ams_info["tray_now"])
-                    except (ValueError, TypeError):
-                        self.active_ams_tray = 255
-
-                if "ams" in ams_info and isinstance(ams_info["ams"], list):
-                    self.ams_units = ams_info["ams"]
-                    trays_dict = {}
-                    for unit in self.ams_units:
-                        if isinstance(unit, dict) and "tray" in unit and isinstance(unit["tray"], list):
-                            for tray in unit["tray"]:
-                                if isinstance(tray, dict):
-                                    slot_id = str(tray.get("id", ""))
-                                    if slot_id != "":
-                                        is_empty = bool(tray.get("empty", False))
-                                        raw_color = str(tray.get("tray_color") or "")
-                                        hex_color = f"#{raw_color[:6]}" if len(raw_color) >= 6 else ""
-                                        
-                                        trays_dict[slot_id] = {
-                                            "id": slot_id,
-                                            "empty": is_empty,
-                                            "type": str(tray.get("tray_type") or ""),
-                                            "sub_brands": str(tray.get("tray_sub_brands") or ""),
-                                            "color": hex_color,
-                                            "remain": int(tray.get("remain", -1))
-                                        }
-                    if trays_dict:
-                        self.ams_trays_info.update(trays_dict)
-
-                    if self.ams_units:
-                        unit = self.ams_units[0]
-                        if "humidity" in unit:
-                            try:
-                                self.ams_humidity_idx = int(unit["humidity"])
-                            except (ValueError, TypeError):
-                                pass
-                        if "temp" in unit:
-                            try:
-                                self.ams_temp = float(unit["temp"])
-                            except (ValueError, TypeError):
-                                pass
-
-            if "vt_tray" in print_data and isinstance(print_data["vt_tray"], dict):
-                vt = print_data["vt_tray"]
-                vt_empty = bool(vt.get("empty", False))
-                vt_color = str(vt.get("tray_color") or "")
-                vt_hex = f"#{vt_color[:6]}" if len(vt_color) >= 6 else ""
-                self.ams_trays_info["255"] = {
-                    "id": "255",
-                    "empty": vt_empty,
-                    "type": str(vt.get("tray_type") or ""),
-                    "sub_brands": str(vt.get("tray_sub_brands") or ""),
-                    "color": vt_hex,
-                    "remain": int(vt.get("remain", -1))
-                }
+            if "vt_tray_info" in parsed:
+                self.ams_trays_info["255"] = parsed["vt_tray_info"]
 
             filament = print_data.get("vt_tray", {}).get("tray_type")
             if not filament and self.ams_units:
@@ -442,20 +378,19 @@ class BambuPrinter:
 
             # Check subtask filename regex if weight is still 0.0
             if self._current_job_grams == 0.0 and self.subtask_name:
-                m_fname = re.search(r'(?:_|\b)(\d+(?:[\.,]\d+)?)\s*(?:g|г|gram|grams)\b', self.subtask_name, re.IGNORECASE)
-                if m_fname:
-                    try:
-                        w_fname = float(m_fname.group(1).replace(",", "."))
-                        if 0 < w_fname < 5000:
-                            self._current_job_grams = w_fname
-                            logger.info(f"💡 Extracted weight {w_fname}g from subtask_name for [{self.name}]")
-                    except ValueError:
-                        pass
+                w_fname = extract_subtask_weight(self.subtask_name)
+                if w_fname > 0:
+                    self._current_job_grams = w_fname
+                    logger.info(f"💡 Extracted weight {w_fname}g from subtask_name for [{self.name}]")
 
             # Trigger FTPS fetch to download 3MF/gcode from printer SD card and extract exact weight from slice_info.config / .gcode
             if self.gcode_state in ["RUNNING", "PAUSE"] and self._current_job_grams == 0.0:
                 now_ts = time.time()
-                if not self._ftps_fetching and getattr(self, "_ftps_attempts", 0) < 5 and (now_ts - getattr(self, "_last_ftps_time", 0.0) >= 8.0):
+                if (
+                    not self._ftps_fetching
+                    and getattr(self, "_ftps_attempts", 0) < 5
+                    and (now_ts - getattr(self, "_last_ftps_time", 0.0) >= 8.0)
+                ):
                     self._ftps_attempts = getattr(self, "_ftps_attempts", 0) + 1
                     self._last_ftps_time = now_ts
                     self._try_ftps_fetch()
@@ -471,7 +406,9 @@ class BambuPrinter:
                     self.set_slot_grams(new_w, active_key)
                     self._job_deducted = True
                     self.last_job_grams = self._current_job_grams
-                    logger.info(f"💾 Auto-deducted {self._current_job_grams}g from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g")
+                    logger.info(
+                        f"💾 Auto-deducted {self._current_job_grams}g from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
+                    )
                     self._trigger_save()
 
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
@@ -494,7 +431,9 @@ class BambuPrinter:
                                     pass
 
                         if self._current_job_grams == 0.0 and self.subtask_name:
-                            m_fname = re.search(r'(?:_|\b)(\d+(?:[\.,]\d+)?)\s*(?:g|г|gram|grams)\b', self.subtask_name, re.IGNORECASE)
+                            m_fname = re.search(
+                                r"(?:_|\b)(\d+(?:[\.,]\d+)?)\s*(?:g|г|gram|grams)\b", self.subtask_name, re.IGNORECASE
+                            )
                             if m_fname:
                                 try:
                                     w_fname = float(m_fname.group(1).replace(",", "."))
@@ -511,7 +450,9 @@ class BambuPrinter:
                             self.set_slot_grams(new_w, active_key)
                             self._job_deducted = True
                             self.last_job_grams = deduct_w
-                            logger.info(f"💾 Auto-deducted {deduct_w}g on FINISH from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g")
+                            logger.info(
+                                f"💾 Auto-deducted {deduct_w}g on FINISH from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
+                            )
                             self._trigger_save()
 
                     if self.finish_timestamp == 0.0:
@@ -526,7 +467,7 @@ class BambuPrinter:
                             "subtask_name": self.subtask_name or "Модель",
                             "weight_g": self.last_job_grams or 0.0,
                             "filament_type": self.filament_type,
-                            "cost_uah": cost_info["total_cost"]
+                            "cost_uah": cost_info["total_cost"],
                         }
                         if self._main_loop and self._main_loop.is_running():
                             asyncio.run_coroutine_threadsafe(self.storage.add_history_entry(entry), self._main_loop)
@@ -578,13 +519,9 @@ class BambuPrinter:
         if not self._client or not self._client.is_connected():
             return False
         param_str = str(max(1, min(4, level)))
-        payload = json.dumps({
-            "print": {
-                "sequence_id": str(int(time.time())),
-                "command": "print_speed",
-                "param": param_str
-            }
-        })
+        payload = json.dumps(
+            {"print": {"sequence_id": str(int(time.time())), "command": "print_speed", "param": param_str}}
+        )
         self._client.publish(f"device/{self.serial_number}/request", payload)
         self.spd_lvl = level
         return True
@@ -597,18 +534,20 @@ class BambuPrinter:
         if not self._client or not self._client.is_connected():
             return False
         new_mode = "off" if self.chamber_light_state == "on" else "on" if mode == "toggle" else mode
-        payload = json.dumps({
-            "system": {
-                "sequence_id": str(int(time.time())),
-                "command": "ledctrl",
-                "led_node": "chamber_light",
-                "led_mode": new_mode,
-                "led_on_time": 500,
-                "led_off_time": 500,
-                "loop_times": 0,
-                "interval_time": 0
+        payload = json.dumps(
+            {
+                "system": {
+                    "sequence_id": str(int(time.time())),
+                    "command": "ledctrl",
+                    "led_node": "chamber_light",
+                    "led_mode": new_mode,
+                    "led_on_time": 500,
+                    "led_off_time": 500,
+                    "loop_times": 0,
+                    "interval_time": 0,
+                }
             }
-        })
+        )
         self._client.publish(f"device/{self.serial_number}/request", payload)
         self.chamber_light_state = new_mode
         return True
@@ -623,35 +562,30 @@ class BambuPrinter:
         """
         if not self._client or not self._client.is_connected():
             return False
-        
+
         # 1. Native Bambu Lab calibration command (Option 63 = Full Calibration)
-        payload_cal = json.dumps({
-            "print": {
-                "sequence_id": str(int(time.time())),
-                "command": "calibration",
-                "option": 63
-            }
-        })
+        payload_cal = json.dumps(
+            {"print": {"sequence_id": str(int(time.time())), "command": "calibration", "option": 63}}
+        )
         self._client.publish(f"device/{self.serial_number}/request", payload_cal)
 
         # 2. Backup G32 gcode_line command for compatibility across firmware versions
-        payload_g32 = json.dumps({
-            "print": {
-                "sequence_id": str(int(time.time()) + 1),
-                "command": "gcode_line",
-                "param": "G32\n"
-            }
-        })
+        payload_g32 = json.dumps(
+            {"print": {"sequence_id": str(int(time.time()) + 1), "command": "gcode_line", "param": "G32\n"}}
+        )
         self._client.publish(f"device/{self.serial_number}/request", payload_g32)
         logger.info(f"🎯 Triggered automatic calibration (G32 / option 63) for [{self.name}] ({self.serial_number})")
         return True
 
-    async def start_print_job_async(self, file_bytes: bytes, filename: str, plate_name: str = "plate_1.gcode", use_ams: bool = True) -> tuple[bool, str]:
+    async def start_print_job_async(
+        self, file_bytes: bytes, filename: str, plate_name: str = "plate_1.gcode", use_ams: bool = True
+    ) -> tuple[bool, str]:
         """
         Uploads 3MF file via FTPS to printer SD card and publishes MQTT project_file command to start printing.
         Returns (success: bool, user_message: str).
         """
         import re
+
         if not self._client or not self._client.is_connected():
             return False, "⚠️ MQTT з'єднання з принтером відсутнє."
 
@@ -694,7 +628,7 @@ class BambuPrinter:
                 logger.warning(f"Failed zip sub_path scan for {filename}: {e_zip}")
 
         md5_str = hashlib.md5(file_bytes).hexdigest()
-        clean_subtask = re.sub(r'[^a-zA-Z0-9_]', '_', filename.rsplit('.', 1)[0])
+        clean_subtask = re.sub(r"[^a-zA-Z0-9_]", "_", filename.rsplit(".", 1)[0])
 
         # Pre-calculate filament weight from uploaded 3MF file
         try:
@@ -712,7 +646,9 @@ class BambuPrinter:
                 self.set_slot_grams(new_w, active_key)
                 self._job_deducted = True
                 self.last_job_grams = w_g
-                logger.info(f"💾 Auto-deducted {w_g}g from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g")
+                logger.info(
+                    f"💾 Auto-deducted {w_g}g from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
+                )
                 self._trigger_save()
         except Exception as e_w:
             logger.warning(f"Could not parse 3MF weight in start_print_job_async: {e_w}")
@@ -728,19 +664,24 @@ class BambuPrinter:
                 "md5": md5_str,
                 "timelapse": True,
                 "bed_type": "auto",
-                "use_ams": use_ams
+                "use_ams": use_ams,
             }
         }
 
         try:
             self._client.publish(f"device/{self.serial_number}/request", json.dumps(payload))
-            logger.info(f"🚀 Sent MQTT project_file command for {clean_file} (url: {url_path}, md5: {md5_str}) to [{self.name}]")
-            return True, f"✅ Файл <code>{html.escape(filename)}</code> успішно відправлено по FTPS та запущено на друк на <b>{html.escape(self.name)}</b>!"
+            logger.info(
+                f"🚀 Sent MQTT project_file command for {clean_file} (url: {url_path}, md5: {md5_str}) to [{self.name}]"
+            )
+            return (
+                True,
+                f"✅ Файл <code>{html.escape(filename)}</code> успішно відправлено по FTPS та запущено на друк на <b>{html.escape(self.name)}</b>!",
+            )
         except Exception as e:
             logger.error(f"Error publishing MQTT project_file for [{self.name}]: {e}")
             return False, f"⚠️ Помилка відправки MQTT команди на друк: {e}"
 
-    def calculate_job_cost(self, weight_grams: float, print_mins: int = 0) -> Dict[str, float]:
+    def calculate_job_cost(self, weight_grams: float, print_mins: int = 0) -> dict[str, float]:
         """Calculates cost breakdown: filament cost + electricity cost in UAH."""
         if weight_grams <= 0:
             return {"filament_cost": 0.0, "electricity_cost": 0.0, "total_cost": 0.0}
@@ -753,7 +694,7 @@ class BambuPrinter:
         return {
             "filament_cost": round(filament_cost, 2),
             "electricity_cost": round(electricity_cost, 2),
-            "total_cost": round(filament_cost + electricity_cost, 2)
+            "total_cost": round(filament_cost + electricity_cost, 2),
         }
 
     def record_print_hours(self, hours: float) -> None:
@@ -790,7 +731,6 @@ class BambuPrinter:
         self._trigger_save()
 
     def set_maintenance_interval(self, item_key: str, interval_hours: float) -> None:
-
         """Sets target maintenance interval in hours for a specific item."""
         val = max(1.0, float(interval_hours))
         if item_key in self.maintenance_items:
@@ -800,7 +740,7 @@ class BambuPrinter:
         logger.info(f"⚙️ Maintenance interval for [{self.name}] ({item_key}) set to {val}h")
         self._trigger_save()
 
-    def to_dict(self, for_storage: bool = False) -> Dict[str, Any]:
+    def to_dict(self, for_storage: bool = False) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -831,10 +771,9 @@ class BambuPrinter:
             "filament_type": self.filament_type,
             "spd_lvl": self.spd_lvl,
             "spd_mag": self.spd_mag,
-            "ams_slots": self.ams_slots
+            "ams_slots": self.ams_slots,
         }
 
-    def to_storage_dict(self) -> Dict[str, Any]:
+    def to_storage_dict(self) -> dict[str, Any]:
         """Returns unmasked dictionary representation for internal SQLite / JSON storage persistence."""
         return self.to_dict(for_storage=True)
-

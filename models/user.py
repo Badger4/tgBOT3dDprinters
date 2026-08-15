@@ -1,9 +1,11 @@
 """
 Lightweight dataclass domain models for User Profile & Context, optimized for Raspberry Pi Zero memory efficiency.
 """
+
 import time
-from dataclasses import dataclass, field, asdict
-from typing import Dict, Any, Optional
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
 
 @dataclass
 class UserNotificationSettings:
@@ -15,11 +17,11 @@ class UserNotificationSettings:
     notified_filament: bool = False
     notified_time: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "UserNotificationSettings":
+    def from_dict(cls, data: dict[str, Any] | None) -> "UserNotificationSettings":
         if not data:
             return cls()
         return cls(
@@ -32,6 +34,7 @@ class UserNotificationSettings:
             notified_time=bool(data.get("notified_time", False)),
         )
 
+
 @dataclass
 class UserProfile:
     user_id: str
@@ -39,12 +42,12 @@ class UserProfile:
     created_at: float = field(default_factory=time.time)
     access_admin: bool = False
     state: str = "idle"
-    selected_printer_id: Optional[str] = None
-    active_spool_id: Optional[str] = None
+    selected_printer_id: str | None = None
+    active_spool_id: str | None = None
     notify: UserNotificationSettings = field(default_factory=UserNotificationSettings)
-    context_data: Dict[str, Any] = field(default_factory=dict)
+    context_data: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "user_id": self.user_id,
             "is_approved": self.is_approved,
@@ -56,12 +59,12 @@ class UserProfile:
             "context_data": {
                 **self.context_data,
                 "selected_printer_id": self.selected_printer_id,
-                "active_spool_id": self.active_spool_id
-            }
+                "active_spool_id": self.active_spool_id,
+            },
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "UserProfile":
+    def from_dict(cls, data: dict[str, Any]) -> "UserProfile":
         user_id = str(data.get("user_id", ""))
         is_approved = bool(data.get("is_approved", False))
         created_at = float(data.get("created_at", time.time()))
@@ -82,5 +85,5 @@ class UserProfile:
             selected_printer_id=selected_pid,
             active_spool_id=active_spool_id,
             notify=notify_obj,
-            context_data=ctx
+            context_data=ctx,
         )

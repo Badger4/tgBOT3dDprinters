@@ -1,0 +1,88 @@
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning:aiohttp.*",
+    "ignore::aiohttp.web_exceptions.NotAppKeyWarning"
+]
+
+[tool.coverage.run]
+source = [
+    "models",
+    "services",
+    "storage",
+    "config",
+    "utils"
+]
+omit = [
+    "tests/*",
+    "scripts/*",
+    "webapp/*",
+    "orca_hook.py",
+    "printer.py",
+    "app.py"
+]
+
+[tool.coverage.report]
+fail_under = 65
+show_missing = true
+precision = 2
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "pass",
+    "\\.\\.\\."
+]
+
+[tool.coverage.json]
+output = "coverage.json"
+pretty_print = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = [
+    "printers_storage",
+    "logs",
+    "webapp",
+    "scratch"
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+]
+ignore = [
+    "E501", # line too long (handled by formatter)
+    "B008", # function calls in argument defaults
+    "E402", # module level import not at top of file (used after dotenv setup)
+    "E731", # do not assign a lambda expression
+    "UP042", # Class inherits from both str and Enum (for backwards compatibility)
+    "UP038", # Use X | Y in isinstance call instead of (X, Y)
+    "B007", # Loop control variable not used within loop body
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F841", "F401", "B007"]
+
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+

@@ -1,36 +1,36 @@
 """
 Main Application orchestrating Telegram bot, storage, and printer monitoring.
 """
-import re
-import time
+
 import asyncio
 import gc
-from typing import Dict, Any, Optional
+import time
+from typing import Any
+
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 
-from config import logger, STORAGE_DIR, TELEGRAM_BOT_TOKEN, ADMIN_CHAT_ID, validate_config
-from storage.manager import StorageManager
-from models.printer import BambuPrinter
-from models.enums import GCodeState, AMSSlot
 from bot.handlers import setup_routers
 from bot.keyboards import get_notification_inline_keyboard
-from utils.filament_utils import parse_slot_key_from_text, extract_filament_type_from_name
+from config import ADMIN_CHAT_ID, STORAGE_DIR, TELEGRAM_BOT_TOKEN, logger
+from models.printer import BambuPrinter
+from storage.manager import StorageManager
+
 
 class PrinterBotApp:
     def __init__(self):
         self.storage = StorageManager(STORAGE_DIR)
-        self.printers: Dict[str, BambuPrinter] = {}
+        self.printers: dict[str, BambuPrinter] = {}
         self.global_settings = {
             "notify_start": True,
             "notify_finish": True,
             "notify_pause": True,
             "notify_time_before_end": 0,
-            "notify_filament_low": 0
+            "notify_filament_low": 0,
         }
-        self.bot: Optional[Bot] = None
-        self.dp: Optional[Dispatcher] = None
-        self.printer_states: Dict[str, Dict[str, Any]] = {}
+        self.bot: Bot | None = None
+        self.dp: Dispatcher | None = None
+        self.printer_states: dict[str, dict[str, Any]] = {}
 
     async def initialize(self):
         printers_data = await self.storage.load_json(self.storage.printers_file, [])
@@ -46,7 +46,6 @@ class PrinterBotApp:
         printers_list = [p.to_storage_dict() for p in self.printers.values()]
         await self.storage.save_json(self.storage.printers_file, printers_list)
 
-
     async def is_user_admin(self, user_id: str) -> bool:
         if str(user_id) == str(ADMIN_CHAT_ID):
             return True
@@ -59,7 +58,9 @@ class PrinterBotApp:
         user = await self.storage.load_user(user_id)
         return bool(user.get("is_approved", False))
 
-    async def safe_send_message(self, chat_id: str, text: str, parse_mode: Optional[str] = ParseMode.MARKDOWN, reply_markup: Optional[Any] = None) -> bool:
+    async def safe_send_message(
+        self, chat_id: str, text: str, parse_mode: str | None = ParseMode.MARKDOWN, reply_markup: Any | None = None
+    ) -> bool:
         if not self.bot:
             return False
         user = await self.storage.load_user(chat_id)
@@ -78,7 +79,7 @@ class PrinterBotApp:
                 logger.warning(f"Failed sending message to {chat_id}: {e}")
             return False
 
-    async def send_notification(self, event_type: str, text: str, reply_markup: Optional[Any] = None):
+    async def send_notification(self, event_type: str, text: str, reply_markup: Any | None = None):
         users = await self.storage.load_all_users()
         for chat_id, udata in users.items():
             if udata.get("chat_active") is False:
@@ -97,7 +98,7 @@ class PrinterBotApp:
                 "lastState": p.gcode_state,
                 "notifiedStart": (p.gcode_state == "RUNNING"),
                 "notifiedFinish": (p.gcode_state == "FINISH"),
-                "notifiedPause": (p.gcode_state == "PAUSE")
+                "notifiedPause": (p.gcode_state == "PAUSE"),
             }
 
         while True:
@@ -113,7 +114,7 @@ class PrinterBotApp:
                             "lastState": p.gcode_state,
                             "notifiedStart": (p.gcode_state == "RUNNING"),
                             "notifiedFinish": (p.gcode_state == "FINISH"),
-                            "notifiedPause": (p.gcode_state == "PAUSE")
+                            "notifiedPause": (p.gcode_state == "PAUSE"),
                         }
 
                     st = self.printer_states[p.id]
@@ -126,7 +127,7 @@ class PrinterBotApp:
                     if curr_state == "RUNNING":
                         used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
                         spool_before = round(p.filament_grams + (used_w if p._job_deducted else 0.0), 2)
-                        is_insufficient = (used_w > 0 and used_w > spool_before)
+                        is_insufficient = used_w > 0 and used_w > spool_before
 
                         if st["lastState"] != "RUNNING" and p.notify and not st["notifiedStart"]:
                             start_txt = f"🚀 *Принтер {p.name} розпочав друк!*\nХ-хмпф! Не думай, що я буду стежити за ним замість тебе, Бака! 😤\n"
@@ -146,7 +147,9 @@ class PrinterBotApp:
                                 )
                                 st["notifiedInsufficentWarning"] = True
 
-                            await self.send_notification("start", start_txt, reply_markup=get_notification_inline_keyboard(p.id))
+                            await self.send_notification(
+                                "start", start_txt, reply_markup=get_notification_inline_keyboard(p.id)
+                            )
                             st["notifiedStart"] = True
                             st["notifiedFinish"] = False
 
@@ -182,7 +185,9 @@ class PrinterBotApp:
                                             f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
                                             f"⏱️ Друк завершиться приблизно через *{p.mc_remaining_time} хв*! Іди вже готуйся! 😤"
                                         )
-                                        sent = await self.safe_send_message(chat_id, time_txt, parse_mode=ParseMode.MARKDOWN)
+                                        sent = await self.safe_send_message(
+                                            chat_id, time_txt, parse_mode=ParseMode.MARKDOWN
+                                        )
                                         if sent:
                                             st[time_key] = True
                                 elif p.mc_remaining_time > min_time:
@@ -218,7 +223,10 @@ class PrinterBotApp:
                     # 2. Pause Notification
                     if curr_state == "PAUSE" and st["lastState"] != "PAUSE":
                         if p.notify and not st["notifiedPause"]:
-                            await self.send_notification("pause", f"⏸️ *Гей! Принтер {p.name} поставлено на паузу!* Іди перевір, що там сталося, Бака! 😤")
+                            await self.send_notification(
+                                "pause",
+                                f"⏸️ *Гей! Принтер {p.name} поставлено на паузу!* Іди перевір, що там сталося, Бака! 😤",
+                            )
                             st["notifiedPause"] = True
 
                     # 3. Finish Notification
@@ -235,6 +243,7 @@ class PrinterBotApp:
                             reply_kb = None
                             if used_w == 0.0:
                                 from bot.keyboards import get_deduct_weight_inline_keyboard
+
                                 reply_kb = get_deduct_weight_inline_keyboard(p.id)
                                 finish_txt += "\n\n❓ *Вагу файлу не вдалося визначити автоматично.* Оберіть скільки грам списати:"
 
@@ -282,7 +291,12 @@ class PrinterBotApp:
                                     f"🔧 Проведіть технічне обслуговування, Бака! 🧼✨"
                                 )
                                 from bot.keyboards import get_maintenance_inline_keyboard
-                                await self.send_notification("pause", maint_txt, reply_markup=get_maintenance_inline_keyboard(p.id, item_k, item_name))
+
+                                await self.send_notification(
+                                    "pause",
+                                    maint_txt,
+                                    reply_markup=get_maintenance_inline_keyboard(p.id, item_k, item_name),
+                                )
                                 st[notif_key] = True
                         else:
                             st[notif_key] = False
@@ -317,13 +331,18 @@ class PrinterBotApp:
 
         # Start REST API & Healthcheck HTTP server
         from services.http_server import start_http_server
+
         await start_http_server(self)
 
         try:
             from aiogram.types import MenuButtonWebApp, WebAppInfo
+
             from config import WEBAPP_URL
+
             if WEBAPP_URL:
-                await self.bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="WebApp 🖨️", web_app=WebAppInfo(url=WEBAPP_URL)))
+                await self.bot.set_chat_menu_button(
+                    menu_button=MenuButtonWebApp(text="WebApp 🖨️", web_app=WebAppInfo(url=WEBAPP_URL))
+                )
                 logger.info(f"📱 WebApp Chat Menu Button configured with URL: {WEBAPP_URL}")
         except Exception as e:
             logger.warning(f"Could not set chat menu button: {e}")

@@ -2,13 +2,17 @@
 Full coverage end-to-end unit tests for all Telegram bot handlers:
 Dashboard, History, CSV Export, Printer Status, Filament, AMS Slots, Maintenance, and Callbacks.
 """
+
 import unittest
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
-from aiogram.types import Message, Chat, User, CallbackQuery
-from storage.manager import StorageManager
+
+from aiogram.types import CallbackQuery, Chat, Message, User
+
 from bot.handlers import setup_routers
+from storage.manager import StorageManager
+
 
 class TestBotHandlersFull(unittest.TestCase):
     def setUp(self):
@@ -115,23 +119,25 @@ class TestBotHandlersFull(unittest.TestCase):
             self.assertTrue(ans_fil.called)
 
             # 6. 3MF Commercial Calculation Flow (including direct button click with idle state)
-            await self.sm.save_user({
-                "user_id": "777",
-                "chat_id": "777",
-                "state": "idle",
-                "context_data": {
-                    "pending_file": {
-                        "filename": "heavy_8days_model.3mf",
-                        "file_id": "file_123",
-                        "local_filepath": "dummy.3mf",
-                        "plate_name": "plate_1.gcode",
-                        "printer_model": "Bambu Lab P1S",
-                        "filament_type": "PLA",
-                        "weight_g": 350.0,
-                        "time_mins": 12661
-                    }
+            await self.sm.save_user(
+                {
+                    "user_id": "777",
+                    "chat_id": "777",
+                    "state": "idle",
+                    "context_data": {
+                        "pending_file": {
+                            "filename": "heavy_8days_model.3mf",
+                            "file_id": "file_123",
+                            "local_filepath": "dummy.3mf",
+                            "plate_name": "plate_1.gcode",
+                            "printer_model": "Bambu Lab P1S",
+                            "filament_type": "PLA",
+                            "weight_g": 350.0,
+                            "time_mins": 12661,
+                        }
+                    },
                 }
-            })
+            )
 
             ans_c3mf = await self._send_msg("💰 Розрахувати комерційну вартість 3MF")
             self.assertTrue(ans_c3mf.called)
@@ -152,7 +158,9 @@ class TestBotHandlersFull(unittest.TestCase):
             self.assertTrue(mock_printer.reset_maintenance_counter.called)
 
         import asyncio
+
         asyncio.run(run_test())
+
 
 if __name__ == "__main__":
     unittest.main()

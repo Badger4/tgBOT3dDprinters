@@ -2,18 +2,23 @@
 Lightweight async retry decorator with exponential backoff for network calls (FTPS/MQTT/Camera/AI).
 Zero external dependencies, optimized for low memory footprint on Raspberry Pi.
 """
+
 import asyncio
 import functools
-from typing import Callable, Any, Tuple, Type
+from collections.abc import Callable
+from typing import Any
+
 from config import logger
+
 
 def async_retry(
     retries: int = 3,
     delay: float = 1.0,
     backoff: float = 2.0,
-    exceptions: Tuple[Type[BaseException], ...] = (Exception,)
+    exceptions: tuple[type[BaseException], ...] = (Exception,),
 ) -> Callable:
     """Decorator to retry an async function upon exception with exponential delay."""
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -30,5 +35,7 @@ def async_retry(
                     )
                     await asyncio.sleep(current_delay)
                     current_delay *= backoff
+
         return wrapper
+
     return decorator

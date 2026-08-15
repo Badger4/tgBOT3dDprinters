@@ -1,14 +1,17 @@
 """
 Printer print job control (pause, resume, stop) handlers.
 """
-import html
-from aiogram import Router, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.enums import ParseMode
 
-from bot.keyboards import get_printer_menu_keyboard, get_printer_control_keyboard
+import html
+
+from aiogram import F, Router
+from aiogram.enums import ParseMode
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+
+from bot.keyboards import get_printer_control_keyboard, get_printer_menu_keyboard
 
 router = Router()
+
 
 @router.message(F.text.lower().in_(["🎛️ керування принтером", "керування принтером", "керування"]))
 async def handle_control_menu(message: Message, app):
@@ -24,8 +27,9 @@ async def handle_control_menu(message: Message, app):
         f"🎛️ <b>Панель керування {html.escape(target_printer.name)}</b>\n"
         f"Х-хмпф! Обирай команду керування... Тільки дивись нічого не зіпсуй, Бака! 😤💅",
         parse_mode=ParseMode.HTML,
-        reply_markup=get_printer_control_keyboard(target_printer)
+        reply_markup=get_printer_control_keyboard(target_printer),
     )
+
 
 @router.message(F.text.lower().in_(["⏸️ пауза", "пауза"]))
 async def handle_pause_print(message: Message, app):
@@ -41,10 +45,11 @@ async def handle_pause_print(message: Message, app):
         await message.answer(
             f"⏸️ **Поставила на паузу** принтер *{target_printer.name}*! Задоволений тепер, Бака?! 😤",
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_printer_menu_keyboard(target_printer)
+            reply_markup=get_printer_menu_keyboard(target_printer),
         )
     else:
         await message.answer("⚠️ Не вдалося відправити паузу (MQTT не підключено).")
+
 
 @router.message(F.text.lower().in_(["▶️ відновити друк", "відновити друк", "відновити", "продовжити"]))
 async def handle_resume_print(message: Message, app):
@@ -60,10 +65,11 @@ async def handle_resume_print(message: Message, app):
         await message.answer(
             f"▶️ **Відновила друк** на *{target_printer.name}*! І тільки спробуй знову зупинити, Бака! 😤",
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_printer_menu_keyboard(target_printer)
+            reply_markup=get_printer_menu_keyboard(target_printer),
         )
     else:
         await message.answer("⚠️ Не вдалося відправити команду відновлення (MQTT не підключено).")
+
 
 @router.message(F.text.lower().in_(["⏹️ зупинити друк", "зупинити друк", "зупинити"]))
 async def handle_stop_print_request(message: Message, app):
@@ -77,15 +83,16 @@ async def handle_stop_print_request(message: Message, app):
 
     user["state"] = "confirm_stop_print"
     await app.storage.save_user(user)
-    stop_kb = ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="Так, зупинити друк")],
-        [KeyboardButton(text="Ні, скасувати")]
-    ], resize_keyboard=True)
+    stop_kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="Так, зупинити друк")], [KeyboardButton(text="Ні, скасувати")]],
+        resize_keyboard=True,
+    )
     await message.answer(
         f"⚠️ **Ви дійсно хочете ЗУПИНИТИ друк на {target_printer.name}?**",
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=stop_kb
+        reply_markup=stop_kb,
     )
+
 
 async def control_state_filter(message: Message, app) -> bool:
     if not message.text:
@@ -93,6 +100,7 @@ async def control_state_filter(message: Message, app) -> bool:
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     return user.get("state") == "confirm_stop_print"
+
 
 @router.message(control_state_filter)
 async def handle_control_states(message: Message, app):
@@ -108,7 +116,11 @@ async def handle_control_states(message: Message, app):
             if target_printer.stop_print():
                 user["state"] = "printer_menu"
                 await app.storage.save_user(user)
-                await message.answer(f"⏹️ **Друк скасовано (зупинено)** на *{target_printer.name}*", parse_mode=ParseMode.MARKDOWN, reply_markup=get_printer_menu_keyboard(target_printer))
+                await message.answer(
+                    f"⏹️ **Друк скасовано (зупинено)** на *{target_printer.name}*",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=get_printer_menu_keyboard(target_printer),
+                )
             else:
                 await message.answer("⚠️ Не вдалося відправити команду зупинки через MQTT.")
         else:

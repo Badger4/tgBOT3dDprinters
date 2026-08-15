@@ -1,0 +1,31 @@
+codecov:
+  require_ci_to_pass: yes
+
+coverage:
+  precision: 2
+  round: down
+  range: "50...100"
+
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        base: auto
+    patch:
+      default:
+        target: 80%
+        threshold: 0%
+        base: auto
+
+ignore:
+  - "tests/**/*"
+  - "scripts/**/*"
+  - "webapp/**/*"
+  - "printers_storage/**/*"
+  - "logs/**/*"
+
+comment:
+  layout: "header, diff, flags, components"
+  behavior: default
+  require_changes: false

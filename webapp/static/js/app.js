@@ -260,7 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const onlinePrinters = printers.filter(p => p.state !== "OFFLINE" && p.state !== "OFF").length;
         const activeStates = ["RUNNING", "PREPARE", "PAUSE", "PAUSED", "PRINTING", "SLICING", "CHANGING_FILAMENT", "MAM_CLEANING"];
         const printingCount = printers.filter(p => activeStates.includes(String(p.state || "").toUpperCase())).length;
-        
+
         activeCountEl.textContent = `${onlinePrinters}/${printers.length}${printingCount > 0 ? ` (друк: ${printingCount})` : ''}`;
 
         printersGrid.innerHTML = printers.map(p => {
@@ -759,7 +759,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     const slots = p.ams_slots || {};
                     const slotKeys = hasAms ? ["0", "1", "2", "3", "255"] : ["255"];
                     const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач" };
-                    const amsBadge = hasAms 
+                    const amsBadge = hasAms
                         ? `<span class="badge badge-success" style="font-size:10px; font-weight:500;"><i class="fa-solid fa-layer-group"></i> AMS Підключено</span>`
                         : `<span class="badge badge-secondary" style="font-size:10px; font-weight:500;"><i class="fa-solid fa-spool"></i> Пряма подача (Без AMS)</span>`;
 
@@ -1111,7 +1111,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
 
-            selectEl.innerHTML = presetList.map(p => 
+            selectEl.innerHTML = presetList.map(p =>
                 `<option value="${p.id}">${escapeHtml(p.name)}</option>`
             ).join("");
 
@@ -1275,10 +1275,10 @@ document.addEventListener("DOMContentLoaded", () => {
         btn.addEventListener("click", () => {
             triggerHaptic("light");
             const tabId = btn.getAttribute("data-tab");
-            
+
             document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
             document.querySelectorAll(".tab-page").forEach(p => p.classList.remove("active"));
-            
+
             btn.classList.add("active");
             document.getElementById(tabId).classList.add("active");
 
@@ -1505,5 +1505,3 @@ document.addEventListener("DOMContentLoaded", () => {
     pollInterval = setInterval(fetchPrinters, 3000);
     initSSEStream();
 });
-
-

@@ -1,11 +1,13 @@
 """
 Async unit tests for StorageManager persistence.
 """
-import unittest
-import asyncio
+
 import tempfile
+import unittest
 from pathlib import Path
+
 from storage.manager import StorageManager
+
 
 class TestStorageManager(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -45,12 +47,13 @@ class TestStorageManager(unittest.IsolatedAsyncioTestCase):
             "printer_name": "Test P1S",
             "subtask_name": "Test Model",
             "weight_g": 50.0,
-            "cost_uah": 35.0
+            "cost_uah": 35.0,
         }
         await self.storage.add_history_entry(entry)
         history = await self.storage.load_history()
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0]["subtask_name"], "Test Model")
+
 
 if __name__ == "__main__":
     unittest.main()

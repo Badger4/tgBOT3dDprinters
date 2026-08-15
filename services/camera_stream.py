@@ -1,13 +1,14 @@
 """
 Bambu Lab Port 6000 TLS Binary Stream Frame Grabber & HTTP camera client.
 """
+
+import asyncio
 import socket
 import ssl
 import struct
-import asyncio
-import urllib.request
-from typing import Optional
+
 from config import logger
+
 
 async def check_tcp_port_open(ip: str, port: int, timeout: float = 1.0) -> bool:
     """Fast non-blocking check if IP:port is open."""
@@ -19,7 +20,8 @@ async def check_tcp_port_open(ip: str, port: int, timeout: float = 1.0) -> bool:
     except Exception:
         return False
 
-def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> Optional[bytes]:
+
+def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
     """
     Connects to Bambu Lab Port 6000 TLS Stream, sends binary authentication packet,
     and returns exact JPEG frame with header length parsing.
@@ -38,15 +40,15 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> Optional[bytes]:
         ssl_sock.connect((ip, 6000))
 
         # Build 64-byte binary authentication packet
-        username = b'bblp'
-        password = str(access_code or "").encode('utf-8')[:32]
+        username = b"bblp"
+        password = str(access_code or "").encode("utf-8")[:32]
 
-        auth_packet = struct.pack('<I', 0x40)    # Payload size (64)
-        auth_packet += struct.pack('<I', 0x3000)  # Packet type
-        auth_packet += struct.pack('<I', 0)       # Flags
-        auth_packet += struct.pack('<I', 0)       # Reserved
-        auth_packet += username.ljust(32, b'\x00')
-        auth_packet += password.ljust(32, b'\x00')
+        auth_packet = struct.pack("<I", 0x40)  # Payload size (64)
+        auth_packet += struct.pack("<I", 0x3000)  # Packet type
+        auth_packet += struct.pack("<I", 0)  # Flags
+        auth_packet += struct.pack("<I", 0)  # Reserved
+        auth_packet += username.ljust(32, b"\x00")
+        auth_packet += password.ljust(32, b"\x00")
 
         ssl_sock.sendall(auth_packet)
 
@@ -64,15 +66,15 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> Optional[bytes]:
             hdr = recv_exact(16)
             if len(hdr) < 16:
                 break
-            psize, _, _, _ = struct.unpack('<IIII', hdr)
+            psize, _, _, _ = struct.unpack("<IIII", hdr)
             if psize <= 0 or psize > 2000000:
                 break
             img = recv_exact(psize)
-            if b'\xff\xd8' in img:
-                start_idx = img.find(b'\xff\xd8')
-                end_idx = img.rfind(b'\xff\xd9')
+            if b"\xff\xd8" in img:
+                start_idx = img.find(b"\xff\xd8")
+                end_idx = img.rfind(b"\xff\xd9")
                 if end_idx > start_idx:
-                    jpeg_bytes = img[start_idx:end_idx + 2]
+                    jpeg_bytes = img[start_idx : end_idx + 2]
                     logger.info(f"✅ Captured {len(jpeg_bytes)} bytes JPEG frame from {ip}:6000")
                     return jpeg_bytes
 
@@ -92,7 +94,8 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> Optional[bytes]:
 
     return None
 
-async def capture_real_camera_photo(ip: str, access_code: str) -> Optional[bytes]:
+
+async def capture_real_camera_photo(ip: str, access_code: str) -> bytes | None:
     """Asynchronously fetches real camera photo using Port 6000 TLS stream with retries."""
     if not ip or not access_code:
         return None
@@ -111,6 +114,7 @@ async def capture_real_camera_photo(ip: str, access_code: str) -> Optional[bytes
     is_80_open = await check_tcp_port_open(ip, 80, timeout=0.8)
     if is_80_open:
         import aiohttp
+
         http_urls = [f"http://{ip}/cam.jpg", f"https://{ip}/cam.jpg", f"http://{ip}:8080/cam.jpg"]
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False

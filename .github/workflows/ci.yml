@@ -37,7 +37,20 @@ jobs:
           ADMIN_CHAT_ID: "123456789"
           STORAGE_DIR: "./printers_storage"
         run: |
-          pytest tests/ --cov=models --cov=services --cov=storage --cov=config --cov-fail-under=50 --verbose
+          pytest tests/ --cov=models --cov=services --cov=storage --cov=config --cov=utils --cov-fail-under=65 --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=json:coverage.json --verbose
+
+      - name: Enforce Per-File Coverage Floors
+        run: |
+          python scripts/check_per_file_coverage.py coverage.json
+
+      - name: Upload Coverage Report to Codecov
+        uses: codecov/codecov-action@v5
+        continue-on-error: true
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
 
 
       - name: Run Mypy Type Checker

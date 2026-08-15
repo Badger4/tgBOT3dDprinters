@@ -1,7 +1,9 @@
 """
 Aiogram 3 FSM State definitions for Telegram Bot UI flows.
 """
+
 from aiogram.fsm.state import State, StatesGroup
+
 
 class AddPrinterStates(StatesGroup):
     name = State()
@@ -9,13 +11,16 @@ class AddPrinterStates(StatesGroup):
     access_code = State()
     serial_number = State()
 
+
 class PrinterMenuStates(StatesGroup):
     confirm_stop_print = State()
     edit_filament_weight = State()
     confirm_delete_printer = State()
 
+
 class AdminStates(StatesGroup):
     manage_user = State()
+
 
 class SpoolManagementStates(StatesGroup):
     select_spool_to_edit = State()

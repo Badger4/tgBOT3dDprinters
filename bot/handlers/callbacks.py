@@ -1,10 +1,12 @@
 """
 Callback query handlers for inline button interactions.
 """
+
 from aiogram import Router, types
 from aiogram.enums import ParseMode
 
 router = Router()
+
 
 @router.callback_query()
 async def handle_callback_query(callback: types.CallbackQuery, app):
@@ -26,11 +28,13 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
                 printer.set_slot_grams(new_w, active_key)
                 printer.last_job_grams = grams
                 await app.save_printers_config()
-                await callback.answer(f"✅ Списано {grams}g зі слота {active_key}! Новий залишок: {new_w}g", show_alert=True)
+                await callback.answer(
+                    f"✅ Списано {grams}g зі слота {active_key}! Новий залишок: {new_w}g", show_alert=True
+                )
                 try:
                     await callback.message.reply(
                         f"✅ **Списано {grams}g для {printer.name}!**\n🧵 **Слот AMS:** `{active_key}`\n📦 Старий залишок: *{old_w}g* ➔ Новий залишок: *{new_w}g*",
-                        parse_mode=ParseMode.MARKDOWN
+                        parse_mode=ParseMode.MARKDOWN,
                     )
                 except Exception:
                     pass
@@ -41,14 +45,16 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
         printer = app.printers.get(p_id)
         if printer:
             await callback.answer("📷 Отримую фото...")
-            from services.camera_stream import capture_real_camera_photo
             from aiogram.types import BufferedInputFile
+
+            from services.camera_stream import capture_real_camera_photo
+
             photo = await capture_real_camera_photo(printer.ip, printer.access_code)
             if photo:
                 await callback.message.reply_photo(
                     BufferedInputFile(photo, filename=f"{printer.name}.jpg"),
                     caption=f"📷 **Кадр з {printer.name}**",
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.MARKDOWN,
                 )
             else:
                 await callback.message.reply("⚠️ Не вдалося отримати фото з камери.")
@@ -85,7 +91,7 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
                     await callback.message.reply(
                         f"🎯 **Запущено автоматичне калібрування на {printer.name}!**\n"
                         f"⚙️ Принтер виконує вирівнювання столу та тест резонансів (G32).",
-                        parse_mode=ParseMode.MARKDOWN
+                        parse_mode=ParseMode.MARKDOWN,
                     )
                 except Exception:
                     pass
@@ -107,7 +113,7 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
                 await callback.message.reply(
                     f"✅ **ТО ({item_name}) для принтера {printer.name} виконано!**\n"
                     f"🧹 Лічильник годин скинуто на *0.0h*.",
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.MARKDOWN,
                 )
             except Exception:
                 pass
@@ -123,8 +129,14 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
         await app.storage.save_user(user)
         await callback.answer("✅ Доступ надано!", show_alert=True)
         try:
-            await callback.message.edit_text(callback.message.html_text + "\n\n✅ <b>Схвалено адміністратором!</b>", parse_mode=ParseMode.HTML)
-            await app.bot.send_message(chat_id=target_uid, text="🎉 <b>Адміністратор надав вам доступ до 3D Ферми!</b>\nНатисніть /start для переходу до головного меню.", parse_mode=ParseMode.HTML)
+            await callback.message.edit_text(
+                callback.message.html_text + "\n\n✅ <b>Схвалено адміністратором!</b>", parse_mode=ParseMode.HTML
+            )
+            await app.bot.send_message(
+                chat_id=target_uid,
+                text="🎉 <b>Адміністратор надав вам доступ до 3D Ферми!</b>\nНатисніть /start для переходу до головного меню.",
+                parse_mode=ParseMode.HTML,
+            )
         except Exception:
             pass
         return
@@ -139,7 +151,9 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
         await app.storage.save_user(user)
         await callback.answer("❌ Заявку відхилено", show_alert=True)
         try:
-            await callback.message.edit_text(callback.message.html_text + "\n\n❌ <b>Відхилено адміністратором.</b>", parse_mode=ParseMode.HTML)
+            await callback.message.edit_text(
+                callback.message.html_text + "\n\n❌ <b>Відхилено адміністратором.</b>", parse_mode=ParseMode.HTML
+            )
         except Exception:
             pass
         return
@@ -157,8 +171,14 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
         await app.storage.save_user(user)
         await callback.answer("👑 Призначено адміністратором!", show_alert=True)
         try:
-            await callback.message.edit_text(callback.message.html_text + "\n\n👑 <b>Призначено Адміністратором!</b>", parse_mode=ParseMode.HTML)
-            await app.bot.send_message(chat_id=target_uid, text="👑 <b>Вам надано права Адміністратора 3D Ферми!</b>\nНатисніть /start.", parse_mode=ParseMode.HTML)
+            await callback.message.edit_text(
+                callback.message.html_text + "\n\n👑 <b>Призначено Адміністратором!</b>", parse_mode=ParseMode.HTML
+            )
+            await app.bot.send_message(
+                chat_id=target_uid,
+                text="👑 <b>Вам надано права Адміністратора 3D Ферми!</b>\nНатисніть /start.",
+                parse_mode=ParseMode.HTML,
+            )
         except Exception:
             pass
         return
@@ -169,6 +189,7 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             return
         target_uid = data.replace("delete_user_", "")
         from config import ADMIN_CHAT_ID
+
         if str(target_uid) == str(ADMIN_CHAT_ID):
             await callback.answer("⚠️ Неможливо видалити головного адміністратора!", show_alert=True)
             return
@@ -176,7 +197,10 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
         if ok:
             await callback.answer("🗑️ Користувача видалено з бази!", show_alert=True)
             try:
-                await callback.message.edit_text(callback.message.html_text + "\n\n🗑️ <b>Повністю видалено з бази даних.</b>", parse_mode=ParseMode.HTML)
+                await callback.message.edit_text(
+                    callback.message.html_text + "\n\n🗑️ <b>Повністю видалено з бази даних.</b>",
+                    parse_mode=ParseMode.HTML,
+                )
             except Exception:
                 pass
         else:

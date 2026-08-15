@@ -1,31 +1,35 @@
 """
 Service for generating CSV exports and reports for farm print history.
 """
-import io
-import csv
-import time
-from typing import List, Dict, Any
 
-def generate_csv_report(history: List[Dict[str, Any]]) -> bytes:
+import csv
+import io
+import time
+from typing import Any
+
+
+def generate_csv_report(history: list[dict[str, Any]]) -> bytes:
     """
     Generates a UTF-8-BOM encoded CSV file from print history list.
     BOM ensures Microsoft Excel opens Ukrainian text without character corruption.
     """
     output = io.StringIO()
     # Write UTF-8 BOM header explicitly
-    output.write('\ufeff')
+    output.write("\ufeff")
 
-    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
-    writer.writerow([
-        "№",
-        "Дата та час",
-        "Принтер",
-        "Назва моделі / 3MF",
-        "Тип пластику",
-        "Витрачено пластику (г)",
-        "Собівартість (грн)",
-        "Примітка"
-    ])
+    writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(
+        [
+            "№",
+            "Дата та час",
+            "Принтер",
+            "Назва моделі / 3MF",
+            "Тип пластику",
+            "Витрачено пластику (г)",
+            "Собівартість (грн)",
+            "Примітка",
+        ]
+    )
 
     sorted_history = sorted(history, key=lambda x: x.get("timestamp", 0), reverse=True)
     for idx, item in enumerate(sorted_history, 1):
@@ -41,15 +45,6 @@ def generate_csv_report(history: List[Dict[str, Any]]) -> bytes:
         cost_uah = item.get("cost_uah", 0.0)
         note = item.get("note", "Успішно виконано")
 
-        writer.writerow([
-            idx,
-            dt_str,
-            p_name,
-            subtask,
-            filament,
-            f"{weight_g:.1f}",
-            f"{cost_uah:.2f}",
-            note
-        ])
+        writer.writerow([idx, dt_str, p_name, subtask, filament, f"{weight_g:.1f}", f"{cost_uah:.2f}", note])
 
-    return output.getvalue().encode('utf-8')
+    return output.getvalue().encode("utf-8")

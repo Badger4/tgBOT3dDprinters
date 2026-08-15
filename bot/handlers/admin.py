@@ -1,16 +1,19 @@
 """
 Admin panel and user management handlers.
 """
-import re
-import html
-from aiogram import Router, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.enums import ParseMode
 
-from config import logger, ADMIN_CHAT_ID
+import html
+import re
+
+from aiogram import F, Router
+from aiogram.enums import ParseMode
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup
+
 from bot.keyboards import get_admin_keyboard
+from config import ADMIN_CHAT_ID, logger
 
 router = Router()
+
 
 @router.message(F.text.lower().in_(["👑 адмінка", "адмінка", "повернутись в адмінку"]))
 async def handle_admin_panel(message: Message, app):
@@ -23,6 +26,7 @@ async def handle_admin_panel(message: Message, app):
     user["context_data"] = {}
     await app.storage.save_user(user)
     await message.answer("*👑 Панель Адміністратора*", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_keyboard())
+
 
 @router.message(F.text == "👥 Користувачі")
 async def handle_list_approved_users(message: Message, app):
@@ -38,7 +42,12 @@ async def handle_list_approved_users(message: Message, app):
             role = "👑" if await app.is_user_admin(uid) else "👤"
             btn_list.append([KeyboardButton(text=f"{role} {name} ({uid})")])
     btn_list.append([KeyboardButton(text="Повернутись в адмінку")])
-    await message.answer("*Список затверджених користувачів:*", parse_mode=ParseMode.MARKDOWN, reply_markup=ReplyKeyboardMarkup(keyboard=btn_list, resize_keyboard=True))
+    await message.answer(
+        "*Список затверджених користувачів:*",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=ReplyKeyboardMarkup(keyboard=btn_list, resize_keyboard=True),
+    )
+
 
 @router.message(F.text == "🆕 Нові користувачі")
 async def handle_list_pending_users(message: Message, app):
@@ -56,9 +65,24 @@ async def handle_list_pending_users(message: Message, app):
         await message.answer("*Немає нових користувачів.*", parse_mode=ParseMode.MARKDOWN)
         return
     btn_list.append([KeyboardButton(text="Повернутись в адмінку")])
-    await message.answer("*Нові користувачі на підтвердженні:*", parse_mode=ParseMode.MARKDOWN, reply_markup=ReplyKeyboardMarkup(keyboard=btn_list, resize_keyboard=True))
+    await message.answer(
+        "*Нові користувачі на підтвердженні:*",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=ReplyKeyboardMarkup(keyboard=btn_list, resize_keyboard=True),
+    )
 
-@router.message(F.text.in_(["✅ Додати в команду", "❌ Видалити з команди", "👑 Призначити адміном", "🔻 Забрати адміна", "🗑️ Повністю видалити з бази"]))
+
+@router.message(
+    F.text.in_(
+        [
+            "✅ Додати в команду",
+            "❌ Видалити з команди",
+            "👑 Призначити адміном",
+            "🔻 Забрати адміна",
+            "🗑️ Повністю видалити з бази",
+        ]
+    )
+)
 async def handle_manage_user_action(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_admin(chat_id):
@@ -89,7 +113,7 @@ async def handle_manage_user_action(message: Message, app):
                 await message.answer(
                     f"🗑️ Користувача <code>{html.escape(str(target_uid))}</code> видалено з бази даних!",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=get_admin_keyboard()
+                    reply_markup=get_admin_keyboard(),
                 )
                 return
             else:
@@ -104,7 +128,7 @@ async def handle_manage_user_action(message: Message, app):
                 await app.bot.send_message(
                     chat_id=target_uid,
                     text="🎉 <b>Вітаємо! Адміністратор надав вам доступ до 3D Ферми!</b>\nНатисніть /start для переходу до головного меню.",
-                    parse_mode=ParseMode.HTML
+                    parse_mode=ParseMode.HTML,
                 )
         except Exception as e:
             logger.warning(f"Failed sending approval notification to {target_uid}: {e}")
@@ -136,22 +160,15 @@ async def handle_manage_user_action(message: Message, app):
     btn_team = "❌ Видалити з команди" if is_app else "✅ Додати в команду"
     btn_admin = "🔻 Забрати адміна" if is_t_adm else "👑 Призначити адміном"
 
-    keyboard = ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text=btn_team)],
-        [KeyboardButton(text=btn_admin)],
-        [KeyboardButton(text="🗑️ Повністю видалити з бази")],
-        [KeyboardButton(text="Повернутись в адмінку")]
-    ], resize_keyboard=True)
-
-    inline_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Схвалити" if not is_app else "❌ Забрати доступ", callback_data=f"{'approve' if not is_app else 'reject'}_user_{target_uid}"),
-            InlineKeyboardButton(text="👑 Призначити адміном" if not is_t_adm else "🔻 Забрати адміна", callback_data=f"{'make_admin' if not is_t_adm else 'reject'}_user_{target_uid}")
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=btn_team)],
+            [KeyboardButton(text=btn_admin)],
+            [KeyboardButton(text="🗑️ Повністю видалити з бази")],
+            [KeyboardButton(text="Повернутись в адмінку")],
         ],
-        [
-            InlineKeyboardButton(text="🗑️ Видалити з бази", callback_data=f"delete_user_{target_uid}")
-        ]
-    ])
+        resize_keyboard=True,
+    )
 
     p = target_u.get("personal", {})
     first_name = html.escape(str(p.get("first_name", "")))
@@ -172,7 +189,6 @@ async def handle_manage_user_action(message: Message, app):
     )
     await message.answer(info_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 @router.message(F.text & F.text.func(lambda txt: bool(re.search(r"\((\d+)\)", txt or ""))))
 async def handle_select_user_card(message: Message, app):
@@ -195,22 +211,35 @@ async def handle_select_user_card(message: Message, app):
             btn_team = "❌ Видалити з команди" if is_app else "✅ Додати в команду"
             btn_admin = "🔻 Забрати адміна" if is_t_adm else "👑 Призначити адміном"
 
-            keyboard = ReplyKeyboardMarkup(keyboard=[
-                [KeyboardButton(text=btn_team)],
-                [KeyboardButton(text=btn_admin)],
-                [KeyboardButton(text="🗑️ Повністю видалити з бази")],
-                [KeyboardButton(text="Повернутись в адмінку")]
-            ], resize_keyboard=True)
-
-            inline_kb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✅ Схвалити" if not is_app else "❌ Забрати доступ", callback_data=f"{'approve' if not is_app else 'reject'}_user_{target_uid}"),
-                    InlineKeyboardButton(text="👑 Призначити адміном" if not is_t_adm else "🔻 Забрати адміна", callback_data=f"{'make_admin' if not is_t_adm else 'reject'}_user_{target_uid}")
+            keyboard = ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text=btn_team)],
+                    [KeyboardButton(text=btn_admin)],
+                    [KeyboardButton(text="🗑️ Повністю видалити з бази")],
+                    [KeyboardButton(text="Повернутись в адмінку")],
                 ],
-                [
-                    InlineKeyboardButton(text="🗑️ Повністю видалити з бази", callback_data=f"delete_user_{target_uid}")
+                resize_keyboard=True,
+            )
+
+            inline_kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Схвалити" if not is_app else "❌ Забрати доступ",
+                            callback_data=f"{'approve' if not is_app else 'reject'}_user_{target_uid}",
+                        ),
+                        InlineKeyboardButton(
+                            text="👑 Призначити адміном" if not is_t_adm else "🔻 Забрати адміна",
+                            callback_data=f"{'make_admin' if not is_t_adm else 'reject'}_user_{target_uid}",
+                        ),
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🗑️ Повністю видалити з бази", callback_data=f"delete_user_{target_uid}"
+                        )
+                    ],
                 ]
-            ])
+            )
 
             p = target_u.get("personal", {})
             first_name = html.escape(str(p.get("first_name", "")))

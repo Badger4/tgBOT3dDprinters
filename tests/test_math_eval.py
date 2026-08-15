@@ -1,8 +1,11 @@
 """
 Unit tests for safe_eval_math utility.
 """
+
 import unittest
+
 from utils.math_eval import safe_eval_math
+
 
 class TestMathEval(unittest.TestCase):
     def test_basic_addition(self):
@@ -23,6 +26,7 @@ class TestMathEval(unittest.TestCase):
         self.assertIsNone(safe_eval_math("invalid_expr"))
         self.assertIsNone(safe_eval_math("__import__('os').system('dir')"))
         self.assertIsNone(safe_eval_math(""))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,9 @@
 """
 Domain Enums for Bambu Lab 3D printers and farm management.
 """
+
 from enum import Enum
+
 
 class AMSSlot(str, Enum):
     A1 = "0"
@@ -9,6 +11,7 @@ class AMSSlot(str, Enum):
     A3 = "2"
     A4 = "3"
     EXTERNAL = "255"
+
 
 class GCodeState(str, Enum):
     RUNNING = "RUNNING"

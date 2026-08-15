@@ -17,6 +17,13 @@ ENV/
 logs/
 *.log
 
+# Coverage artifacts
+.coverage
+coverage.xml
+coverage.json
+htmlcov/
+
+
 # Environment variables & runtime storage
 .env
 printers_storage/

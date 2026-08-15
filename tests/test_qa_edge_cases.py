@@ -3,18 +3,24 @@ Rigorously designed QA Edge Cases & Adversarial Test Suite.
 Simulates real QA engineering testing: invalid inputs, boundary conditions, state corruptions,
 permission denials, garbage strings, corrupt files, and unexpected workflows.
 """
-import unittest
+
 import asyncio
-from pathlib import Path
+import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from models.commercial import parse_val_or_percent, calculate_commercial_price
-from services.gcode_parser import parse_time_str, format_print_time_human, resolve_model_name, check_compatibility, parse_3mf_file
+from aiogram.types import Chat, Message, User
+
+from bot.handlers import setup_routers
+from models.commercial import calculate_commercial_price, parse_val_or_percent
+from services.gcode_parser import (
+    format_print_time_human,
+    parse_3mf_file,
+    parse_time_str,
+)
 from services.report_generator import generate_csv_report
 from storage.manager import StorageManager
-from aiogram.types import Message, Chat, User, CallbackQuery
-from bot.handlers import setup_routers
 
 
 class TestQACommercialEngine(unittest.TestCase):
@@ -43,7 +49,7 @@ class TestQACommercialEngine(unittest.TestCase):
             "power_watts": 120.0,
             "depreciation_val": "10",
             "consumables_val": "5",
-            "profit_val": "100%"
+            "profit_val": "100%",
         }
 
         # Zero weight & time (has minimum setup fee of 3.10 грн for 0.1 hr)
@@ -63,12 +69,14 @@ class TestQAGcodeParser(unittest.TestCase):
     def test_parse_time_str_complex_formats(self):
         # Single and multi-day formats
         self.assertEqual(parse_time_str("8d 18h 54m 54s"), 12654)
-        self.assertEqual(parse_time_str("model printing time: 8d 18h 54m 54s; total estimated time: 8d 19h 1m 9s"), 12661)
+        self.assertEqual(
+            parse_time_str("model printing time: 8d 18h 54m 54s; total estimated time: 8d 19h 1m 9s"), 12661
+        )
         self.assertEqual(parse_time_str("1d 0h 0m"), 1440)
 
         # Seconds only
-        self.assertEqual(parse_time_str("120s"), 0) # Less than 1m -> 0m
-        self.assertEqual(parse_time_str("3600s"), 0) # s-only handled by s_match -> 0m unless h/m/d present
+        self.assertEqual(parse_time_str("120s"), 0)  # Less than 1m -> 0m
+        self.assertEqual(parse_time_str("3600s"), 0)  # s-only handled by s_match -> 0m unless h/m/d present
 
         # Time HH:MM:SS format
         self.assertEqual(parse_time_str("02:30:00"), 150)
@@ -131,7 +139,14 @@ class TestQATelegramBotSecurityAndErrors(unittest.TestCase):
             self.app.is_user_approved = AsyncMock(return_value=True)
             self.app.is_user_admin = AsyncMock(return_value=True)
 
-            await self.sm.save_user({"user_id": "888999", "chat_id": "888999", "state": "add_preset_price", "context_data": {"new_preset": {}}})
+            await self.sm.save_user(
+                {
+                    "user_id": "888999",
+                    "chat_id": "888999",
+                    "state": "add_preset_price",
+                    "context_data": {"new_preset": {}},
+                }
+            )
 
             # User sends non-numeric price string "abc"
             ans_bad = await self._send_msg("not_a_number")
@@ -148,7 +163,9 @@ class TestQATelegramBotSecurityAndErrors(unittest.TestCase):
             self.app.is_user_approved = AsyncMock(return_value=True)
             self.app.is_user_admin = AsyncMock(return_value=True)
 
-            await self.sm.save_user({"user_id": "888999", "chat_id": "888999", "state": "add_preset_name", "context_data": {}})
+            await self.sm.save_user(
+                {"user_id": "888999", "chat_id": "888999", "state": "add_preset_name", "context_data": {}}
+            )
 
             # User clicks "⬅️ Назад"
             ans_back = await self._send_msg("⬅️ Назад")
@@ -170,14 +187,16 @@ class TestQAReportGenerator(unittest.TestCase):
                 "printer_name": 'Bambu "P1S" Special, Name',
                 "job_name": "box_model_test,v1.3mf\nwith_newline",
                 "weight_g": 125.5,
-                "status": "FINISHED"
+                "status": "FINISHED",
             }
         ]
-        import csv, io
+        import csv
+        import io
+
         csv_bytes = generate_csv_report(history)
-        self.assertTrue(csv_bytes.startswith(b"\xef\xbb\xbf")) # UTF-8-BOM check
+        self.assertTrue(csv_bytes.startswith(b"\xef\xbb\xbf"))  # UTF-8-BOM check
         decoded = csv_bytes.decode("utf-8-sig")
-        reader = list(csv.reader(io.StringIO(decoded), delimiter=';'))
+        reader = list(csv.reader(io.StringIO(decoded), delimiter=";"))
         self.assertEqual(len(reader), 2)
         self.assertEqual(reader[1][2], 'Bambu "P1S" Special, Name')
 

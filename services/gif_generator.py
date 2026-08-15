@@ -1,8 +1,10 @@
 """
 Animated GIF status card generator for 3D printer telemetry.
 """
+
 import io
 from typing import Any
+
 from PIL import Image, ImageDraw, ImageFont
 
 # Cached fonts to prevent re-reading files from disk on every frame
@@ -33,7 +35,11 @@ def generate_printer_status_gif(printer: Any) -> bytes:
 
         # Header bar
         draw.rectangle([(0, 0), (width, 45)], fill="#27272a")
-        status_color = "#22c55e" if printer.gcode_state == "RUNNING" else ("#f59e0b" if printer.gcode_state == "PAUSE" else "#3b82f6")
+        status_color = (
+            "#22c55e"
+            if printer.gcode_state == "RUNNING"
+            else ("#f59e0b" if printer.gcode_state == "PAUSE" else "#3b82f6")
+        )
         draw.ellipse([(14, 16), (26, 28)], fill=status_color)
         draw.text((34, 12), f"{printer.name} [{printer.gcode_state}]", fill="#ffffff", font=FONT_TITLE)
 
@@ -45,7 +51,7 @@ def generate_printer_status_gif(printer: Any) -> bytes:
             f"🛏️ Bed: {printer.bed_temper}°C",
             f"🥞 Layer: {printer.layer_num}/{printer.total_layer_num}",
             f"⏱️ Time: ~{printer.mc_remaining_time}m",
-            f"🧵 Plastic: {printer.filament_type}"
+            f"🧵 Plastic: {printer.filament_type}",
         ]
 
         y_off = 65
@@ -68,7 +74,10 @@ def generate_printer_status_gif(printer: Any) -> bytes:
 
             draw.rectangle([(bed_x1 + 10, bed_y1 - 8), (nozzle_x, bed_y1 - 2)], fill="#38bdf8")
             draw.rectangle([(nozzle_x - 12, nozzle_y), (nozzle_x + 12, nozzle_y + 22)], fill="#71717a")
-            draw.polygon([(nozzle_x - 4, nozzle_y + 22), (nozzle_x + 4, nozzle_y + 22), (nozzle_x, nozzle_y + 30)], fill="#f97316")
+            draw.polygon(
+                [(nozzle_x - 4, nozzle_y + 22), (nozzle_x + 4, nozzle_y + 22), (nozzle_x, nozzle_y + 30)],
+                fill="#f97316",
+            )
         else:
             draw.rectangle([(bed_x1 + 10, bed_y1 - 35), (bed_x1 + 34, bed_y1 - 13)], fill="#52525b")
 
@@ -79,11 +88,13 @@ def generate_printer_status_gif(printer: Any) -> bytes:
             draw.rectangle([(13, 253), (13 + prog_w, 289)], fill="#0284c7")
 
         draw.text((200, 261), f"Progress: {progress_pct}%", fill="#ffffff", font=FONT_BODY)
-        
+
         # Fast Palette quantization for small memory footprint
-        p_frame = img.convert('P', palette=Image.Palette.ADAPTIVE, colors=64)
+        p_frame = img.convert("P", palette=Image.Palette.ADAPTIVE, colors=64)
         frames.append(p_frame)
 
     out_buffer = io.BytesIO()
-    frames[0].save(out_buffer, format="GIF", save_all=True, append_images=frames[1:], duration=220, loop=0, optimize=True)
+    frames[0].save(
+        out_buffer, format="GIF", save_all=True, append_images=frames[1:], duration=220, loop=0, optimize=True
+    )
     return out_buffer.getvalue()

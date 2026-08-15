@@ -2,12 +2,14 @@
 3MF and Gcode metadata parser for Bambu Lab & OrcaSlicer print files.
 Deep multi-source metadata parser with XML, JSON, G-code comments, filament preset suffix checks, and filename fallbacks.
 """
+
 import io
-import re
 import json
-import zipfile
+import re
 import xml.etree.ElementTree as ET
-from typing import Dict, Any
+import zipfile
+from typing import Any
+
 from config import logger
 
 # Bambu Lab & OrcaSlicer internal model ID mapping
@@ -23,6 +25,7 @@ BAMBU_MODEL_MAP = {
     "x1e": "Bambu Lab X1 Enterprise",
 }
 
+
 def parse_time_str(time_str: str) -> int:
     """Parses time strings like '8d 18h 54m 54s', '1h 10m 15s', '70m', '01:10:00' into total minutes."""
     if not time_str:
@@ -34,10 +37,10 @@ def parse_time_str(time_str: str) -> int:
     elif "total estimated time =" in t_clean:
         t_clean = t_clean.split("total estimated time =")[-1]
 
-    d_match = re.search(r'\b(\d+)\s*d\b', t_clean)
-    h_match = re.search(r'\b(\d+)\s*h\b', t_clean)
-    m_match = re.search(r'\b(\d+)\s*m\b', t_clean)
-    s_match = re.search(r'\b(\d+)\s*s\b', t_clean)
+    d_match = re.search(r"\b(\d+)\s*d\b", t_clean)
+    h_match = re.search(r"\b(\d+)\s*h\b", t_clean)
+    m_match = re.search(r"\b(\d+)\s*m\b", t_clean)
+    s_match = re.search(r"\b(\d+)\s*s\b", t_clean)
 
     if d_match or h_match or m_match or s_match:
         days = int(d_match.group(1)) if d_match else 0
@@ -46,7 +49,7 @@ def parse_time_str(time_str: str) -> int:
         return days * 1440 + hours * 60 + mins
 
     # Format: 01:10:00 or 70:00
-    parts = t_clean.split(':')
+    parts = t_clean.split(":")
     if len(parts) == 3:
         try:
             return int(parts[0]) * 60 + int(parts[1])
@@ -59,6 +62,7 @@ def parse_time_str(time_str: str) -> int:
             pass
 
     return 0
+
 
 def format_print_time_human(mins: int) -> str:
     """Formats minutes into human-readable format like '8д 19г 1хв (12661 хв)' or '2г 15хв (135 хв)'."""
@@ -82,6 +86,7 @@ def format_print_time_human(mins: int) -> str:
         return f"~{time_str} ({mins} хв)"
     return f"~{mins} хв"
 
+
 def resolve_model_name(raw_model: str) -> str:
     """
     Resolves raw model strings, filament preset names, or IDs into canonical printer names.
@@ -101,7 +106,14 @@ def resolve_model_name(raw_model: str) -> str:
         return "Bambu Lab A1 mini"
     elif "@bbl a1" in clean_lower or "n1" in clean_lower:
         return "Bambu Lab A1"
-    elif "@bbl x1c" in clean_lower or "x1c" in clean_lower or "c12" in clean_lower or "c11" in clean_lower or "p1s" in clean_lower or "p1p" in clean_lower:
+    elif (
+        "@bbl x1c" in clean_lower
+        or "x1c" in clean_lower
+        or "c12" in clean_lower
+        or "c11" in clean_lower
+        or "p1s" in clean_lower
+        or "p1p" in clean_lower
+    ):
         return "Bambu Lab P1S"
 
     # Direct map lookup
@@ -110,7 +122,8 @@ def resolve_model_name(raw_model: str) -> str:
 
     return clean
 
-def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
+
+def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
     """
     Parses a .3mf file bytes to extract Bambu Studio / OrcaSlicer slice metadata.
     Returns dict with keys: printer_model, filament_type, weight_g, time_mins, filename, plate_name.
@@ -123,7 +136,7 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
         "time_mins": 0,
         "plate_name": "plate_1.gcode",
         "valid": False,
-        "error": ""
+        "error": "",
     }
 
     if not filename.lower().endswith(".3mf"):
@@ -144,7 +157,15 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
 
                         # Extract printer model or filament preset tag
                         for elem in root.iter():
-                            if elem.tag in ["printer_model_id", "printer_settings_id", "printer_name", "printer_preset", "printer", "filament_settings_id", "filament_name"]:
+                            if elem.tag in [
+                                "printer_model_id",
+                                "printer_settings_id",
+                                "printer_name",
+                                "printer_preset",
+                                "printer",
+                                "filament_settings_id",
+                                "filament_name",
+                            ]:
                                 if elem.text and elem.text.strip():
                                     res_m = resolve_model_name(elem.text)
                                     if res_m != "Unknown":
@@ -172,14 +193,25 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
                         content_str = zf.read(jf).decode("utf-8", errors="ignore")
                         p_json = json.loads(content_str)
                         if isinstance(p_json, dict):
-                            for k in ["printer_model_id", "printer_settings_id", "printer_name", "printer", "filament_settings_id", "filament_name"]:
+                            for k in [
+                                "printer_model_id",
+                                "printer_settings_id",
+                                "printer_name",
+                                "printer",
+                                "filament_settings_id",
+                                "filament_name",
+                            ]:
                                 if k in p_json and result["printer_model"] == "Unknown":
                                     val = str(p_json[k])
                                     res_m = resolve_model_name(val)
                                     if res_m != "Unknown":
                                         result["printer_model"] = res_m
                                         break
-                            if "filament_type" in p_json and isinstance(p_json["filament_type"], list) and p_json["filament_type"]:
+                            if (
+                                "filament_type" in p_json
+                                and isinstance(p_json["filament_type"], list)
+                                and p_json["filament_type"]
+                            ):
                                 result["filament_type"] = str(p_json["filament_type"][0])
                     except Exception:
                         pass
@@ -192,14 +224,20 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
 
                         # Printer model or filament preset tag regex
                         if result["printer_model"] == "Unknown":
-                            m_match = re.search(r";\s*(?:printer_model_id|printer_model|printer_settings_id|printer_preset|printer|model|machine_type|filament_name|filament_preset|filament_settings_id)\s*=\s*\"?([^\";\r\n]+)\"?", gcode_text, re.IGNORECASE)
+                            m_match = re.search(
+                                r";\s*(?:printer_model_id|printer_model|printer_settings_id|printer_preset|printer|model|machine_type|filament_name|filament_preset|filament_settings_id)\s*=\s*\"?([^\";\r\n]+)\"?",
+                                gcode_text,
+                                re.IGNORECASE,
+                            )
                             if m_match:
                                 res_m = resolve_model_name(m_match.group(1))
                                 if res_m != "Unknown":
                                     result["printer_model"] = res_m
 
                         # Filament type regex
-                        f_match = re.search(r";\s*(?:filament_type|filament_name)\s*=\s*\"?([^\";\r\n]+)\"?", gcode_text, re.IGNORECASE)
+                        f_match = re.search(
+                            r";\s*(?:filament_type|filament_name)\s*=\s*\"?([^\";\r\n]+)\"?", gcode_text, re.IGNORECASE
+                        )
                         if f_match:
                             f_val = f_match.group(1).strip()
                             if "ABS" in f_val.upper():
@@ -213,17 +251,29 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
 
                         # Weight regex
                         if result["weight_g"] == 0.0:
-                            w_match = re.search(r";\s*(?:filament_used_g|filament used \[g\]|total filament used \[g\]|filament_weight|used_g)\s*=\s*([\d\.]+)", gcode_text, re.IGNORECASE)
+                            w_match = re.search(
+                                r";\s*(?:filament_used_g|filament used \[g\]|total filament used \[g\]|filament_weight|used_g)\s*=\s*([\d\.]+)",
+                                gcode_text,
+                                re.IGNORECASE,
+                            )
                             if w_match:
                                 result["weight_g"] = float(w_match.group(1))
 
                         # Time regex (seconds)
                         if result["time_mins"] == 0:
-                            t_sec_match = re.search(r";\s*(?:estimated_printing_time_s|total_printing_time_s|printing_time_s)\s*=\s*(\d+)", gcode_text, re.IGNORECASE)
+                            t_sec_match = re.search(
+                                r";\s*(?:estimated_printing_time_s|total_printing_time_s|printing_time_s)\s*=\s*(\d+)",
+                                gcode_text,
+                                re.IGNORECASE,
+                            )
                             if t_sec_match:
                                 result["time_mins"] = int(t_sec_match.group(1)) // 60
                             else:
-                                t_str_match = re.search(r";\s*(?:model printing time|estimated printing time|total estimated time|printing time|print time)\s*[:=]\s*([^\r\n]+)", gcode_text, re.IGNORECASE)
+                                t_str_match = re.search(
+                                    r";\s*(?:model printing time|estimated printing time|total estimated time|printing time|print time)\s*[:=]\s*([^\r\n]+)",
+                                    gcode_text,
+                                    re.IGNORECASE,
+                                )
                                 if t_str_match:
                                     result["time_mins"] = parse_time_str(t_str_match.group(1))
                     except Exception as e:
@@ -253,8 +303,6 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
         if t_val <= 0 and zipfile.is_zipfile(io.BytesIO(file_bytes)):
             result["time_mins"] = 60
 
-
-
         result["valid"] = True
 
     except Exception as e:
@@ -262,7 +310,8 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> Dict[str, Any]:
 
     return result
 
-def check_compatibility(sliced_model: str, filament_type: str, target_printer_name: str) -> Dict[str, Any]:
+
+def check_compatibility(sliced_model: str, filament_type: str, target_printer_name: str) -> dict[str, Any]:
     """
     Checks G-code / model compatibility between sliced model and target printer.
     Tag rules:
@@ -274,13 +323,22 @@ def check_compatibility(sliced_model: str, filament_type: str, target_printer_na
     target_clean = target_printer_name.strip()
 
     def get_model_family(name_str: str) -> str:
-        s = re.sub(r'[\-_]', ' ', name_str.lower())
+        s = re.sub(r"[\-_]", " ", name_str.lower())
         # Check A1 mini FIRST before A1
         if "a1m" in s or "a1 mini" in s or "a1mini" in s or "n2s" in s or "n2" in s or "@bbl a1m" in s:
             return "a1_mini"
         elif "a1" in s or "n1" in s or "@bbl a1" in s:
             return "a1"
-        elif "x1c" in s or "p1s" in s or "c12" in s or "p1p" in s or "c11" in s or "x1" in s or "c10" in s or "@bbl x1c" in s:
+        elif (
+            "x1c" in s
+            or "p1s" in s
+            or "c12" in s
+            or "p1p" in s
+            or "c11" in s
+            or "x1" in s
+            or "c10" in s
+            or "@bbl x1c" in s
+        ):
             return "p1s"
         return "unknown"
 
@@ -292,7 +350,7 @@ def check_compatibility(sliced_model: str, filament_type: str, target_printer_na
             return {
                 "compatible": True,
                 "level": "OK",
-                "reason": "✅ Ідеальна сумісність... Але тільки не думай, що це твоя заслуга, Бака! 😤💅"
+                "reason": "✅ Ідеальна сумісність... Але тільки не думай, що це твоя заслуга, Бака! 😤💅",
             }
         else:
             return {
@@ -303,11 +361,11 @@ def check_compatibility(sliced_model: str, filament_type: str, target_printer_na
                     f"Ти куди дивився, Бака?! Файл нарізано для <code>{sliced_clean}</code> ({sliced_family.upper()}), "
                     f"а ти хочеш запустити на <code>{target_clean}</code> ({target_family.upper()})!\n"
                     f"Стартовий G-code та макроси відрізняються! Не змушуй мене ремонтувати принтер після тебе! 😤💥"
-                )
+                ),
             }
 
     return {
         "compatible": True,
         "level": "OK",
-        "reason": "✅ Сумісність підтверджено... Тільки не кажи, що я не попереджала, Бака! 😤💅"
+        "reason": "✅ Сумісність підтверджено... Тільки не кажи, що я не попереджала, Бака! 😤💅",
     }

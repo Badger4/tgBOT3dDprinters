@@ -1,9 +1,12 @@
 """
 Unit tests for SensitiveDataFilter log sanitization.
 """
-import unittest
+
 import logging
+import unittest
+
 from config import SensitiveDataFilter
+
 
 class TestLogSanitization(unittest.TestCase):
     def setUp(self):
@@ -35,25 +38,26 @@ class TestLogSanitization(unittest.TestCase):
             lineno=0,
             msg="User token 9876543210:AAEEFFGGHHIIJJKKLLMMNNOOPPQQRRSSTTU",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
         self.assertTrue(self.filter.filter(record))
         self.assertNotIn("9876543210:", record.msg)
         self.assertIn("[TELEGRAM_BOT_TOKEN_MASKED]", record.msg)
 
     def test_query_param_sanitization(self):
-        raw_msg = 'GET /api/login?access_code=SECRET_12345&token=9876543210:AAEEFFGGHHIIJJKKLLMMNNOOPPQQRRSSTTU HTTP/1.1'
+        raw_msg = (
+            "GET /api/login?access_code=SECRET_12345&token=9876543210:AAEEFFGGHHIIJJKKLLMMNNOOPPQQRRSSTTU HTTP/1.1"
+        )
         sanitized = self.filter._sanitize(raw_msg)
         self.assertNotIn("SECRET_12345", sanitized)
         self.assertNotIn("9876543210:AAEEFFGGHHIIJJKKLLMMNNOOPPQQRRSSTTU", sanitized)
         self.assertIn("••••••••", sanitized)
-
 
     def test_aiohttp_access_logger_attachment(self):
         aio_log = logging.getLogger("aiohttp.access")
         has_sensitive_filter = any(isinstance(f, SensitiveDataFilter) for f in aio_log.filters)
         self.assertTrue(has_sensitive_filter)
 
+
 if __name__ == "__main__":
     unittest.main()
-

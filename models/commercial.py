@@ -1,10 +1,12 @@
 """
 Domain model and calculation engine for Commercial Pricing Presets.
 """
-import math
-from typing import Dict, Any, Tuple
 
-def parse_val_or_percent(val_str: str, base_amount: float, hours: float = 1.0) -> Tuple[float, bool]:
+import math
+from typing import Any
+
+
+def parse_val_or_percent(val_str: str, base_amount: float, hours: float = 1.0) -> tuple[float, bool]:
     """
     Parses a string input that can be either a fixed UAH value ("50", "10.5") or a percentage ("50%", "15.5%").
     Returns (calculated_uah_amount, is_percentage).
@@ -27,7 +29,8 @@ def parse_val_or_percent(val_str: str, base_amount: float, hours: float = 1.0) -
         except ValueError:
             return 0.0, False
 
-def calculate_commercial_price(preset: Dict[str, Any], weight_g: float, time_mins: int) -> Dict[str, Any]:
+
+def calculate_commercial_price(preset: dict[str, Any], weight_g: float, time_mins: int) -> dict[str, Any]:
     """
     Calculates detailed commercial price breakdown for a print job based on a preset.
     """
@@ -50,7 +53,9 @@ def calculate_commercial_price(preset: Dict[str, Any], weight_g: float, time_min
     cost_before_profit = round(direct_cost + depr_cost + cons_cost, 2)
 
     profit_str = str(preset.get("profit_val", "100%"))
-    profit_cost, profit_is_pct = parse_val_or_percent(profit_str, cost_before_profit, hours=1.0) # Fixed UAH profit is not per hour
+    profit_cost, profit_is_pct = parse_val_or_percent(
+        profit_str, cost_before_profit, hours=1.0
+    )  # Fixed UAH profit is not per hour
 
     total_price = round(cost_before_profit + profit_cost, 2)
 
@@ -68,5 +73,5 @@ def calculate_commercial_price(preset: Dict[str, Any], weight_g: float, time_min
         "cost_before_profit": cost_before_profit,
         "profit_cost": profit_cost,
         "profit_str": profit_str,
-        "total_price": total_price
+        "total_price": total_price,
     }

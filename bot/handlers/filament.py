@@ -1,37 +1,57 @@
 """
 Filament and spool management (AMS slots, warehouse spools, manual weight/price edits).
 """
+
 import html
 import uuid
-from aiogram import Router, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+
+from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from bot.keyboards import (
-    get_filament_menu_keyboard,
-    get_spools_keyboard,
     get_ams_slots_keyboard,
-    get_printer_menu_keyboard,
+    get_filament_menu_keyboard,
     get_main_keyboard,
+    get_printer_menu_keyboard,
+    get_spools_keyboard,
 )
 from utils.math_eval import safe_eval_math
 
 router = Router()
 
+
 def extract_filament_type_from_name(name: str) -> str:
     import re
+
     types = [
-        "PLA+", "PLA-CF", "PLA", "PETG-CF", "PETG", "PET",
-        "ABS-GF", "ABS", "ASA", "TPU-95A", "TPU",
-        "PPA-CF", "PA-CF", "PA6-CF", "PA", "PC", "HIPS", "PVA"
+        "PLA+",
+        "PLA-CF",
+        "PLA",
+        "PETG-CF",
+        "PETG",
+        "PET",
+        "ABS-GF",
+        "ABS",
+        "ASA",
+        "TPU-95A",
+        "TPU",
+        "PPA-CF",
+        "PA-CF",
+        "PA6-CF",
+        "PA",
+        "PC",
+        "HIPS",
+        "PVA",
     ]
     name_upper = name.upper()
     for t in types:
-        pattern = r'(?:\b|_)' + re.escape(t) + r'(?:\b|_)'
+        pattern = r"(?:\b|_)" + re.escape(t) + r"(?:\b|_)"
         if re.search(pattern, name_upper):
             return t
     words = name.strip().split()
     return words[0] if words else name.strip()
+
 
 def parse_slot_key_from_text(text: str) -> str:
     clean = text.lower()
@@ -47,7 +67,20 @@ def parse_slot_key_from_text(text: str) -> str:
         return "255"
     return "0"
 
-@router.message(F.text.lower().in_(["🧵 філамент & ams", "філамент & ams", "🧵 філамент", "редагувати філамент", "філамент", "📦 склад котушок", "склад котушок"]))
+
+@router.message(
+    F.text.lower().in_(
+        [
+            "🧵 філамент & ams",
+            "філамент & ams",
+            "🧵 філамент",
+            "редагувати філамент",
+            "філамент",
+            "📦 склад котушок",
+            "склад котушок",
+        ]
+    )
+)
 async def handle_filament_menu(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
@@ -79,6 +112,7 @@ async def handle_filament_menu(message: Message, app):
 
     await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard())
 
+
 @router.message(F.text.lower().in_(["🌈 слоти ams", "слоти ams", "ams"]))
 async def handle_ams_slots(message: Message, app):
     chat_id = str(message.chat.id)
@@ -93,7 +127,7 @@ async def handle_ams_slots(message: Message, app):
         await message.answer(
             f"<b>🌈 Модуль AMS для {html.escape(target_printer.name)}</b>\n\n"
             f"⚠️ <i>Дані AMS оновлюються або модуль AMS не підключено.</i>",
-            parse_mode=ParseMode.HTML
+            parse_mode=ParseMode.HTML,
         )
         return
 
@@ -102,7 +136,7 @@ async def handle_ams_slots(message: Message, app):
         2: "🟢 Рівень 2 (Норма)",
         3: "🟡 Рівень 3 (Помірна вологість)",
         4: "🟠 Рівень 4 (Волого - потрібна сушка)",
-        5: "🔴 Рівень 5 (Дуже волого - замініть десикант)"
+        5: "🔴 Рівень 5 (Дуже волого - замініть десикант)",
     }
     hum_str = hum_map.get(target_printer.ams_humidity_idx, f"Рівень {target_printer.ams_humidity_idx}")
 
@@ -134,7 +168,7 @@ async def handle_ams_slots(message: Message, app):
             except (ValueError, TypeError):
                 slot_num = t_id
 
-            is_active = (str(t_id) == str(target_printer.active_ams_tray))
+            is_active = str(t_id) == str(target_printer.active_ams_tray)
             active_mark = " <b>[⚡ АКТИВНИЙ]</b>" if is_active else ""
 
             slot_w = target_printer.get_slot_grams(t_id)
@@ -149,12 +183,13 @@ async def handle_ams_slots(message: Message, app):
             )
 
     ams_txt += (
-        f"-----------------------------------\n"
-        f"ℹ️ <b>Довідка:</b>\n"
-        f"• <b>Залишок філаменту:</b> відраховується від 1000g і автоматично зменшується ботом відповідно до ваги моделей."
+        "-----------------------------------\n"
+        "ℹ️ <b>Довідка:</b>\n"
+        "• <b>Залишок філаменту:</b> відраховується від 1000g і автоматично зменшується ботом відповідно до ваги моделей."
     )
 
     await message.answer(ams_txt, parse_mode=ParseMode.HTML)
+
 
 @router.message(F.text == "📦 Обрати котушку зі складу")
 async def handle_select_spool_warehouse(message: Message, app):
@@ -166,9 +201,16 @@ async def handle_select_spool_warehouse(message: Message, app):
         return
     user["state"] = "select_spool_from_db"
     await app.storage.save_user(user)
-    await message.answer("📦 <b>Оберіть котушку зі складу:</b>", parse_mode=ParseMode.HTML, reply_markup=get_spools_keyboard(spools))
+    await message.answer(
+        "📦 <b>Оберіть котушку зі складу:</b>", parse_mode=ParseMode.HTML, reply_markup=get_spools_keyboard(spools)
+    )
 
-@router.message(F.text.lower().in_(["⚖️ змінити залишок ваги", "змінити залишок ваги", "✏️ ручне введення ваги", "ручне введення ваги"]))
+
+@router.message(
+    F.text.lower().in_(
+        ["⚖️ змінити залишок ваги", "змінити залишок ваги", "✏️ ручне введення ваги", "ручне введення ваги"]
+    )
+)
 async def handle_manual_weight_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -180,7 +222,11 @@ async def handle_manual_weight_start(message: Message, app):
 
     user["state"] = "edit_filament_weight"
     await app.storage.save_user(user)
-    await message.answer(f"Введіть нову залишкову вагу філаменту (в грамах) для {html.escape(target_printer.name)}:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True))
+    await message.answer(
+        f"Введіть нову залишкову вагу філаменту (в грамах) для {html.escape(target_printer.name)}:",
+        reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True),
+    )
+
 
 @router.message(F.text == "💰 Ціна 1 кг (Грн)")
 async def handle_manual_price_start(message: Message, app):
@@ -194,7 +240,11 @@ async def handle_manual_price_start(message: Message, app):
 
     user["state"] = "edit_filament_price"
     await app.storage.save_user(user)
-    await message.answer(f"Введіть вартість 1 кг пластику у грн (поточна: {target_printer.price_per_kg} грн):", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True))
+    await message.answer(
+        f"Введіть вартість 1 кг пластику у грн (поточна: {target_printer.price_per_kg} грн):",
+        reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True),
+    )
+
 
 @router.message(F.text == "✏️ Редагувати котушку")
 async def handle_edit_spool_start(message: Message, app):
@@ -206,7 +256,12 @@ async def handle_edit_spool_start(message: Message, app):
         return
     user["state"] = "select_spool_to_edit"
     await app.storage.save_user(user)
-    await message.answer("✏️ <b>Оберіть котушку для редагування зі складу:</b>", parse_mode=ParseMode.HTML, reply_markup=get_spools_keyboard(spools))
+    await message.answer(
+        "✏️ <b>Оберіть котушку для редагування зі складу:</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_spools_keyboard(spools),
+    )
+
 
 @router.message(F.text == "🗑️ Видалити котушку")
 async def handle_delete_spool_start(message: Message, app):
@@ -218,7 +273,12 @@ async def handle_delete_spool_start(message: Message, app):
         return
     user["state"] = "select_spool_to_delete"
     await app.storage.save_user(user)
-    await message.answer("🗑️ <b>Оберіть котушку для видалення зі складу:</b>", parse_mode=ParseMode.HTML, reply_markup=get_spools_keyboard(spools))
+    await message.answer(
+        "🗑️ <b>Оберіть котушку для видалення зі складу:</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_spools_keyboard(spools),
+    )
+
 
 @router.message(F.text == "➕ Нова котушка")
 async def handle_add_spool_start(message: Message, app):
@@ -227,15 +287,31 @@ async def handle_add_spool_start(message: Message, app):
     user["state"] = "add_spool_name"
     user["context_data"]["new_spool"] = {}
     await app.storage.save_user(user)
-    await message.answer("Введіть назву котушки (наприклад: <code>eSUN PLA+ Black</code>):", parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True))
+    await message.answer(
+        "Введіть назву котушки (наприклад: <code>eSUN PLA+ Black</code>):",
+        parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True),
+    )
+
 
 FILAMENT_STATES = {
-    "edit_filament_weight", "select_slot_for_weight", "select_spool_from_db",
-    "select_slot_for_spool", "edit_filament_price", "add_spool_name",
-    "add_spool_grams", "add_spool_price", "select_spool_to_edit",
-    "select_spool_field", "edit_spool_name", "edit_spool_grams",
-    "edit_spool_price", "select_spool_to_delete", "confirm_delete_spool"
+    "edit_filament_weight",
+    "select_slot_for_weight",
+    "select_spool_from_db",
+    "select_slot_for_spool",
+    "edit_filament_price",
+    "add_spool_name",
+    "add_spool_grams",
+    "add_spool_price",
+    "select_spool_to_edit",
+    "select_spool_field",
+    "edit_spool_name",
+    "edit_spool_grams",
+    "edit_spool_price",
+    "select_spool_to_delete",
+    "confirm_delete_spool",
 }
+
 
 async def filament_state_filter(message: Message, app) -> bool:
     if not message.text:
@@ -243,6 +319,7 @@ async def filament_state_filter(message: Message, app) -> bool:
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     return user.get("state") in FILAMENT_STATES
+
 
 @router.message(filament_state_filter)
 async def handle_filament_states(message: Message, app):
@@ -263,7 +340,7 @@ async def handle_filament_states(message: Message, app):
             await message.answer(
                 f"📍 **Оберіть слот AMS для призначення ваги {val}g:**",
                 parse_mode=ParseMode.MARKDOWN,
-                reply_markup=get_ams_slots_keyboard(target_printer)
+                reply_markup=get_ams_slots_keyboard(target_printer),
             )
         else:
             await message.answer("Будь ласка, введіть коректне число у грамах.")
@@ -273,9 +350,23 @@ async def handle_filament_states(message: Message, app):
         val = ctx_data.get("pending_weight")
         if val is not None:
             slot_key = parse_slot_key_from_text(text)
-            slot_label = "A1" if slot_key == "0" else "A2" if slot_key == "1" else "A3" if slot_key == "2" else "A4" if slot_key == "3" else "Зовнішній (VT)"
-            
-            if target_printer.gcode_state == "RUNNING" and target_printer._current_job_grams > 0 and slot_key == target_printer.get_active_slot_key():
+            slot_label = (
+                "A1"
+                if slot_key == "0"
+                else "A2"
+                if slot_key == "1"
+                else "A3"
+                if slot_key == "2"
+                else "A4"
+                if slot_key == "3"
+                else "Зовнішній (VT)"
+            )
+
+            if (
+                target_printer.gcode_state == "RUNNING"
+                and target_printer._current_job_grams > 0
+                and slot_key == target_printer.get_active_slot_key()
+            ):
                 deducted_val = round(val - target_printer._current_job_grams, 2)
                 target_printer.set_slot_grams(deducted_val, slot_key)
                 target_printer._job_deducted = True
@@ -291,7 +382,7 @@ async def handle_filament_states(message: Message, app):
             await message.answer(
                 f"✅ **Залишок для Слоту {slot_label} оновлено: {target_printer.get_slot_grams(slot_key)}g**{msg_note}!",
                 parse_mode=ParseMode.MARKDOWN,
-                reply_markup=get_printer_menu_keyboard(target_printer)
+                reply_markup=get_printer_menu_keyboard(target_printer),
             )
         return True
 
@@ -315,7 +406,7 @@ async def handle_filament_states(message: Message, app):
             await message.answer(
                 f"📍 <b>Оберіть слот AMS для призначення котушки {html.escape(selected_spool['name'])}:</b>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_ams_slots_keyboard(target_printer)
+                reply_markup=get_ams_slots_keyboard(target_printer),
             )
         else:
             await message.answer("Будь ласка, оберіть котушку зі списку на клавіатурі.")
@@ -325,10 +416,24 @@ async def handle_filament_states(message: Message, app):
         selected_spool = ctx_data.get("pending_spool")
         if selected_spool:
             slot_key = parse_slot_key_from_text(text)
-            slot_label = "A1" if slot_key == "0" else "A2" if slot_key == "1" else "A3" if slot_key == "2" else "A4" if slot_key == "3" else "Зовнішній (VT)"
+            slot_label = (
+                "A1"
+                if slot_key == "0"
+                else "A2"
+                if slot_key == "1"
+                else "A3"
+                if slot_key == "2"
+                else "A4"
+                if slot_key == "3"
+                else "Зовнішній (VT)"
+            )
             val = float(selected_spool.get("remaining_grams", 1000.0))
 
-            if target_printer.gcode_state == "RUNNING" and target_printer._current_job_grams > 0 and slot_key == target_printer.get_active_slot_key():
+            if (
+                target_printer.gcode_state == "RUNNING"
+                and target_printer._current_job_grams > 0
+                and slot_key == target_printer.get_active_slot_key()
+            ):
                 target_printer.set_slot_grams(val - target_printer._current_job_grams, slot_key)
                 target_printer._job_deducted = True
             else:
@@ -348,7 +453,7 @@ async def handle_filament_states(message: Message, app):
             await message.answer(
                 f"✅ **Призначено котушку {html.escape(selected_spool['name'])} ({target_printer.get_slot_grams(slot_key)}g) на Слот {slot_label}!**",
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_printer_menu_keyboard(target_printer)
+                reply_markup=get_printer_menu_keyboard(target_printer),
             )
         return True
 
@@ -359,7 +464,11 @@ async def handle_filament_states(message: Message, app):
             await app.save_printers_config()
             user["state"] = "printer_menu"
             await app.storage.save_user(user)
-            await message.answer(f"✅ Вартість пластику оновлено: <b>{val} грн/кг</b>", parse_mode=ParseMode.HTML, reply_markup=get_printer_menu_keyboard(target_printer))
+            await message.answer(
+                f"✅ Вартість пластику оновлено: <b>{val} грн/кг</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_printer_menu_keyboard(target_printer),
+            )
         else:
             await message.answer("Будь ласка, введіть число більше 0.")
         return True
@@ -373,7 +482,7 @@ async def handle_filament_states(message: Message, app):
         await message.answer(
             f"Введіть початкову вагу котушки в грамах (наприклад <code>1000</code>).\n"
             f"🧵 Автоматично визначений тип пластику: <b>{html.escape(detected_type)}</b>",
-            parse_mode=ParseMode.HTML
+            parse_mode=ParseMode.HTML,
         )
         return True
 
@@ -402,11 +511,15 @@ async def handle_filament_states(message: Message, app):
 
         user["state"] = "printer_menu" if target_printer else "idle"
         await app.storage.save_user(user)
-        kb = get_printer_menu_keyboard(target_printer) if target_printer else get_main_keyboard(await app.is_user_admin(chat_id))
+        kb = (
+            get_printer_menu_keyboard(target_printer)
+            if target_printer
+            else get_main_keyboard(await app.is_user_admin(chat_id))
+        )
         await message.answer(
             f"✅ Нову котушку <b>{html.escape(new_s['name'])}</b> (Тип: <b>{html.escape(new_s['type'])}</b>, {new_s['remaining_grams']}g, {price_val} грн) додано на склад!",
             parse_mode=ParseMode.HTML,
-            reply_markup=kb
+            reply_markup=kb,
         )
         return True
 
@@ -427,17 +540,20 @@ async def handle_filament_states(message: Message, app):
             user["context_data"]["edit_spool"] = selected_spool
             user["state"] = "select_spool_field"
             await app.storage.save_user(user)
-            field_kb = ReplyKeyboardMarkup(keyboard=[
-                [KeyboardButton(text="📝 Назву / Тип"), KeyboardButton(text="⚖️ Залишкову вагу (g)")],
-                [KeyboardButton(text="💰 Вартість 1 кг (грн)")],
-                [KeyboardButton(text="⬅️ Назад")]
-            ], resize_keyboard=True)
+            field_kb = ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text="📝 Назву / Тип"), KeyboardButton(text="⚖️ Залишкову вагу (g)")],
+                    [KeyboardButton(text="💰 Вартість 1 кг (грн)")],
+                    [KeyboardButton(text="⬅️ Назад")],
+                ],
+                resize_keyboard=True,
+            )
             await message.answer(
                 f"📝 <b>Оберіть параметр для редагування котушки {html.escape(selected_spool['name'])}:</b>\n"
                 f"• Поточний залишок: {selected_spool.get('remaining_grams', 1000.0)}g\n"
                 f"• Поточна ціна: {selected_spool.get('price_uah', 650.0)} грн",
                 parse_mode=ParseMode.HTML,
-                reply_markup=field_kb
+                reply_markup=field_kb,
             )
         else:
             await message.answer("Будь ласка, оберіть котушку зі списку на клавіатурі.")
@@ -453,15 +569,27 @@ async def handle_filament_states(message: Message, app):
         if text == "📝 Назву / Тип":
             user["state"] = "edit_spool_name"
             await app.storage.save_user(user)
-            await message.answer(f"Введіть нову назву для котушки <b>{html.escape(spool['name'])}</b>:", parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True))
+            await message.answer(
+                f"Введіть нову назву для котушки <b>{html.escape(spool['name'])}</b>:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True),
+            )
         elif text == "⚖️ Залишкову вагу (g)":
             user["state"] = "edit_spool_grams"
             await app.storage.save_user(user)
-            await message.answer(f"Введіть новий залишок ваги (в грамах) для <b>{html.escape(spool['name'])}</b>:", parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True))
+            await message.answer(
+                f"Введіть новий залишок ваги (в грамах) для <b>{html.escape(spool['name'])}</b>:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True),
+            )
         elif text == "💰 Вартість 1 кг (грн)":
             user["state"] = "edit_spool_price"
             await app.storage.save_user(user)
-            await message.answer(f"Введіть нову вартість 1 кг (в грн) для <b>{html.escape(spool['name'])}</b>:", parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True))
+            await message.answer(
+                f"Введіть нову вартість 1 кг (в грн) для <b>{html.escape(spool['name'])}</b>:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True),
+            )
         else:
             await message.answer("Будь ласка, оберіть кнопкою параметр для редагування.")
         return True
@@ -478,8 +606,16 @@ async def handle_filament_states(message: Message, app):
                 user["state"] = "printer_menu" if target_printer else "idle"
                 user["context_data"].pop("edit_spool", None)
                 await app.storage.save_user(user)
-                kb = get_printer_menu_keyboard(target_printer) if target_printer else get_main_keyboard(await app.is_user_admin(chat_id))
-                await message.answer(f"✅ Назву та тип оновлено: <b>{html.escape(text)}</b> (Тип: <b>{spools[s_id]['type']}</b>)!", parse_mode=ParseMode.HTML, reply_markup=kb)
+                kb = (
+                    get_printer_menu_keyboard(target_printer)
+                    if target_printer
+                    else get_main_keyboard(await app.is_user_admin(chat_id))
+                )
+                await message.answer(
+                    f"✅ Назву та тип оновлено: <b>{html.escape(text)}</b> (Тип: <b>{spools[s_id]['type']}</b>)!",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb,
+                )
         return True
 
     if state == "edit_spool_grams":
@@ -495,8 +631,16 @@ async def handle_filament_states(message: Message, app):
                 user["state"] = "printer_menu" if target_printer else "idle"
                 user["context_data"].pop("edit_spool", None)
                 await app.storage.save_user(user)
-                kb = get_printer_menu_keyboard(target_printer) if target_printer else get_main_keyboard(await app.is_user_admin(chat_id))
-                await message.answer(f"✅ Залишок ваги для <b>{html.escape(spool['name'])}</b> оновлено: <b>{val}g</b>!", parse_mode=ParseMode.HTML, reply_markup=kb)
+                kb = (
+                    get_printer_menu_keyboard(target_printer)
+                    if target_printer
+                    else get_main_keyboard(await app.is_user_admin(chat_id))
+                )
+                await message.answer(
+                    f"✅ Залишок ваги для <b>{html.escape(spool['name'])}</b> оновлено: <b>{val}g</b>!",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb,
+                )
         else:
             await message.answer("Будь ласка, введіть коректне число в грамах.")
         return True
@@ -513,8 +657,16 @@ async def handle_filament_states(message: Message, app):
                 user["state"] = "printer_menu" if target_printer else "idle"
                 user["context_data"].pop("edit_spool", None)
                 await app.storage.save_user(user)
-                kb = get_printer_menu_keyboard(target_printer) if target_printer else get_main_keyboard(await app.is_user_admin(chat_id))
-                await message.answer(f"✅ Вартість для <b>{html.escape(spool['name'])}</b> оновлено: <b>{val} грн/кг</b>!", parse_mode=ParseMode.HTML, reply_markup=kb)
+                kb = (
+                    get_printer_menu_keyboard(target_printer)
+                    if target_printer
+                    else get_main_keyboard(await app.is_user_admin(chat_id))
+                )
+                await message.answer(
+                    f"✅ Вартість для <b>{html.escape(spool['name'])}</b> оновлено: <b>{val} грн/кг</b>!",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb,
+                )
         else:
             await message.answer("Будь ласка, введіть число більше 0.")
         return True
@@ -536,15 +688,15 @@ async def handle_filament_states(message: Message, app):
             user["context_data"]["delete_spool"] = selected_spool
             user["state"] = "confirm_delete_spool"
             await app.storage.save_user(user)
-            confirm_kb = ReplyKeyboardMarkup(keyboard=[
-                [KeyboardButton(text="✅ Так, видалити котушку")],
-                [KeyboardButton(text="❌ Скасувати")]
-            ], resize_keyboard=True)
+            confirm_kb = ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text="✅ Так, видалити котушку")], [KeyboardButton(text="❌ Скасувати")]],
+                resize_keyboard=True,
+            )
             await message.answer(
                 f"⚠️ <b>Ви впевнені, що бажаєте видалити котушку з зі склада?</b>\n"
                 f"📦 <b>{html.escape(selected_spool['name'])}</b> ({selected_spool.get('remaining_grams', 1000.0)}g)",
                 parse_mode=ParseMode.HTML,
-                reply_markup=confirm_kb
+                reply_markup=confirm_kb,
             )
         else:
             await message.answer("Будь ласка, оберіть котушку зі списку на клавіатурі.")
@@ -561,13 +713,25 @@ async def handle_filament_states(message: Message, app):
             user["state"] = "printer_menu" if target_printer else "idle"
             user["context_data"].pop("delete_spool", None)
             await app.storage.save_user(user)
-            kb = get_printer_menu_keyboard(target_printer) if target_printer else get_main_keyboard(await app.is_user_admin(chat_id))
-            await message.answer(f"🗑️ Котушку <b>{html.escape(selected_spool['name'])}</b> успішно видалено зі склада!", parse_mode=ParseMode.HTML, reply_markup=kb)
+            kb = (
+                get_printer_menu_keyboard(target_printer)
+                if target_printer
+                else get_main_keyboard(await app.is_user_admin(chat_id))
+            )
+            await message.answer(
+                f"🗑️ Котушку <b>{html.escape(selected_spool['name'])}</b> успішно видалено зі склада!",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
         else:
             user["state"] = "printer_menu" if target_printer else "idle"
             user["context_data"].pop("delete_spool", None)
             await app.storage.save_user(user)
-            kb = get_printer_menu_keyboard(target_printer) if target_printer else get_main_keyboard(await app.is_user_admin(chat_id))
+            kb = (
+                get_printer_menu_keyboard(target_printer)
+                if target_printer
+                else get_main_keyboard(await app.is_user_admin(chat_id))
+            )
             await message.answer("Видалення котушки скасовано.", reply_markup=kb)
         return True
 

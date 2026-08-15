@@ -2,13 +2,17 @@
 Unit tests for Commercial Pricing Calculator Telegram Handlers.
 Tests every button click, wizard step, preset creation, copying, editing, deletion, and quick calculations.
 """
+
 import unittest
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
-from aiogram.types import Message, Chat, User, CallbackQuery
-from storage.manager import StorageManager
+
+from aiogram.types import CallbackQuery, Chat, Message, User
+
 from bot.handlers import setup_routers
+from storage.manager import StorageManager
+
 
 class TestCommercialHandlers(unittest.TestCase):
     def setUp(self):
@@ -90,11 +94,11 @@ class TestCommercialHandlers(unittest.TestCase):
             user = await self.sm.load_user("123456")
             self.assertEqual(user["state"], "calc_enter_weight")
 
-            await self._send_msg("200") # 200g
+            await self._send_msg("200")  # 200g
             user = await self.sm.load_user("123456")
             self.assertEqual(user["state"], "calc_enter_time")
 
-            await self._send_msg("120") # 120 mins
+            await self._send_msg("120")  # 120 mins
             user = await self.sm.load_user("123456")
             self.assertEqual(user["state"], "calc_select_preset")
 
@@ -110,7 +114,9 @@ class TestCommercialHandlers(unittest.TestCase):
             self.assertIn("Головне меню", ans_home.call_args[0][0])
 
         import asyncio
+
         asyncio.run(run_test())
+
 
 if __name__ == "__main__":
     unittest.main()

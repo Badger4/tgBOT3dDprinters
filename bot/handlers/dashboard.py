@@ -1,13 +1,16 @@
 """
 Farm dashboard and printing history handlers.
 """
+
 import html
 import time
-from aiogram import Router, F
-from aiogram.types import Message
+
+from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.types import Message
 
 router = Router()
+
 
 @router.message(F.text.lower().in_(["📊 стан ферми", "стан ферми", "ферма"]))
 async def handle_dashboard(message: Message, app):
@@ -24,11 +27,15 @@ async def handle_dashboard(message: Message, app):
 
     for pid, p in app.printers.items():
         p_name = html.escape(p.name)
-        st_emoji = "🖨️" if p.gcode_state == "RUNNING" else ("⏸️" if p.gcode_state == "PAUSE" else ("🎉" if p.gcode_state == "FINISH" else "💤"))
+        st_emoji = (
+            "🖨️"
+            if p.gcode_state == "RUNNING"
+            else ("⏸️" if p.gcode_state == "PAUSE" else ("🎉" if p.gcode_state == "FINISH" else "💤"))
+        )
         spd_str = f" ({p.spd_mag}%)" if getattr(p, "spd_mag", 100) and getattr(p, "spd_mag", 100) != 100 else ""
-        
+
         dash_txt += f"{st_emoji} <b>{p_name}</b>: <code>{p.gcode_state}</code>{spd_str}\n"
-        
+
         if p.gcode_state in ["RUNNING", "PAUSE"]:
             sub_task = html.escape(p.subtask_name or "Модель")
             dash_txt += f"   📄 <i>{sub_task}</i> ({p.mc_percent}%) | ~{p.mc_remaining_time} хв\n"
@@ -39,6 +46,7 @@ async def handle_dashboard(message: Message, app):
 
     await message.answer(dash_txt, parse_mode=ParseMode.HTML)
 
+
 @router.message(F.text.lower().in_(["📜 історія друку", "історія друку", "історія"]))
 async def handle_history(message: Message, app):
     chat_id = str(message.chat.id)
@@ -47,7 +55,10 @@ async def handle_history(message: Message, app):
 
     history = await app.storage.load_history()
     if not history:
-        await message.answer("📜 <b>Журнал друку порожній, Бака!</b>\nПоки що нічого не надруковано. Іди працюй! 😤", parse_mode=ParseMode.HTML)
+        await message.answer(
+            "📜 <b>Журнал друку порожній, Бака!</b>\nПоки що нічого не надруковано. Іди працюй! 😤",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     total_prints = len(history)
@@ -63,7 +74,7 @@ async def handle_history(message: Message, app):
         f"-----------------------------------\n"
         f"<b>Останні виконані завдання:</b>\n\n"
     )
-    
+
     recent = history[-10:]
     recent.reverse()
     for idx, item in enumerate(recent, 1):
@@ -74,9 +85,14 @@ async def handle_history(message: Message, app):
         cost = item.get("cost_uah", 0.0)
         hist_txt += f"<b>{idx}. {p_name}</b> ({dt_str})\n   📄 <i>{sub}</i> | {w}g | 💰 {cost} грн\n"
 
-    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-    csv_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📥 Завантажити CSV звіт")], [KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True)
+    from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+
+    csv_kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📥 Завантажити CSV звіт")], [KeyboardButton(text="⬅️ Назад")]],
+        resize_keyboard=True,
+    )
     await message.answer(hist_txt, parse_mode=ParseMode.HTML, reply_markup=csv_kb)
+
 
 @router.message(F.text.lower().in_(["📥 завантажити csv звіт", "завантажити csv звіт", "експорт csv", "csv"]))
 async def handle_export_csv(message: Message, app):
@@ -89,8 +105,9 @@ async def handle_export_csv(message: Message, app):
         await message.answer("⚠️ Журнал друку порожній, немає даних для експорту.")
         return
 
-    from services.report_generator import generate_csv_report
     from aiogram.types import BufferedInputFile
+
+    from services.report_generator import generate_csv_report
 
     csv_bytes = generate_csv_report(history)
     date_str = time.strftime("%Y%m%d_%H%M")
@@ -98,5 +115,5 @@ async def handle_export_csv(message: Message, app):
     await message.answer_document(
         document=doc_file,
         caption="📊 *Повний CSV звіт історії друку 3D Ферми*\nТримай файл для Excel, Бака! 📑✨",
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.MARKDOWN,
     )

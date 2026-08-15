@@ -1,9 +1,9 @@
 """
 Safe AST-based mathematical string evaluation utility.
 """
+
 import ast
 import operator as op
-from typing import Optional
 
 MATH_OPERATORS = {
     ast.Add: op.add,
@@ -15,13 +15,14 @@ MATH_OPERATORS = {
     ast.UAdd: op.pos,
 }
 
-def safe_eval_math(expr_str: str) -> Optional[float]:
+
+def safe_eval_math(expr_str: str) -> float | None:
     """Safely evaluates basic mathematical string expressions without using eval()."""
     clean_expr = expr_str.replace("грн", "").replace("g", "").replace("г", "").replace(",", ".").strip()
     if not clean_expr:
         return None
     try:
-        node = ast.parse(clean_expr, mode='eval').body
+        node = ast.parse(clean_expr, mode="eval").body
 
         def _eval(n):
             if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):

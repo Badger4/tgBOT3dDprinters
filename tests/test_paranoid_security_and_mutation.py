@@ -3,28 +3,27 @@ Senior QA Automation & Security Engineering Test Suite.
 Rigorous, paranoid unit tests for data isolation, mutation testing, security edge cases,
 access-code protection, malformed inputs, boundary conditions, and mock-isolated crash scenarios.
 """
-import io
+
+import asyncio
 import copy
 import hmac
+import io
 import json
 import math
-import ssl
 import time
-import zipfile
-import asyncio
 import urllib.parse
-import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock, patch
+import zipfile
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from config import STORAGE_DIR
-from storage.manager import StorageManager
+import pytest
+
+from models.commercial import calculate_commercial_price, parse_val_or_percent
 from models.printer import BambuPrinter
-from models.commercial import parse_val_or_percent, calculate_commercial_price
-from services.http_server import verify_telegram_init_data, build_printer_telemetry, load_commercial_presets
-from services.gcode_parser import parse_3mf_file, check_compatibility, parse_time_str, format_print_time_human
-from services.camera_stream import _fetch_bambu_port6000_jpeg, capture_real_camera_photo, check_tcp_port_open
-from services.ftps_client import fetch_bambu_ftps_weight, upload_3mf_to_bambu, extract_model_weight
+from services.camera_stream import _fetch_bambu_port6000_jpeg, capture_real_camera_photo
+from services.ftps_client import fetch_bambu_ftps_weight
+from services.gcode_parser import check_compatibility, parse_3mf_file, parse_time_str
+from services.http_server import build_printer_telemetry, verify_telegram_init_data
+from storage.manager import StorageManager
 
 
 # ============================================================================
@@ -44,7 +43,7 @@ class TestSecurityDataIsolationAndFormatting:
             "name": "Security Test Printer",
             "ip": "192.168.1.100",
             "accessCode": secret_code,
-            "serialNumber": "SN_SEC_123"
+            "serialNumber": "SN_SEC_123",
         }
         printer = BambuPrinter(config, storage)
 
@@ -71,7 +70,7 @@ class TestSecurityDataIsolationAndFormatting:
             "name": "DB Isolation Printer",
             "ip": "192.168.1.101",
             "accessCode": raw_code,
-            "serialNumber": "SN_DB_987"
+            "serialNumber": "SN_DB_987",
         }
         printer = BambuPrinter(config, storage)
 
@@ -82,7 +81,6 @@ class TestSecurityDataIsolationAndFormatting:
         # Reload from storage
         reloaded_dict = await storage.load_json(storage.printers_file, {})
         assert reloaded_dict["p_db_1"]["accessCode"] == raw_code
-
 
         # Verify object created from reloaded dict retains exact raw_code
         reloaded_printer = BambuPrinter(reloaded_dict["p_db_1"], storage)
@@ -102,8 +100,8 @@ class TestSecurityDataIsolationAndFormatting:
 
             # Return binary ACK header + dummy JPEG bytes
             mock_ssl_sock.recv.side_effect = [
-                b'\x40\x00\x00\x00\x00\x30\x00\x00' + b'\x00'*56,
-                b'\xff\xd8' + b'dummy_jpeg_data' + b'\xff\xd9'
+                b"\x40\x00\x00\x00\x00\x30\x00\x00" + b"\x00" * 56,
+                b"\xff\xd8" + b"dummy_jpeg_data" + b"\xff\xd9",
             ]
 
             _fetch_bambu_port6000_jpeg("192.168.1.102", raw_code)
@@ -150,7 +148,7 @@ class TestMutationTestingPurity:
             "power_watts": 120.0,
             "depreciation_val": "10",
             "consumables_val": "5",
-            "profit_val": "100%"
+            "profit_val": "100%",
         }
         original_copy = copy.deepcopy(preset)
 
@@ -196,7 +194,7 @@ class TestMutationTestingPurity:
             "name": "Purity Printer",
             "ip": "192.168.1.50",
             "accessCode": "88888888",
-            "serialNumber": "SN_MUT_1"
+            "serialNumber": "SN_MUT_1",
         }
         printer = BambuPrinter(config, storage)
         printer_state_before = copy.deepcopy(printer.__dict__)
@@ -223,23 +221,26 @@ class TestAdversarialBoundaryAndEdgeInputs:
     """
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("bad_code", [
-        "",
-        "   ",
-        "\t\n\r  ",
-        "A" * 256,
-        pytest.param("B" * 50000, id="50k_chars_str"),
-        "' OR '1'='1' --",
-        "<script>alert('xss')</script>",
-        "pass\x00word\r\n\t",
-        "🔑🔓🔒🔑1234",
-        "ПарольПринтера123",
-        None,
-        12345678,
-        99.95,
-        ["pass_list"],
-        {"code": "dict_pass"}
-    ])
+    @pytest.mark.parametrize(
+        "bad_code",
+        [
+            "",
+            "   ",
+            "\t\n\r  ",
+            "A" * 256,
+            pytest.param("B" * 50000, id="50k_chars_str"),
+            "' OR '1'='1' --",
+            "<script>alert('xss')</script>",
+            "pass\x00word\r\n\t",
+            "🔑🔓🔒🔑1234",
+            "ПарольПринтера123",
+            None,
+            12345678,
+            99.95,
+            ["pass_list"],
+            {"code": "dict_pass"},
+        ],
+    )
     async def test_access_code_boundary_resilience(self, bad_code, tmp_path):
         storage = StorageManager(tmp_path)
         config = {
@@ -247,7 +248,7 @@ class TestAdversarialBoundaryAndEdgeInputs:
             "name": "Edge Code Printer",
             "ip": "192.168.1.99",
             "accessCode": bad_code,
-            "serialNumber": "SN_EDGE"
+            "serialNumber": "SN_EDGE",
         }
         with patch("models.printer.mqtt.Client"):
             printer = BambuPrinter(config, storage)
@@ -255,8 +256,10 @@ class TestAdversarialBoundaryAndEdgeInputs:
             printer.init_mqtt()
 
             # Must not crash during camera photo attempt
-            with patch("services.camera_stream.check_tcp_port_open", AsyncMock(return_value=False)), \
-                 patch("services.camera_stream._fetch_bambu_port6000_jpeg", return_value=None):
+            with (
+                patch("services.camera_stream.check_tcp_port_open", AsyncMock(return_value=False)),
+                patch("services.camera_stream._fetch_bambu_port6000_jpeg", return_value=None),
+            ):
                 photo = await capture_real_camera_photo("192.168.1.99", printer.access_code)
                 assert photo is None
 
@@ -267,19 +270,22 @@ class TestAdversarialBoundaryAndEdgeInputs:
 
             printer.destroy()
 
-    @pytest.mark.parametrize("raw_mc_percent, expected_percent", [
-        (0, 0),
-        (50, 50),
-        (100, 100),
-        ("75", 75),
-        (45.8, 45),
-        (-10, 0),
-        (999, 100),
-        (None, 0),
-        ("INVALID", 0),
-        (float("nan"), 0),
-        (float("inf"), 0)
-    ])
+    @pytest.mark.parametrize(
+        "raw_mc_percent, expected_percent",
+        [
+            (0, 0),
+            (50, 50),
+            (100, 100),
+            ("75", 75),
+            (45.8, 45),
+            (-10, 0),
+            (999, 100),
+            (None, 0),
+            ("INVALID", 0),
+            (float("nan"), 0),
+            (float("inf"), 0),
+        ],
+    )
     def test_mqtt_telemetry_percent_clamping_and_types(self, raw_mc_percent, expected_percent, tmp_path):
         storage = StorageManager(tmp_path)
         printer = BambuPrinter({"id": "p_tele", "name": "Tele", "ip": "127.0.0.1"}, storage)
@@ -293,36 +299,42 @@ class TestAdversarialBoundaryAndEdgeInputs:
         assert printer.mc_percent == expected_percent
         assert isinstance(printer.mc_percent, int)
 
-    @pytest.mark.parametrize("val_str, base_amount, hours, expected_val, expected_is_pct", [
-        ("10", 100.0, 2.0, 20.0, False),
-        ("0", 100.0, 2.0, 0.0, False),
-        ("50%", 100.0, 2.0, 50.0, True),
-        ("0%", 100.0, 2.0, 0.0, True),
-        ("200%", 100.0, 2.0, 200.0, True),
-        ("  15.5 % ", 100.0, 2.0, 15.5, True),
-        ("invalid", 100.0, 2.0, 0.0, False),
-        ("", 100.0, 2.0, 0.0, False),
-        ("   ", 100.0, 2.0, 0.0, False),
-        (None, 100.0, 2.0, 0.0, False),
-        ("NaN%", 100.0, 2.0, 0.0, True),
-        ("Inf%", 100.0, 2.0, 0.0, True)
-    ])
+    @pytest.mark.parametrize(
+        "val_str, base_amount, hours, expected_val, expected_is_pct",
+        [
+            ("10", 100.0, 2.0, 20.0, False),
+            ("0", 100.0, 2.0, 0.0, False),
+            ("50%", 100.0, 2.0, 50.0, True),
+            ("0%", 100.0, 2.0, 0.0, True),
+            ("200%", 100.0, 2.0, 200.0, True),
+            ("  15.5 % ", 100.0, 2.0, 15.5, True),
+            ("invalid", 100.0, 2.0, 0.0, False),
+            ("", 100.0, 2.0, 0.0, False),
+            ("   ", 100.0, 2.0, 0.0, False),
+            (None, 100.0, 2.0, 0.0, False),
+            ("NaN%", 100.0, 2.0, 0.0, True),
+            ("Inf%", 100.0, 2.0, 0.0, True),
+        ],
+    )
     def test_parse_val_or_percent_edge_cases(self, val_str, base_amount, hours, expected_val, expected_is_pct):
         val, is_pct = parse_val_or_percent(val_str, base_amount, hours)
         assert val == pytest.approx(expected_val, abs=1e-2)
         assert is_pct == expected_is_pct
 
-    @pytest.mark.parametrize("time_str, expected_mins", [
-        ("8d 18h 54m 54s", 12654),
-        ("model printing time: 8d 18h 54m 54s; total estimated time: 8d 19h 1m 9s", 12661),
-        ("1d 0h 0m", 1440),
-        ("02:30:00", 150),
-        ("00:45:00", 45),
-        ("random text 123", 0),
-        ("", 0),
-        (None, 0),
-        ("999999d 0h 0m", 1439998560)
-    ])
+    @pytest.mark.parametrize(
+        "time_str, expected_mins",
+        [
+            ("8d 18h 54m 54s", 12654),
+            ("model printing time: 8d 18h 54m 54s; total estimated time: 8d 19h 1m 9s", 12661),
+            ("1d 0h 0m", 1440),
+            ("02:30:00", 150),
+            ("00:45:00", 45),
+            ("random text 123", 0),
+            ("", 0),
+            (None, 0),
+            ("999999d 0h 0m", 1439998560),
+        ],
+    )
     def test_parse_time_str_edge_cases(self, time_str, expected_mins):
         mins = parse_time_str(time_str)
         assert mins == expected_mins
@@ -342,12 +354,14 @@ class TestCrashScenariosAndIsolation:
 
         # 1. Valid HMAC construction
         user_dict = {"id": 123456789, "first_name": "TestUser", "username": "testuser"}
-        user_json = json.dumps(user_dict, separators=(',', ':'))
+        user_json = json.dumps(user_dict, separators=(",", ":"))
         auth_date = str(int(time.time()))
 
         params = {"auth_date": auth_date, "user": user_json}
         data_check = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
-        secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib_sha256 := __import__("hashlib").sha256).digest()
+        secret_key = hmac.new(
+            b"WebAppData", bot_token.encode("utf-8"), hashlib_sha256 := __import__("hashlib").sha256
+        ).digest()
         valid_hash = hmac.new(secret_key, data_check.encode("utf-8"), hashlib_sha256).hexdigest()
 
         valid_init_data = f"auth_date={auth_date}&hash={valid_hash}&user={urllib_quote(user_json)}"
@@ -361,7 +375,7 @@ class TestCrashScenariosAndIsolation:
         assert verify_telegram_init_data(forged_init_data, bot_token) is None
 
         # 3. Tampered user ID (privilege escalation attack)
-        tampered_user_json = json.dumps({"id": 1, "first_name": "Admin"}, separators=(',', ':'))
+        tampered_user_json = json.dumps({"id": 1, "first_name": "Admin"}, separators=(",", ":"))
         tampered_init_data = f"auth_date={auth_date}&hash={valid_hash}&user={urllib_quote(tampered_user_json)}"
         assert verify_telegram_init_data(tampered_init_data, bot_token) is None
 
@@ -391,9 +405,7 @@ class TestCrashScenariosAndIsolation:
         # 3. Zip with Metadata/plate_1.gcode containing gcode weight and prediction time
         buf_meta = io.BytesIO()
         gcode_content = (
-            "; model printing time = 2h 30m 0s\n"
-            "; total filament used [g] = 145.85\n"
-            "; printer_model_id = @BBL P1S\n"
+            "; model printing time = 2h 30m 0s\n; total filament used [g] = 145.85\n; printer_model_id = @BBL P1S\n"
         )
         with zipfile.ZipFile(buf_meta, "w") as zf:
             zf.writestr("Metadata/plate_1.gcode", gcode_content)
@@ -416,7 +428,7 @@ class TestCrashScenariosAndIsolation:
                     "name": f"Concurrent Printer {idx}",
                     "ip": f"192.168.1.{idx}",
                     "accessCode": f"CODE_{idx}",
-                    "filament_grams": 1000.0 - idx
+                    "filament_grams": 1000.0 - idx,
                 }
             }
             await storage.save_json(storage.printers_file, p_data)
@@ -437,7 +449,7 @@ class TestCrashScenariosAndIsolation:
             "power_watts": 0.0,
             "depreciation_val": "0",
             "consumables_val": "0",
-            "profit_val": "0%"
+            "profit_val": "0%",
         }
 
         # 1. Zero values
@@ -452,5 +464,4 @@ class TestCrashScenariosAndIsolation:
 
 
 def urllib_quote(s: str) -> str:
-    import urllib.parse
     return urllib.parse.quote(s)

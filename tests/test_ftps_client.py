@@ -1,21 +1,22 @@
 """
 Hardcore unit tests for ftps_client service: weight extraction and FTPS upload routines.
 """
+
 import io
-import zipfile
 import unittest
+import zipfile
 from unittest.mock import MagicMock, patch
 
 from services.ftps_client import (
-    extract_model_weight,
-    parse_weight_from_gcode_text,
-    parse_weight_from_3mf_bytes,
     bambu_storbinary,
-    upload_3mf_to_bambu
+    extract_model_weight,
+    parse_weight_from_3mf_bytes,
+    parse_weight_from_gcode_text,
+    upload_3mf_to_bambu,
 )
 
-class TestFTPSClient(unittest.TestCase):
 
+class TestFTPSClient(unittest.TestCase):
     def test_extract_model_weight_dict(self):
         self.assertEqual(extract_model_weight({"filament_weight": 125.4}), 125.4)
         self.assertEqual(extract_model_weight({"nested": {"used_g": 88.2}}), 88.2)
@@ -32,7 +33,7 @@ class TestFTPSClient(unittest.TestCase):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
             zf.writestr("Metadata/slice_info.config", "filament used [g] = 99.8\n")
-        
+
         weight = parse_weight_from_3mf_bytes(buf.getvalue())
         self.assertEqual(weight, 99.8)
 
@@ -86,6 +87,7 @@ class TestFTPSClient(unittest.TestCase):
         self.assertEqual(res, "box.3mf")
         mock_ftps_root.cwd.assert_called_with("/")
         mock_ftps_root.quit.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

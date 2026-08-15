@@ -1,9 +1,8 @@
-import sys
-import os
-import re
-import time
 import json
 import logging
+import re
+import sys
+import time
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -13,6 +12,7 @@ LOG_FILE = LOG_DIR / "orca_hook.log"
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s - %(message)s")
 
 WEIGHT_CACHE = BASE_DIR / "printers_storage" / "last_sliced_weight.json"
+
 
 def main():
     if len(sys.argv) < 2:
@@ -24,25 +24,35 @@ def main():
 
     weight = 0.0
     try:
-        with open(gcode_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(gcode_path, encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line_clean = line.strip()
                 if not line_clean.startswith(";"):
                     continue
                 line_lower = line_clean.lower()
 
-                if any(k in line_lower for k in [
-                    "filament used [g]", "total filament used [g]", "filament weight",
-                    "total filament weight", "filament_weight_total", "extruder_weight_total",
-                    "filament_used_g", "filament_used", "weight [g]", "used_g"
-                ]):
+                if any(
+                    k in line_lower
+                    for k in [
+                        "filament used [g]",
+                        "total filament used [g]",
+                        "filament weight",
+                        "total filament weight",
+                        "filament_weight_total",
+                        "extruder_weight_total",
+                        "filament_used_g",
+                        "filament_used",
+                        "weight [g]",
+                        "used_g",
+                    ]
+                ):
                     if "[mm]" in line_lower and "[g]" not in line_lower and "weight" not in line_lower:
                         continue
 
                     after_eq = line_clean.split("=", 1)[-1] if "=" in line_clean else line_clean.split(":", 1)[-1]
                     after_eq_clean = after_eq.split("(")[0]
 
-                    numbers = re.findall(r'\b\d+(?:[\.,]\d+)?\b', after_eq_clean)
+                    numbers = re.findall(r"\b\d+(?:[\.,]\d+)?\b", after_eq_clean)
                     valid_weights = []
                     for num_str in numbers:
                         try:
@@ -66,13 +76,14 @@ def main():
                 "weight": weight,
                 "path": gcode_path,
                 "filename": Path(gcode_path).name,
-                "timestamp": time.time()
+                "timestamp": time.time(),
             }
-            with open(WEIGHT_CACHE, 'w', encoding='utf-8') as f:
+            with open(WEIGHT_CACHE, "w", encoding="utf-8") as f:
                 json.dump(cache_data, f, ensure_ascii=False)
             logging.info(f"💾 Saved cached weight data: {cache_data}")
         except Exception as e:
             logging.error(f"Error writing cache: {e}")
+
 
 if __name__ == "__main__":
     main()

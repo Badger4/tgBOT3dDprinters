@@ -1,0 +1,41 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=50000']
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.1
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy type check
+        entry: .venv/Scripts/python.exe -m mypy models/ services/ storage/ config.py
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest-coverage
+        name: pytest & per-file coverage check
+        entry: .venv/Scripts/python.exe -m pytest tests/ --cov=models --cov=services --cov=storage --cov=config --cov=utils --cov-fail-under=65 --cov-report=json:coverage.json -q
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: per-file-coverage-gate
+        name: per-file coverage floors
+        entry: .venv/Scripts/python.exe scripts/check_per_file_coverage.py coverage.json
+        language: system
+        types: [python]
+        pass_filenames: false

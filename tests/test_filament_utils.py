@@ -1,9 +1,12 @@
 """
 Unit tests for filament_utils and AMSSlot/GCodeState enums.
 """
+
 import unittest
-from models.enums import AMSSlot, GCodeState
-from utils.filament_utils import parse_slot_key_from_text, extract_filament_type_from_name
+
+from models.enums import AMSSlot
+from utils.filament_utils import extract_filament_type_from_name, parse_slot_key_from_text
+
 
 class TestFilamentUtils(unittest.TestCase):
     def test_parse_slot_key(self):
@@ -18,6 +21,7 @@ class TestFilamentUtils(unittest.TestCase):
         self.assertEqual(extract_filament_type_from_name("box_PLA_red.gcode"), "PLA")
         self.assertEqual(extract_filament_type_from_name("gear_PETG-CF.3mf"), "PETG-CF")
         self.assertEqual(extract_filament_type_from_name("custom_material"), "custom_material")
+
 
 if __name__ == "__main__":
     unittest.main()

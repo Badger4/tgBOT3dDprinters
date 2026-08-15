@@ -1,13 +1,16 @@
 """
 Unit tests for BambuPrinter model.
 """
-import unittest
+
 import json
 import tempfile
+import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from storage.manager import StorageManager
+
 from models.printer import BambuPrinter
+from storage.manager import StorageManager
+
 
 class TestPrinterModel(unittest.TestCase):
     def setUp(self) -> None:
@@ -23,7 +26,7 @@ class TestPrinterModel(unittest.TestCase):
             "filament_grams": 1000.0,
             "price_per_kg": 650.0,
             "power_watts": 120.0,
-            "electricity_rate_uah": 4.32
+            "electricity_rate_uah": 4.32,
         }
         self.printer = BambuPrinter(self.config, self.storage)
 
@@ -47,9 +50,9 @@ class TestPrinterModel(unittest.TestCase):
     def test_calculate_job_cost_fallback_minutes(self) -> None:
         # For 100g weight with print_mins=0, effective_mins = max(10, int(100 * 2.0)) = 200 mins
         cost_info = self.printer.calculate_job_cost(100.0, print_mins=0)
-        expected_filament = (100.0 / 1000.0) * 650.0 # 65.0
-        expected_kwh = (120.0 / 1000.0) * (200.0 / 60.0) # 0.4 kWh
-        expected_elec = round(expected_kwh * 4.32, 2) # 1.73 UAH
+        expected_filament = (100.0 / 1000.0) * 650.0  # 65.0
+        expected_kwh = (120.0 / 1000.0) * (200.0 / 60.0)  # 0.4 kWh
+        expected_elec = round(expected_kwh * 4.32, 2)  # 1.73 UAH
         self.assertEqual(cost_info["filament_cost"], 65.0)
         self.assertEqual(cost_info["electricity_cost"], expected_elec)
         self.assertEqual(cost_info["total_cost"], round(65.0 + expected_elec, 2))
@@ -86,16 +89,7 @@ class TestPrinterModel(unittest.TestCase):
         payload_dict = {
             "print": {
                 "gcode_state": "RUNNING",
-                "ams": {
-                    "ams_exist_bits": "1",
-                    "tray_now": "0",
-                    "ams": [
-                        {
-                            "humidity": "4",
-                            "temp": "23.5"
-                        }
-                    ]
-                }
+                "ams": {"ams_exist_bits": "1", "tray_now": "0", "ams": [{"humidity": "4", "temp": "23.5"}]},
             }
         }
         msg.payload = json.dumps(payload_dict).encode("utf-8")
@@ -116,7 +110,7 @@ class TestPrinterModel(unittest.TestCase):
                 "mc_percent": "abc",
                 "mc_remaining_time": -50,
                 "layer_num": "xyz",
-                "spd_lvl": "not_an_int"
+                "spd_lvl": "not_an_int",
             }
         }
         msg.payload = json.dumps(payload_dict).encode("utf-8")
@@ -132,12 +126,8 @@ class TestPrinterModel(unittest.TestCase):
         payload_dict = {
             "print": {
                 "gcode_state": "RUNNING",
-                "lights_report": [
-                    {"node": "chamber_light", "mode": "on"}
-                ],
-                "hms": [
-                    {"code": 134217728, "attr": 65536}
-                ]
+                "lights_report": [{"node": "chamber_light", "mode": "on"}],
+                "hms": [{"code": 134217728, "attr": 65536}],
             }
         }
         msg.payload = json.dumps(payload_dict).encode("utf-8")
@@ -149,12 +139,7 @@ class TestPrinterModel(unittest.TestCase):
 
     def test_on_message_subtask_weight_regex(self) -> None:
         msg = MagicMock()
-        payload_dict = {
-            "print": {
-                "gcode_state": "RUNNING",
-                "subtask_name": "test_model_155.5g.gcode"
-            }
-        }
+        payload_dict = {"print": {"gcode_state": "RUNNING", "subtask_name": "test_model_155.5g.gcode"}}
         msg.payload = json.dumps(payload_dict).encode("utf-8")
         with patch("models.printer.STORAGE_DIR", self.temp_path):
             self.printer._on_message(None, None, msg)
@@ -223,6 +208,7 @@ class TestPrinterModel(unittest.TestCase):
         _, payload_str = mock_client.publish.call_args[0]
         payload = json.loads(payload_str)
         self.assertEqual(payload["print"]["param"], "4")
+
 
 if __name__ == "__main__":
     unittest.main()

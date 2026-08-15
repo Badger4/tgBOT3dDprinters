@@ -1,7 +1,9 @@
 import unittest
 from pathlib import Path
-from storage.manager import StorageManager
+
 from models.printer import BambuPrinter
+from storage.manager import StorageManager
+
 
 class TestMaintenanceTracking(unittest.TestCase):
     def test_record_print_hours_and_reset(self):
@@ -11,7 +13,7 @@ class TestMaintenanceTracking(unittest.TestCase):
             "name": "Test Printer",
             "total_print_hours": 10.0,
             "maintenance_hours_counter": 95.0,
-            "maintenance_interval_hours": 100
+            "maintenance_interval_hours": 100,
         }
         p = BambuPrinter(config, sm)
         self.assertEqual(p.total_print_hours, 10.0)
@@ -27,6 +29,7 @@ class TestMaintenanceTracking(unittest.TestCase):
         p.reset_maintenance_counter()
         self.assertEqual(p.maintenance_hours_counter, 0.0)
         self.assertEqual(p.total_print_hours, 20.0)
+
 
 if __name__ == "__main__":
     unittest.main()

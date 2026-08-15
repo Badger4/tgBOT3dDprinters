@@ -1,57 +1,75 @@
 """
 FTPS client and G-Code / 3MF filament weight parser for Bambu Lab printers.
 """
+
+import ftplib
 import io
 import re
-import ssl
 import socket
-import ftplib
+import ssl
 import zipfile
-from typing import Dict, Any, Optional
+from typing import Any
+
 from config import logger
+
 
 class ImplicitFTP_TLS(ftplib.FTP_TLS):
     """FTP_TLS subclass for implicit SSL/TLS on port 990 for Bambu Lab printers."""
-    def connect(self, host: str = '', port: int = 990, timeout: float = 10.0, source_address: Optional[Any] = None) -> str:
-        if host != '':
+
+    def connect(self, host: str = "", port: int = 990, timeout: float = 10.0, source_address: Any | None = None) -> str:
+        if host != "":
             self.host = host
         if port > 0:
             self.port = port
         self.timeout = timeout if timeout and timeout > 0 else 10.0
         self.sock = socket.create_connection((self.host, self.port), self.timeout, source_address)
         self.af = self.sock.family
-        if not hasattr(self, 'context') or self.context is None:
+        if not hasattr(self, "context") or self.context is None:
             self.context = ssl.create_default_context()
             self.context.check_hostname = False
             self.context.verify_mode = ssl.CERT_NONE
         self.sock = self.context.wrap_socket(self.sock)
-        self.file = self.sock.makefile('r', encoding=self.encoding)
+        self.file = self.sock.makefile("r", encoding=self.encoding)
         self.welcome = self.getresp()
         return str(self.welcome)
 
-    def ntransfercmd(self, cmd: str, rest: Optional[Any] = None) -> Any:
+    def ntransfercmd(self, cmd: str, rest: Any | None = None) -> Any:
         conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
         if getattr(self, "_prot_p", False):
             conn = self.context.wrap_socket(conn, server_hostname=None)
         return conn, size
+
 
 class BambuFTP_TLS(ftplib.FTP_TLS):
     """FTP_TLS subclass for explicit SSL/TLS on port 21 for Bambu Lab printers."""
-    def ntransfercmd(self, cmd: str, rest: Optional[Any] = None) -> Any:
+
+    def ntransfercmd(self, cmd: str, rest: Any | None = None) -> Any:
         conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
         if getattr(self, "_prot_p", False):
             conn = self.context.wrap_socket(conn, server_hostname=None)
         return conn, size
 
 
-
-def extract_model_weight(print_data: Dict[str, Any]) -> float:
+def extract_model_weight(print_data: dict[str, Any]) -> float:
     """Extracts model weight from Bambu Lab / OrcaSlicer MQTT payload or filename regex."""
     keys = [
-        "filament_weight", "weight", "subtask_weight", "gcode_weight", "total_weight",
-        "used_g", "model_weight", "extruder_weight_total", "exyride_weight_total",
-        "extruder_weight", "filament_weight_total", "filament_used", "filament_used_g",
-        "filament used [g]", "filament_used_[g]", "filament used", "total filament weight"
+        "filament_weight",
+        "weight",
+        "subtask_weight",
+        "gcode_weight",
+        "total_weight",
+        "used_g",
+        "model_weight",
+        "extruder_weight_total",
+        "exyride_weight_total",
+        "extruder_weight",
+        "filament_weight_total",
+        "filament_used",
+        "filament_used_g",
+        "filament used [g]",
+        "filament_used_[g]",
+        "filament used",
+        "total filament weight",
     ]
     for k in keys:
         if k in print_data and print_data[k] is not None:
@@ -88,7 +106,7 @@ def extract_model_weight(print_data: Dict[str, Any]) -> float:
 
     subtask = str(print_data.get("subtask_name") or print_data.get("gcode_file") or "")
     if subtask:
-        m = re.search(r'(?:_|\b)(\d+(?:[\.,]\d+)?)\s*(?:g|г|gram|grams)\b', subtask, re.IGNORECASE)
+        m = re.search(r"(?:_|\b)(\d+(?:[\.,]\d+)?)\s*(?:g|г|gram|grams)\b", subtask, re.IGNORECASE)
         if m:
             try:
                 val = float(m.group(1).replace(",", "."))
@@ -99,6 +117,7 @@ def extract_model_weight(print_data: Dict[str, Any]) -> float:
 
     return 0.0
 
+
 def parse_weight_from_gcode_text(text: str) -> float:
     """Parses filament weight in grams from G-code text comments targeting 'filament used [g] ='."""
     for line in text.splitlines():
@@ -108,11 +127,21 @@ def parse_weight_from_gcode_text(text: str) -> float:
         line_lower = line_clean.lower()
 
         # Look for weight comment keywords
-        if any(k in line_lower for k in [
-            "filament used [g]", "total filament used [g]", "filament weight",
-            "total filament weight", "filament_weight_total", "extruder_weight_total",
-            "filament_used_g", "filament_used", "weight [g]", "used_g"
-        ]):
+        if any(
+            k in line_lower
+            for k in [
+                "filament used [g]",
+                "total filament used [g]",
+                "filament weight",
+                "total filament weight",
+                "filament_weight_total",
+                "extruder_weight_total",
+                "filament_used_g",
+                "filament_used",
+                "weight [g]",
+                "used_g",
+            ]
+        ):
             # Skip lines describing only [mm] length without weight
             if "[mm]" in line_lower and "[g]" not in line_lower and "weight" not in line_lower:
                 continue
@@ -120,7 +149,7 @@ def parse_weight_from_gcode_text(text: str) -> float:
             after_eq = line_clean.split("=", 1)[-1] if "=" in line_clean else line_clean.split(":", 1)[-1]
             after_eq_clean = after_eq.split("(")[0]
 
-            numbers = re.findall(r'\b\d+(?:[\.,]\d+)?\b', after_eq_clean)
+            numbers = re.findall(r"\b\d+(?:[\.,]\d+)?\b", after_eq_clean)
             valid_weights = []
             for num_str in numbers:
                 try:
@@ -135,6 +164,7 @@ def parse_weight_from_gcode_text(text: str) -> float:
 
     return 0.0
 
+
 def parse_weight_from_3mf_bytes(data_bytes: bytes) -> float:
     """Parses filament weight from 3MF zip container (slice_info.config or embedded .gcode)."""
     try:
@@ -143,8 +173,8 @@ def parse_weight_from_3mf_bytes(data_bytes: bytes) -> float:
             for name in zf.namelist():
                 if name.endswith("slice_info.config"):
                     try:
-                        content = zf.read(name).decode('utf-8', errors='ignore')
-                        m = re.search(r'(?:filament\s+used\s*\[g\]|weight)[^\d\.]*([\d\.]+)', content, re.IGNORECASE)
+                        content = zf.read(name).decode("utf-8", errors="ignore")
+                        m = re.search(r"(?:filament\s+used\s*\[g\]|weight)[^\d\.]*([\d\.]+)", content, re.IGNORECASE)
                         if m:
                             val = float(m.group(1))
                             if 0 < val < 5000:
@@ -156,7 +186,7 @@ def parse_weight_from_3mf_bytes(data_bytes: bytes) -> float:
             for name in zf.namelist():
                 if name.endswith(".gcode"):
                     try:
-                        gcode_txt = zf.read(name).decode('utf-8', errors='ignore')
+                        gcode_txt = zf.read(name).decode("utf-8", errors="ignore")
                         w = parse_weight_from_gcode_text(gcode_txt)
                         if w > 0:
                             return w
@@ -165,6 +195,7 @@ def parse_weight_from_3mf_bytes(data_bytes: bytes) -> float:
     except Exception as e:
         logger.error(f"❌ 3MF zip parse error: {e}", exc_info=True)
     return 0.0
+
 
 def _connect_bambu_ftps(ip: str, access_code: str, timeout: float = 10.0) -> Any:
     """Connects to Bambu Lab FTPS trying Port 990 (Implicit) then Port 21 (Explicit)."""
@@ -179,7 +210,7 @@ def _connect_bambu_ftps(ip: str, access_code: str, timeout: float = 10.0) -> Any
         ftps.prot_p()
         ftps.set_pasv(True)
         return ftps
-    except (ConnectionRefusedError, socket.timeout):
+    except (TimeoutError, ConnectionRefusedError):
         pass
     except Exception as e1:
         logger.debug(f"Port 990 FTPS attempt failed for {ip}: {e1}")
@@ -189,7 +220,7 @@ def _connect_bambu_ftps(ip: str, access_code: str, timeout: float = 10.0) -> Any
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         ftps_bambu: Any = BambuFTP_TLS(context=ctx)
-        setattr(ftps_bambu, 'ssl_version', ssl.PROTOCOL_TLSv1_2)
+        ftps_bambu.ssl_version = ssl.PROTOCOL_TLSv1_2
         ftps_bambu.connect(ip, 21, timeout=timeout)
 
         ftps_bambu.login("bblp", access_code)
@@ -197,12 +228,13 @@ def _connect_bambu_ftps(ip: str, access_code: str, timeout: float = 10.0) -> Any
         ftps_bambu.set_pasv(True)
         return ftps_bambu
 
-    except (ConnectionRefusedError, socket.timeout):
+    except (TimeoutError, ConnectionRefusedError):
         logger.info(f"ℹ️ FTPS port closed/disabled on {ip}.")
         return None
     except Exception as e2:
         logger.info(f"ℹ️ FTPS connection failed for {ip}: {e2}")
         return None
+
 
 def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = "") -> float:
     """Connects to Bambu Lab FTPS, downloads recent print file from SD card, and extracts weight."""
@@ -227,7 +259,7 @@ def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = ""
         if not files:
             return 0.0
 
-        candidate_files = [f for f in files if f.endswith('.3mf') or f.endswith('.gcode') or f.endswith('.gcode.3mf')]
+        candidate_files = [f for f in files if f.endswith(".3mf") or f.endswith(".gcode") or f.endswith(".gcode.3mf")]
         chosen_file = None
         if target_filename:
             clean_target = target_filename.lower().replace(".3mf", "").replace(".gcode", "")
@@ -250,13 +282,13 @@ def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = ""
         if not data_bytes:
             return 0.0
 
-        if chosen_file.endswith('.3mf') or chosen_file.endswith('.gcode.3mf'):
+        if chosen_file.endswith(".3mf") or chosen_file.endswith(".gcode.3mf"):
             w = parse_weight_from_3mf_bytes(data_bytes)
             if w > 0:
                 logger.info(f"✅ Extracted weight {w}g from 3MF via FTPS ({chosen_file})")
                 return w
 
-        txt = data_bytes.decode('utf-8', errors='ignore')
+        txt = data_bytes.decode("utf-8", errors="ignore")
         w = parse_weight_from_gcode_text(txt)
         if w > 0:
             logger.info(f"✅ Extracted weight {w}g from Gcode via FTPS ({chosen_file})")
@@ -273,13 +305,15 @@ def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = ""
 
     return 0.0
 
+
 def bambu_storbinary(ftps: ftplib.FTP, cmd: str, fp: io.BytesIO, blocksize: int = 8192) -> str:
     """
     Custom storbinary optimized for Bambu Lab MicroSD card write stability.
     Uses 8KB block size to prevent SD card buffer overflow and handles TLS socket teardown cleanly.
     """
     import time
-    ftps.voidcmd('TYPE I')
+
+    ftps.voidcmd("TYPE I")
     conn = ftps.transfercmd(cmd)
     try:
         while True:
@@ -301,6 +335,7 @@ def bambu_storbinary(ftps: ftplib.FTP, cmd: str, fp: io.BytesIO, blocksize: int 
     time.sleep(2.0)
     return resp
 
+
 def sanitize_bambu_filename(filename: str) -> str:
     """
     Sanitizes filename for Bambu Lab FAT32 SD card filesystem:
@@ -309,20 +344,23 @@ def sanitize_bambu_filename(filename: str) -> str:
     - Prevents SD card read/write exception [0500-C010311617]
     """
     import time
+
     ext = ".gcode" if filename.lower().endswith(".gcode") else ".3mf"
     raw_name = filename.rsplit(".", 1)[0]
-    clean_base = re.sub(r'[^a-zA-Z0-9_]', '_', raw_name)
-    clean_base = re.sub(r'_+', '_', clean_base).strip('_')
+    clean_base = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name)
+    clean_base = re.sub(r"_+", "_", clean_base).strip("_")
     if not clean_base or len(clean_base) > 16:
         clean_base = f"print_{int(time.time()) % 100000}"
     return f"{clean_base}{ext}"
 
-def upload_3mf_to_bambu(ip: str, access_code: str, file_bytes: bytes, filename: str) -> Optional[str]:
+
+def upload_3mf_to_bambu(ip: str, access_code: str, file_bytes: bytes, filename: str) -> str | None:
     """
     Uploads a 3MF/Gcode file to Bambu Lab printer's SD card via FTPS.
     Returns remote relative filepath (e.g. 'cache/print_12345.3mf' or 'print_12345.3mf') on success, or None on failure.
     """
     import time
+
     if not ip or not access_code or not file_bytes:
         return None
 

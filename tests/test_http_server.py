@@ -1,16 +1,29 @@
 """
 Unit tests for REST API & Healthcheck HTTP server.
 """
+
 import unittest
-import asyncio
+
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
+
 from services.http_server import create_http_app
+
 
 class DummyApp:
     def __init__(self):
         self.printers = {}
 
+
 class TestHTTPServer(AioHTTPTestCase):
+    def setUp(self):
+        # Clear global rate limiting state to prevent cross-test contamination
+        from services.http.middleware import IP_CONTROL_LOGS, IP_REQUEST_LOGS, IP_UPLOAD_LOGS
+
+        IP_REQUEST_LOGS.clear()
+        IP_UPLOAD_LOGS.clear()
+        IP_CONTROL_LOGS.clear()
+        super().setUp()
+
     async def get_application(self):
         self.dummy_app = DummyApp()
         return create_http_app(self.dummy_app)
@@ -24,7 +37,6 @@ class TestHTTPServer(AioHTTPTestCase):
         self.assertEqual(data["version"], "1.0.0")
         self.assertIn("uptime_seconds", data)
         self.assertIn("total_printers", data)
-
 
     @unittest_run_loop
     async def test_get_printers_empty(self):
@@ -61,14 +73,14 @@ class TestHTTPServer(AioHTTPTestCase):
             self.assertEqual(resp.headers.get("X-RateLimit-Limit"), "20")
 
         # 21st request should trigger 429 Too Many Requests
-        exceeded_resp = await self.client.request("POST", "/api/printers/printer_test/control", json={"action": "pause"})
+        exceeded_resp = await self.client.request(
+            "POST", "/api/printers/printer_test/control", json={"action": "pause"}
+        )
         self.assertEqual(exceeded_resp.status, 429)
         exceeded_data = await exceeded_resp.json()
         self.assertEqual(exceeded_data["error"], "Too Many Requests")
         self.assertEqual(exceeded_resp.headers.get("X-RateLimit-Remaining"), "0")
 
+
 if __name__ == "__main__":
     unittest.main()
-
-
-

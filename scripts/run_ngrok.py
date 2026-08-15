@@ -2,17 +2,19 @@
 Persistent Ngrok HTTPS Tunnel daemon for 3D Printer Farm WebApp.
 Binds to 127.0.0.1:8080 and auto-reconnects on heartbeat timeouts.
 """
+
+import json
 import os
 import re
 import sys
 import time
 import urllib.request
-import json
 from pathlib import Path
-from pyngrok import ngrok, exception
 
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
+from pyngrok import exception, ngrok
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 from dotenv import load_dotenv
 
@@ -20,20 +22,22 @@ ENV_PATH = Path(__file__).parent.parent / ".env"
 load_dotenv(ENV_PATH, override=True)
 AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "")
 
+
 def update_env_webapp_url(new_url: str):
     """Updates WEBAPP_URL in .env file."""
     if not ENV_PATH.exists():
         return
     content = ENV_PATH.read_text(encoding="utf-8")
     full_webapp_url = f"{new_url.rstrip('/')}/webapp"
-    
+
     if "WEBAPP_URL=" in content:
-        new_content = re.sub(r'WEBAPP_URL=.*', f'WEBAPP_URL={full_webapp_url}', content)
+        new_content = re.sub(r"WEBAPP_URL=.*", f"WEBAPP_URL={full_webapp_url}", content)
     else:
         new_content = content + f"\nWEBAPP_URL={full_webapp_url}\n"
-    
+
     ENV_PATH.write_text(new_content, encoding="utf-8")
     print(f"✅ Updated .env WEBAPP_URL: {full_webapp_url}")
+
 
 def get_active_ngrok_url():
     """Queries local ngrok REST API for active tunnel URL."""
@@ -49,6 +53,7 @@ def get_active_ngrok_url():
     except Exception:
         pass
     return None
+
 
 def run_daemon():
     print("🚀 Initializing Ngrok HTTPS Tunnel Daemon...")
@@ -84,6 +89,7 @@ def run_daemon():
             except Exception:
                 pass
         time.sleep(3)
+
 
 if __name__ == "__main__":
     run_daemon()

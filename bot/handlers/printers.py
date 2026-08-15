@@ -1,23 +1,23 @@
 """
 Printer management, telemetry, camera, GIF, settings, wizard, and deletion handlers.
 """
+
 import html
-import asyncio
 import uuid
-from aiogram import Router, types, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+
+from aiogram import F, Router, types
 from aiogram.enums import ParseMode
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from bot.keyboards import (
-    get_printers_keyboard,
     get_printer_menu_keyboard,
-    get_printer_control_keyboard,
+    get_printers_keyboard,
 )
-from services.camera_stream import capture_real_camera_photo
-from services.gif_generator import generate_printer_status_gif
 from models.printer import BambuPrinter
+from services.camera_stream import capture_real_camera_photo
 
 router = Router()
+
 
 @router.message(F.text.lower().in_(["🖨️ принтери", "принтери", "🖨️ назад до принтерів", "назад до принтерів"]))
 async def handle_list_printers(message: Message, app):
@@ -32,8 +32,9 @@ async def handle_list_printers(message: Message, app):
     await message.answer(
         "🖨️ <b>Ось твої принтери, Бака!</b>\nОбирай якийсь один і не дратуй мене даремно! 😤💅",
         parse_mode=ParseMode.HTML,
-        reply_markup=get_printers_keyboard(app.printers)
+        reply_markup=get_printers_keyboard(app.printers),
     )
+
 
 @router.message(F.text.lower().in_(["📊 статус", "статус"]))
 async def handle_printer_status(message: Message, app):
@@ -45,7 +46,13 @@ async def handle_printer_status(message: Message, app):
     if not target_printer:
         return
 
-    state_emoji = "🖨️" if target_printer.gcode_state == "RUNNING" else ("⏸️" if target_printer.gcode_state == "PAUSE" else ("🎉" if target_printer.gcode_state == "FINISH" else "💤"))
+    state_emoji = (
+        "🖨️"
+        if target_printer.gcode_state == "RUNNING"
+        else (
+            "⏸️" if target_printer.gcode_state == "PAUSE" else ("🎉" if target_printer.gcode_state == "FINISH" else "💤")
+        )
+    )
     status_txt = (
         f"<b>📊 Стан принтера: {target_printer.name}</b>\n"
         f"Х-хмпф! Тримай свою телеметрію... Тільки не думай, що я роблю це раді тебе! 😤\n\n"
@@ -91,6 +98,7 @@ async def handle_printer_status(message: Message, app):
     )
     await message.answer(status_txt, parse_mode=ParseMode.HTML)
 
+
 @router.message(F.text.lower().in_(["🧹 скинути лічильник то", "скинути лічильник то", "провести то"]))
 async def handle_reset_maintenance(message: Message, app):
     chat_id = str(message.chat.id)
@@ -108,8 +116,9 @@ async def handle_reset_maintenance(message: Message, app):
         f"⏱️ Новий відлік до наступного ТО: <b>{target_printer.maintenance_interval_hours} год</b>.\n"
         f"Дякую, що дбаєш про принтер, Бака! 🧼✨",
         parse_mode=ParseMode.HTML,
-        reply_markup=get_printer_menu_keyboard(target_printer)
+        reply_markup=get_printer_menu_keyboard(target_printer),
     )
+
 
 @router.message(F.text.lower().in_(["📷 камера", "📷 реальне фото (камера)", "фото", "камера"]))
 async def handle_printer_camera(message: Message, app):
@@ -128,16 +137,17 @@ async def handle_printer_camera(message: Message, app):
         await message.answer_photo(
             photo=photo_file,
             caption=f"📷 *Жива камера: {target_printer.name}*\nХмпф! На, дивись на свій принтер! 📊 Стан: `{target_printer.gcode_state}` | ⏳ {target_printer.mc_percent}%",
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.MARKDOWN,
         )
         await msg_wait.delete()
     else:
         await message.answer(
             f"⚠️ *Порт камери недоступний для {target_printer.name}*\n"
             f"Х-хмпф! Перевірте Access Code або закрийте Bambu Handy, Бака!",
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.MARKDOWN,
         )
         await msg_wait.delete()
+
 
 @router.message(F.text.lower().in_(["💡 підсвітка", "підсвітка"]))
 async def handle_toggle_light(message: Message, app):
@@ -153,8 +163,9 @@ async def handle_toggle_light(message: Message, app):
     await message.answer(
         f"💡 Підсвітка для <b>{html.escape(target_printer.name)}</b>: <b>{target_printer.chamber_light_state.upper()}</b>! І навіщо тобі це світло... Все одно нічого не бачиш, Бака! 🙄💡",
         parse_mode=ParseMode.HTML,
-        reply_markup=get_printer_menu_keyboard(target_printer)
+        reply_markup=get_printer_menu_keyboard(target_printer),
     )
+
 
 @router.message(F.text.lower().in_(["⚡ швидкість", "швидкість"]))
 async def handle_speed_menu(message: Message, app):
@@ -166,16 +177,20 @@ async def handle_speed_menu(message: Message, app):
     if not target_printer:
         return
 
-    spd_kb = ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="🐢 Silent (50%)"), KeyboardButton(text="🚗 Standard (100%)")],
-        [KeyboardButton(text="🏎️ Sport (124%)"), KeyboardButton(text="🚀 Ludicrous (166%)")],
-        [KeyboardButton(text="⬅️ Назад")]
-    ], resize_keyboard=True)
+    spd_kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🐢 Silent (50%)"), KeyboardButton(text="🚗 Standard (100%)")],
+            [KeyboardButton(text="🏎️ Sport (124%)"), KeyboardButton(text="🚀 Ludicrous (166%)")],
+            [KeyboardButton(text="⬅️ Назад")],
+        ],
+        resize_keyboard=True,
+    )
     await message.answer(
         f"⚡ <b>Оберіть режим швидкості для {html.escape(target_printer.name)}:</b>\nХ-хмпф! Тільки не розжени принтер так, щоб він розвалився, Бака! 😤\nПоточна швидкість: <b>{target_printer.spd_mag}%</b>",
         parse_mode=ParseMode.HTML,
-        reply_markup=spd_kb
+        reply_markup=spd_kb,
     )
+
 
 @router.message(F.text.in_(["🐢 Silent (50%)", "🚗 Standard (100%)", "🏎️ Sport (124%)", "🚀 Ludicrous (166%)"]))
 async def handle_set_speed(message: Message, app):
@@ -193,10 +208,11 @@ async def handle_set_speed(message: Message, app):
         await message.answer(
             f"✅ Встановлено режим швидкості: <b>{html.escape(message.text)}</b> для {html.escape(target_printer.name)}! І тільки спробуй щось зламати, Бака! 😤🚀",
             parse_mode=ParseMode.HTML,
-            reply_markup=get_printer_menu_keyboard(target_printer)
+            reply_markup=get_printer_menu_keyboard(target_printer),
         )
     else:
         await message.answer("⚠️ Не вдалося змінити швидкість (MQTT не підключено).")
+
 
 @router.message(F.text.startswith("🔔 Сповіщення:") | F.text.startswith("🔕 Сповіщення:"))
 async def handle_toggle_printer_notify(message: Message, app):
@@ -210,8 +226,15 @@ async def handle_toggle_printer_notify(message: Message, app):
 
     target_printer.notify = not target_printer.notify
     await app.save_printers_config()
-    status_tsun = 'Увімкнено ✅ (тепер буду постійно на тебе бурчати!)' if target_printer.notify else 'Вимкнено 🔕 (нарешті відпочину від тебе!)'
-    await message.answer(f"Сповіщення для {target_printer.name}: {status_tsun}", reply_markup=get_printer_menu_keyboard(target_printer))
+    status_tsun = (
+        "Увімкнено ✅ (тепер буду постійно на тебе бурчати!)"
+        if target_printer.notify
+        else "Вимкнено 🔕 (нарешті відпочину від тебе!)"
+    )
+    await message.answer(
+        f"Сповіщення для {target_printer.name}: {status_tsun}", reply_markup=get_printer_menu_keyboard(target_printer)
+    )
+
 
 @router.message(F.text.lower().in_(["🗑️ видалити принтер", "видалити принтер"]))
 async def handle_delete_printer_request(message: Message, app):
@@ -228,8 +251,12 @@ async def handle_delete_printer_request(message: Message, app):
     await message.answer(
         f"⚠️ *ТИ ЩО, СУРЙОЗНО ХОЧЕШ ВИДАЛИТИ ПРИНТЕР {target_printer.name}?!*\nТи точно впевнений, чи знову кнопкою помилився, Бака?! 😤💥",
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Так, видалити принтер")], [KeyboardButton(text="Ні, скасувати")]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="Так, видалити принтер")], [KeyboardButton(text="Ні, скасувати")]],
+            resize_keyboard=True,
+        ),
     )
+
 
 @router.message(F.text == "➕ Додати принтер")
 async def handle_add_printer_start(message: Message, app):
@@ -238,9 +265,24 @@ async def handle_add_printer_start(message: Message, app):
     user["state"] = "add_p_name"
     user["context_data"]["new_printer"] = {}
     await app.storage.save_user(user)
-    await message.answer("Введіть *назву* нового принтера:", parse_mode=ParseMode.MARKDOWN, reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Відміна")]], resize_keyboard=True))
+    await message.answer(
+        "Введіть *назву* нового принтера:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Відміна")]], resize_keyboard=True),
+    )
 
-@router.message(F.func(lambda m: m.text and (m.text.startswith("🖨️ ") or any(m.text.lower() == p.name.lower() for p in getattr(m, "_app_printers", {}).values()))))
+
+@router.message(
+    F.func(
+        lambda m: (
+            m.text
+            and (
+                m.text.startswith("🖨️ ")
+                or any(m.text.lower() == p.name.lower() for p in getattr(m, "_app_printers", {}).values())
+            )
+        )
+    )
+)
 async def handle_select_printer_by_name(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -265,10 +307,12 @@ async def handle_select_printer_by_name(message: Message, app):
             f"🔢 <b>SN:</b> <tg-spoiler>{printer.serial_number}</tg-spoiler>\n\n"
             f"Залишок філаменту: <b>{printer.filament_grams}g</b>",
             parse_mode=ParseMode.HTML,
-            reply_markup=get_printer_menu_keyboard(printer)
+            reply_markup=get_printer_menu_keyboard(printer),
         )
 
+
 PRINTER_STATES = {"add_p_name", "add_p_ip", "add_p_code", "add_p_sn", "confirm_delete_printer"}
+
 
 async def printer_state_filter(message: Message, app) -> bool:
     if not message.text:
@@ -283,6 +327,7 @@ async def printer_state_filter(message: Message, app) -> bool:
         if text == f"🖨️ {printer.name}" or text.lower() == printer.name.lower():
             return True
     return False
+
 
 @router.message(printer_state_filter)
 async def handle_printer_states(message: Message, app):
@@ -307,7 +352,7 @@ async def handle_printer_states(message: Message, app):
                 f"🔢 <b>SN:</b> <tg-spoiler>{printer.serial_number}</tg-spoiler>\n\n"
                 f"Залишок філаменту: <b>{printer.filament_grams}g</b>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_printer_menu_keyboard(printer)
+                reply_markup=get_printer_menu_keyboard(printer),
             )
             return True
 
@@ -362,7 +407,11 @@ async def handle_printer_states(message: Message, app):
         user["state"] = "idle"
         user["context_data"] = {}
         await app.storage.save_user(user)
-        await message.answer("✅ *Принтер успішно збережено!*", parse_mode=ParseMode.MARKDOWN, reply_markup=get_printers_keyboard(app.printers))
+        await message.answer(
+            "✅ *Принтер успішно збережено!*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_printers_keyboard(app.printers),
+        )
         return True
 
     return False

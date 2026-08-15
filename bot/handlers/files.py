@@ -1,17 +1,20 @@
 """
 3MF and GCode document upload, parsing, compatibility checking, and print job start handlers.
 """
-import os
-import html
-from aiogram import Router, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.enums import ParseMode
 
-from config import logger, STORAGE_DIR
-from services.gcode_parser import parse_3mf_file, check_compatibility, format_print_time_human
+import html
+import os
+
+from aiogram import F, Router
+from aiogram.enums import ParseMode
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+
 from bot.keyboards import get_printer_menu_keyboard
+from config import STORAGE_DIR, logger
+from services.gcode_parser import check_compatibility, format_print_time_human, parse_3mf_file
 
 router = Router()
+
 
 @router.message(F.document)
 async def handle_document_upload(message: Message, app):
@@ -26,18 +29,26 @@ async def handle_document_upload(message: Message, app):
 
     doc = message.document
     fname = doc.file_name or "file.3mf"
-    if not fname.lower().endswith(('.3mf', '.gcode')):
-        await message.answer("⚠️ Бот приймає лише файли <b>.3mf</b> та <b>.gcode</b> від Bambu Studio чи OrcaSlicer.", parse_mode=ParseMode.HTML)
+    if not fname.lower().endswith((".3mf", ".gcode")):
+        await message.answer(
+            "⚠️ Бот приймає лише файли <b>.3mf</b> та <b>.gcode</b> від Bambu Studio чи OrcaSlicer.",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     # Protection for Pi Zero 512MB RAM: reject files larger than 30MB
     MAX_FILE_SIZE = 30 * 1024 * 1024
     if doc.file_size and doc.file_size > MAX_FILE_SIZE:
         size_mb = round(doc.file_size / (1024 * 1024), 1)
-        await message.answer(f"⚠️ Файл занадто великий ({size_mb} MB)! Максимальний розмір для Raspberry Pi — 30 MB.", parse_mode=ParseMode.HTML)
+        await message.answer(
+            f"⚠️ Файл занадто великий ({size_mb} MB)! Максимальний розмір для Raspberry Pi — 30 MB.",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
-    msg_wait = await message.answer(f"📥 ⏳ Завантажую та перевіряю 3MF файл: <code>{html.escape(fname)}</code>...", parse_mode=ParseMode.HTML)
+    msg_wait = await message.answer(
+        f"📥 ⏳ Завантажую та перевіряю 3MF файл: <code>{html.escape(fname)}</code>...", parse_mode=ParseMode.HTML
+    )
 
     try:
         bot_file = await app.bot.get_file(doc.file_id)
@@ -63,7 +74,7 @@ async def handle_document_upload(message: Message, app):
             "printer_model": meta["printer_model"],
             "filament_type": meta["filament_type"],
             "weight_g": meta["weight_g"],
-            "time_mins": meta["time_mins"]
+            "time_mins": meta["time_mins"],
         }
         user["state"] = "select_printer_for_file"
         await app.storage.save_user(user)
@@ -98,6 +109,7 @@ async def handle_document_upload(message: Message, app):
         await message.answer(f"⚠️ Не вдалося обробити файл: {e}")
         await msg_wait.delete()
 
+
 def format_commercial_card(res: dict, filename: str) -> str:
     return (
         f"<b>💼 Комерційний розрахунок для 3MF</b>\n"
@@ -116,6 +128,7 @@ def format_commercial_card(res: dict, filename: str) -> str:
         f"💰 <b>ЦІНА ДЛЯ КЛІЄНТА:</b> <code>{res['total_price']:.2f} грн</code>"
     )
 
+
 @router.message(F.text.lower().in_(["💰 розрахувати комерційну вартість 3mf", "комерційна вартість 3mf"]))
 async def handle_calc_3mf_commercial(message: Message, app):
     chat_id = str(message.chat.id)
@@ -127,6 +140,7 @@ async def handle_calc_3mf_commercial(message: Message, app):
         return
 
     from bot.handlers.commercial import get_user_presets
+
     presets = await get_user_presets(app)
 
     user["state"] = "calc_select_preset_for_3mf"
@@ -139,8 +153,9 @@ async def handle_calc_3mf_commercial(message: Message, app):
     await message.answer(
         f"📋 <b>Оберіть комерційний пресет для розрахунку файлу:</b> <code>{html.escape(pending_file.get('filename', '3MF'))}</code>",
         parse_mode=ParseMode.HTML,
-        reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True),
     )
+
 
 async def is_3mf_preset_choice_state(message: Message, app) -> bool:
     if not message.text:
@@ -151,6 +166,7 @@ async def is_3mf_preset_choice_state(message: Message, app) -> bool:
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     return user.get("state", "") == "calc_select_preset_for_3mf"
+
 
 @router.message(is_3mf_preset_choice_state)
 async def handle_3mf_preset_choice(message: Message, app):
@@ -171,6 +187,7 @@ async def handle_3mf_preset_choice(message: Message, app):
 
     from bot.handlers.commercial import get_user_presets
     from models.commercial import calculate_commercial_price
+
     presets = await get_user_presets(app)
 
     w_g = pending_file.get("weight_g", 0.0)
@@ -207,6 +224,7 @@ async def handle_3mf_preset_choice(message: Message, app):
     await app.storage.save_user(user)
     return True
 
+
 @router.message(F.text.startswith("🚀 Запустити на "))
 async def handle_select_printer_for_file(message: Message, app):
     chat_id = str(message.chat.id)
@@ -233,8 +251,7 @@ async def handle_select_printer_for_file(message: Message, app):
     c_info = check_compatibility(sliced_model, fil_type, target_p.name)
     if not c_info["compatible"]:
         await message.answer(
-            f"🚨 <b>ПОМИЛКА БЕЗПЕКИ! ДРУК БЛОКОВАНО!</b>\n\n{c_info['reason']}",
-            parse_mode=ParseMode.HTML
+            f"🚨 <b>ПОМИЛКА БЕЗПЕКИ! ДРУК БЛОКОВАНО!</b>\n\n{c_info['reason']}", parse_mode=ParseMode.HTML
         )
         return
 
@@ -253,10 +270,10 @@ async def handle_select_printer_for_file(message: Message, app):
     user["state"] = "confirm_start_print_job"
     await app.storage.save_user(user)
 
-    confirm_kb = ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text=f"✅ Підтвердити старт на {target_p.name}")],
-        [KeyboardButton(text="⬅️ Назад")]
-    ], resize_keyboard=True)
+    confirm_kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=f"✅ Підтвердити старт на {target_p.name}")], [KeyboardButton(text="⬅️ Назад")]],
+        resize_keyboard=True,
+    )
 
     await message.answer(
         f"🚀 <b>Готовність до запуску друку:</b>\n"
@@ -267,8 +284,9 @@ async def handle_select_printer_for_file(message: Message, app):
         f"{warn_txt}\n"
         f"Натисніть кнопку нижче для запуску:",
         parse_mode=ParseMode.HTML,
-        reply_markup=confirm_kb
+        reply_markup=confirm_kb,
     )
+
 
 @router.message(F.text.startswith("✅ Підтвердити старт на "))
 async def handle_confirm_start_print_job(message: Message, app):
@@ -306,7 +324,7 @@ async def handle_confirm_start_print_job(message: Message, app):
 
         msg_wait = await message.answer(
             f"🚀 ⏳ Завантажую <code>{html.escape(fname)}</code> на принтер <b>{html.escape(target_p.name)}</b> по FTPS та запускаю друк...",
-            parse_mode=ParseMode.HTML
+            parse_mode=ParseMode.HTML,
         )
 
         success, print_msg = await target_p.start_print_job_async(file_bytes, fname, plate_name)
@@ -328,7 +346,7 @@ async def handle_confirm_start_print_job(message: Message, app):
                 f"📦 Новий залишок нитки: <b>{target_p.filament_grams}g</b>\n\n"
                 f"Х-хмпф! Друк відправлено! І тільки спробуй за ним не стежити, Бака! 😤💅",
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_printer_menu_keyboard(target_p)
+                reply_markup=get_printer_menu_keyboard(target_p),
             )
         else:
             await message.answer(f"🛑 <b>ПОМИЛКА ЗАПУСКУ ДРУКУ!</b>\n{print_msg}", parse_mode=ParseMode.HTML)
