@@ -14,31 +14,29 @@ async def test_check_tcp_port_open_success():
 
     with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
         mock_open.return_value = (MagicMock(), writer)
-        with patch("asyncio.wait_for", new_callable=AsyncMock) as mock_wait_for:
-            mock_wait_for.return_value = (MagicMock(), writer)
-            result = await check_tcp_port_open("1.2.3.4", 6000)
-            assert result is True
-            writer.close.assert_called_once()
-            writer.wait_closed.assert_awaited_once()
+        result = await check_tcp_port_open("1.2.3.4", 6000)
+        assert result is True
+        writer.close.assert_called_once()
+        writer.wait_closed.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_check_tcp_port_open_connection_refused():
-    with patch("asyncio.wait_for", side_effect=ConnectionRefusedError):
+    with patch("asyncio.open_connection", side_effect=ConnectionRefusedError):
         result = await check_tcp_port_open("1.2.3.4", 6000)
         assert result is False
 
 
 @pytest.mark.asyncio
 async def test_check_tcp_port_open_timeout():
-    with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+    with patch("asyncio.open_connection", side_effect=asyncio.TimeoutError):
         result = await check_tcp_port_open("1.2.3.4", 6000)
         assert result is False
 
 
 @pytest.mark.asyncio
 async def test_check_tcp_port_open_general_exception():
-    with patch("asyncio.wait_for", side_effect=Exception("Test")):
+    with patch("asyncio.open_connection", side_effect=Exception("Test")):
         result = await check_tcp_port_open("1.2.3.4", 6000)
         assert result is False
 
@@ -214,15 +212,21 @@ async def test_capture_real_camera_photo_http_fallback():
 
         fake_jpeg = b"\xff\xd8" + b"\x00" * 1100 + b"\xff\xd9"
 
-        async def fake_get(self_session, url, **kwargs):
-            resp = AsyncMock()
-            resp.status = 200
-            resp.read = AsyncMock(return_value=fake_jpeg)
-            return AsyncMock(__aenter__=AsyncMock(return_value=resp), __aexit__=AsyncMock(return_value=False))
+        class FakeResponseContext:
+            async def __aenter__(self):
+                resp = AsyncMock()
+                resp.status = 200
+                resp.read = AsyncMock(return_value=fake_jpeg)
+                return resp
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        def fake_get(self_session, url, **kwargs):
+            return FakeResponseContext()
 
         with patch.object(_aiohttp.ClientSession, "get", fake_get):
             result = await capture_real_camera_photo("1.2.3.4", "code")
             # Verify port 80 was checked (HTTP fallback path entered)
             assert 80 in call_log
-            # Result may or may not succeed depending on mock wiring complexity
-            # The key assertion is that the fallback code path was executed
+            assert result == fake_jpeg

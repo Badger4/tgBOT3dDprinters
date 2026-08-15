@@ -70,24 +70,24 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert data["active_printers"] == 1
 
     @unittest_run_loop
-    @patch("services.http.routes_settings.WEBAPP_DIR")
-    async def test_index_missing(self, mock_dir):
-        mock_dir.return_value = Path("nonexistent")
-        resp = await self.client.get("/")
-        assert resp.status == 404
+    async def test_index_missing(self):
+        empty_dir = Path(self.temp_dir.name) / "nonexistent_webapp"
+        with patch("services.http.routes_settings.WEBAPP_DIR", empty_dir):
+            resp = await self.client.get("/")
+            assert resp.status == 404
 
     @unittest_run_loop
-    @patch("services.http.routes_settings.WEBAPP_DIR")
-    async def test_index_exists(self, mock_dir):
-        index_file = Path(self.temp_dir.name) / "index.html"
-        index_file.write_text("hello", encoding="utf-8")
+    async def test_index_exists(self):
+        webapp_dir = Path(self.temp_dir.name) / "webapp_test"
+        webapp_dir.mkdir(parents=True, exist_ok=True)
+        index_file = webapp_dir / "index.html"
+        index_file.write_text("<html>hello</html>", encoding="utf-8")
 
-        mock_dir.__truediv__.return_value = index_file
-
-        resp = await self.client.get("/")
-        assert resp.status == 200
-        text = await resp.text()
-        assert text == "hello"
+        with patch("services.http.routes_settings.WEBAPP_DIR", webapp_dir):
+            resp = await self.client.get("/")
+            assert resp.status == 200
+            text = await resp.text()
+            assert "hello" in text
 
     @unittest_run_loop
     async def test_get_presets_empty(self):
