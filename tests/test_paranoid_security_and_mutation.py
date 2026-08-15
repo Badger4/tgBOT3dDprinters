@@ -370,7 +370,6 @@ class TestCrashScenariosAndIsolation:
         assert res_valid is not None
         assert res_valid.get("id") == 999888777
 
-
         # 2. Tampered hash (forgery attack)
         forged_init_data = valid_init_data.replace(valid_hash, "f0rged_h@sh_1234567890abcdef1234567890abcdef")
         assert verify_telegram_init_data(forged_init_data, bot_token) is None
