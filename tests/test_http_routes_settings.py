@@ -21,6 +21,14 @@ class DummyApp:
 
 
 class TestHttpRoutesSettings(AioHTTPTestCase):
+    def setUp(self):
+        from services.http.middleware import IP_CONTROL_LOGS, IP_REQUEST_LOGS, IP_UPLOAD_LOGS
+
+        IP_REQUEST_LOGS.clear()
+        IP_UPLOAD_LOGS.clear()
+        IP_CONTROL_LOGS.clear()
+        super().setUp()
+
     async def get_application(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.dummy_app = DummyApp(self.temp_dir.name)
@@ -29,8 +37,14 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         return web_app
 
     def tearDown(self):
+        from services.http.middleware import IP_CONTROL_LOGS, IP_REQUEST_LOGS, IP_UPLOAD_LOGS
+
+        IP_REQUEST_LOGS.clear()
+        IP_UPLOAD_LOGS.clear()
+        IP_CONTROL_LOGS.clear()
         super().tearDown()
-        self.temp_dir.cleanup()
+        if hasattr(self, "temp_dir"):
+            self.temp_dir.cleanup()
 
     @unittest_run_loop
     async def test_health_empty(self):

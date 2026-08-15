@@ -95,6 +95,11 @@ class TestHTTPRoutesPrinters(AioHTTPTestCase):
         super().setUp()
 
     def tearDown(self):
+        from services.http.middleware import IP_CONTROL_LOGS, IP_REQUEST_LOGS, IP_UPLOAD_LOGS
+
+        IP_REQUEST_LOGS.clear()
+        IP_UPLOAD_LOGS.clear()
+        IP_CONTROL_LOGS.clear()
         super().tearDown()
         self.temp_dir_obj.cleanup()
         import config
@@ -102,7 +107,6 @@ class TestHTTPRoutesPrinters(AioHTTPTestCase):
 
         config.STORAGE_DIR = self.orig_storage_dir
         services.http.routes_files.STORAGE_DIR = self.orig_storage_dir
-
 
     async def get_application(self):
         self.dummy_app = DummyApp(self.temp_dir)
@@ -434,7 +438,6 @@ class TestHTTPRoutesPrinters(AioHTTPTestCase):
             self.assertEqual(resp.status, 200)
             mock_p.start_print_job_async.assert_called_once()
 
-
     @unittest_run_loop
     async def test_print_file_not_found(self):
         mock_p = MockPrinter()
@@ -495,3 +498,49 @@ class TestHTTPRoutesPrinters(AioHTTPTestCase):
         except TimeoutError:
             pass
         resp.close()
+
+    # 14. OPTIONS CORS preflight
+    @unittest_run_loop
+    async def test_options_cors_preflight(self):
+        # 1. Allowed Telegram WebApp origin
+        headers = {"Origin": "https://web.telegram.org"}
+        resp = await self.client.request("OPTIONS", "/api/printers", headers=headers)
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "https://web.telegram.org")
+        self.assertIn("Access-Control-Allow-Methods", resp.headers)
+        self.assertIn("Access-Control-Allow-Headers", resp.headers)
+
+        # 2. Disallowed origin returns "null"
+        bad_headers = {"Origin": "https://malicious-hacker-site.com"}
+        bad_resp = await self.client.request("OPTIONS", "/api/printers", headers=bad_headers)
+        self.assertEqual(bad_resp.status, 204)
+        self.assertEqual(bad_resp.headers.get("Access-Control-Allow-Origin"), "null")
+
+    # 15. POST /api/printers/{id}/control rate limiting
+    @unittest_run_loop
+    async def test_control_rate_limiting(self):
+        mock_p = MockPrinter()
+        self.dummy_app.printers = {"printer_test": mock_p}
+
+        # Clear logs to ensure clean baseline for 20 req/min
+        from services.http.middleware import IP_CONTROL_LOGS
+
+        IP_CONTROL_LOGS.clear()
+
+        # Sensitive control limit is 20 req/min
+        for _ in range(20):
+            resp = await self.client.request("POST", "/api/printers/printer_test/control", json={"action": "pause"})
+            self.assertIn(resp.status, (200, 400, 404))
+            self.assertEqual(resp.headers.get("X-RateLimit-Limit"), "20")
+
+        # 21st request should trigger 429 Too Many Requests
+        exceeded_resp = await self.client.request(
+            "POST", "/api/printers/printer_test/control", json={"action": "pause"}
+        )
+        self.assertEqual(exceeded_resp.status, 429)
+        exceeded_data = await exceeded_resp.json()
+        self.assertEqual(exceeded_data["error"], "Too Many Requests")
+        self.assertEqual(exceeded_resp.headers.get("X-RateLimit-Remaining"), "0")
+
+        # Clear again so subsequent tests are unaffected
+        IP_CONTROL_LOGS.clear()

@@ -23,7 +23,6 @@ __all__ = [
 ]
 
 
-
 def build_printer_telemetry(p: Any) -> dict:
     used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
     return {
