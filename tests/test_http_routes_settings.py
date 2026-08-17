@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
+from aiohttp.test_utils import AioHTTPTestCase
 
 from services.http_server import create_http_app
 from storage.manager import StorageManager
@@ -53,7 +53,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         if hasattr(self, "temp_dir"):
             self.temp_dir.cleanup()
 
-    @unittest_run_loop
     async def test_health_empty(self):
         resp = await self.client.get("/health")
         assert resp.status == 200
@@ -64,7 +63,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert "uptime_seconds" in data
         assert "version" in data
 
-    @unittest_run_loop
     async def test_health_with_printer(self):
         printer = MagicMock()
         printer.gcode_state = "RUNNING"
@@ -76,14 +74,12 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert data["total_printers"] == 1
         assert data["active_printers"] == 1
 
-    @unittest_run_loop
     async def test_index_missing(self):
         empty_dir = Path(self.temp_dir.name) / "nonexistent_webapp"
         with patch("services.http.routes_settings.WEBAPP_DIR", empty_dir):
             resp = await self.client.get("/")
             assert resp.status == 404
 
-    @unittest_run_loop
     async def test_index_exists(self):
         webapp_dir = Path(self.temp_dir.name) / "webapp_test"
         webapp_dir.mkdir(parents=True, exist_ok=True)
@@ -96,7 +92,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
             text = await resp.text()
             assert "hello" in text
 
-    @unittest_run_loop
     async def test_get_presets_empty(self):
         resp = await self.client.get("/api/commercial/presets")
         assert resp.status == 200
@@ -104,7 +99,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert "default_pla" in data
         assert "default_petg" in data
 
-    @unittest_run_loop
     async def test_post_preset(self):
         payload = {
             "name": "Test Preset",
@@ -125,7 +119,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         data2 = await resp2.json()
         assert data["preset"]["id"] in data2
 
-    @unittest_run_loop
     async def test_post_preset_invalid_numbers(self):
         payload = {"name": "Bad Nums", "price_per_g": "abc", "electricity_rate_uah": None, "power_watts": []}
         resp = await self.client.post("/api/commercial/presets", json=payload)
@@ -135,7 +128,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert data["preset"]["electricity_rate_uah"] == 4.32
         assert data["preset"]["power_watts"] == 120.0
 
-    @unittest_run_loop
     async def test_delete_preset_success(self):
         await self.client.get("/api/commercial/presets")
 
@@ -146,12 +138,10 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         data2 = await resp2.json()
         assert "default_pla" not in data2
 
-    @unittest_run_loop
     async def test_delete_preset_not_found(self):
         resp = await self.client.delete("/api/commercial/presets/notfound")
         assert resp.status == 404
 
-    @unittest_run_loop
     @patch("services.http.routes_settings.calculate_commercial_price")
     async def test_calculate_commercial(self, mock_calc):
         mock_calc.return_value = {"total_price": 100.0}
@@ -165,7 +155,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert data["calculation"]["total_price"] == 100.0
         mock_calc.assert_called_once()
 
-    @unittest_run_loop
     async def test_get_history_empty(self):
         resp = await self.client.get("/api/history")
         assert resp.status == 200
@@ -174,7 +163,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert data["total_weight_kg"] == 0.0
         assert data["history"] == []
 
-    @unittest_run_loop
     async def test_get_history_with_data(self):
         history_data = [
             {"weight_g": 1000.0, "cost_uah": 500.0, "printer_name": "P1", "subtask_name": "Benchy"},
@@ -197,7 +185,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert data["history"][1]["subtask_name"] == "Box"
         assert data["history"][1]["task"] == "Box"
 
-    @unittest_run_loop
     async def test_export_history_csv(self):
         history_data = [
             {
@@ -223,14 +210,12 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert "1000.0" in text
         assert "500.00" in text
 
-    @unittest_run_loop
     async def test_get_settings(self):
         resp = await self.client.get("/api/settings")
         assert resp.status == 200
         data = await resp.json()
         assert data == {"notify_start": True, "notify_finish": True}
 
-    @unittest_run_loop
     async def test_update_settings(self):
         resp = await self.client.post("/api/settings", json={"notify_start": False})
         assert resp.status == 200
@@ -238,12 +223,10 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert data["settings"]["notify_start"] is False
         assert self.dummy_app.global_settings["notify_start"] is False
 
-    @unittest_run_loop
     async def test_update_settings_invalid(self):
         resp = await self.client.post("/api/settings", data="invalid json")
         assert resp.status == 400
 
-    @unittest_run_loop
     async def test_auth_rejection(self):
         resp = await self.client.get("/api/settings", headers={"X-Forwarded-For": "1.2.3.4"})
         assert resp.status == 401

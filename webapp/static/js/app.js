@@ -146,10 +146,23 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    const commCalcForm = document.getElementById("comm-calc-form");
-    if (commCalcForm) {
-        commCalcForm.addEventListener("submit", (e) => e.preventDefault());
+    // Fleet search and filter pill listeners
+    const searchInputEl = document.getElementById("printer-search-input");
+    if (searchInputEl) {
+        searchInputEl.addEventListener("input", () => {
+            applyPrinterFilters();
+        });
     }
+
+    const pillBtns = document.querySelectorAll(".filter-pills .pill-btn");
+    pillBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            triggerHaptic("light");
+            pillBtns.forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            applyPrinterFilters();
+        });
+    });
 
     // 2. Navigation & Tabs
 
@@ -246,7 +259,54 @@ document.addEventListener("DOMContentLoaded", () => {
         return clean || (isPrinting ? "Друк..." : "Вільний");
     }
 
+    function updateFilterBadges(printers) {
+        if (!printers) return;
+        const activeStates = ["RUNNING", "PREPARE", "PAUSE", "PAUSED", "PRINTING", "SLICING", "CHANGING_FILAMENT", "MAM_CLEANING"];
+        const total = printers.length;
+        const running = printers.filter(p => activeStates.includes(String(p.state || "").toUpperCase())).length;
+        const idle = printers.filter(p => ["IDLE", "FINISH"].includes(String(p.state || "").toUpperCase())).length;
+        const offline = printers.filter(p => ["OFFLINE", "OFF"].includes(String(p.state || "").toUpperCase())).length;
+
+        const cAll = document.getElementById("count-filter-all");
+        const cRun = document.getElementById("count-filter-running");
+        const cIdle = document.getElementById("count-filter-idle");
+        const cOff = document.getElementById("count-filter-offline");
+
+        if (cAll) cAll.textContent = total;
+        if (cRun) cRun.textContent = running;
+        if (cIdle) cIdle.textContent = idle;
+        if (cOff) cOff.textContent = offline;
+    }
+
+    function applyPrinterFilters() {
+        const searchInput = document.getElementById("printer-search-input");
+        const query = (searchInput?.value || "").toLowerCase().trim();
+        const activeBtn = document.querySelector(".filter-pills .pill-btn.active");
+        const filterState = activeBtn?.dataset.filter || "all";
+        const activeStates = ["RUNNING", "PREPARE", "PAUSE", "PAUSED", "PRINTING", "SLICING", "CHANGING_FILAMENT", "MAM_CLEANING"];
+
+        document.querySelectorAll(".printer-card").forEach(card => {
+            const name = (card.getAttribute("data-name") || "").toLowerCase();
+            const model = (card.getAttribute("data-model") || "").toLowerCase();
+            const state = (card.getAttribute("data-state") || "OFFLINE").toUpperCase();
+
+            const matchesQuery = !query || name.includes(query) || model.includes(query);
+            let matchesFilter = true;
+            if (filterState === "RUNNING") {
+                matchesFilter = activeStates.includes(state);
+            } else if (filterState === "IDLE") {
+                matchesFilter = ["IDLE", "FINISH"].includes(state);
+            } else if (filterState === "OFFLINE") {
+                matchesFilter = ["OFFLINE", "OFF"].includes(state);
+            }
+
+            card.style.display = (matchesQuery && matchesFilter) ? "" : "none";
+        });
+    }
+
     function renderPrinters(printers) {
+        updateFilterBadges(printers);
+
         if (!printers || printers.length === 0) {
             printersGrid.innerHTML = `
                 <div class="glass-card text-center p-4">
@@ -280,7 +340,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const layerStr = (st === "IDLE" && p.current_layer === 0) ? "—" : `${p.current_layer}/${p.total_layers}`;
 
             return `
-                <div class="printer-card" data-id="${p.id}">
+                <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-state="${st}">
                     <div class="printer-card-header">
                         <div class="printer-name-group">
                             <h3>${escapeHtml(p.name)}</h3>
@@ -315,6 +375,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 openPrinterModal(pId);
             });
         });
+
+        applyPrinterFilters();
     }
 
     // 4. Printer Details Modal
@@ -1089,7 +1151,14 @@ document.addEventListener("DOMContentLoaded", () => {
             const statCostEl = document.getElementById("stat-total-cost");
 
             if (statJobsEl) statJobsEl.textContent = data.total_jobs || 0;
-            if (statWeightEl) statWeightEl.textContent = `${data.total_weight_kg || 0} kg`;
+            if (statWeightEl) {
+                const kg = data.total_weight_kg || 0;
+                if (kg > 0 && kg < 1) {
+                    statWeightEl.textContent = `${Math.round(kg * 1000)} g`;
+                } else {
+                    statWeightEl.textContent = `${kg} kg`;
+                }
+            }
             if (statCostEl) statCostEl.textContent = `${data.total_cost_uah || 0} ₴`;
 
             const tbody = document.getElementById("history-table-body");

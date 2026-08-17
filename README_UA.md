@@ -72,7 +72,8 @@ cp .env.example .env
 | `WEBAPP_URL` | 🟢 Ні | `http://localhost:8080` | HTTPS URL адреса WebApp (Ngrok, Cloudflare Tunnel або домен) |
 | `API_SECRET_KEY` | 🟢 Ні | порожньо | Ключ авторизації для захисту REST API |
 | `SSE_INTERVAL_SECONDS` | 🟢 Ні | `5.0` | Періодичність оновлення живих даних телеметрії WebApp (сек) |
-| `NGROK_AUTHTOKEN` | 🟢 Ні | порожньо | Authtoken з ngrok.com для автоматичного тунелювання WebApp |
+| `CLOUDFLARE_TUNNEL_TOKEN` | 🟢 Ні | порожньо | Токен Cloudflare Tunnel для автоматичного HTTPS тунелювання WebApp |
+
 
 | `ELECTRICITY_COST_PER_KWH` | 🟢 Ні | `4.32` | Тариф електроенергії (грн/кВт·год) для калькулятора себевартості |
 | `LOG_LEVEL` | 🟢 Ні | `INFO` | Рівень деталізації логування (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |

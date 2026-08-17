@@ -331,6 +331,21 @@ async def handle_filament_states(message: Message, app):
     selected_pid = ctx_data.get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
+    # Check cancel / back keywords before processing filament wizard values
+    cancel_keywords = {"відміна", "відмінити", "скасувати", "стоп", "назад", "⬅️ назад", "cancel", "/cancel"}
+    if text.lower() in cancel_keywords:
+        user["state"] = "printer_menu" if target_printer else "idle"
+        for k in ["new_spool", "edit_spool", "pending_spool", "delete_spool", "pending_weight"]:
+            user.get("context_data", {}).pop(k, None)
+        await app.storage.save_user(user)
+        kb = (
+            get_printer_menu_keyboard(target_printer)
+            if target_printer
+            else get_main_keyboard(await app.is_user_admin(chat_id))
+        )
+        await message.answer("Дію скасовано.", reply_markup=kb)
+        return True
+
     if state == "edit_filament_weight" and target_printer:
         val = safe_eval_math(text)
         if val is not None:

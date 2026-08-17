@@ -338,6 +338,25 @@ async def handle_printer_states(message: Message, app):
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
+    # Check cancel / back keywords before processing wizard values
+    cancel_keywords = {"відміна", "відмінити", "скасувати", "стоп", "назад", "⬅️ назад", "cancel", "/cancel"}
+    if text.lower() in cancel_keywords:
+        if state.startswith("add_p_"):
+            user["state"] = "idle"
+            user.get("context_data", {}).pop("new_printer", None)
+            await app.storage.save_user(user)
+            await message.answer(
+                "Додавання принтера скасовано!",
+                reply_markup=get_printers_keyboard(app.printers),
+            )
+            return True
+        elif state == "confirm_delete_printer":
+            user["state"] = "printer_menu" if target_printer else "idle"
+            await app.storage.save_user(user)
+            kb = get_printer_menu_keyboard(target_printer) if target_printer else get_printers_keyboard(app.printers)
+            await message.answer("Видалення скасовано.", reply_markup=kb)
+            return True
+
     # Check printer selection first if text matches a printer
     for p_id, printer in app.printers.items():
         if text == f"🖨️ {printer.name}" or text.lower() == printer.name.lower():

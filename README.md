@@ -80,7 +80,8 @@ cp .env.example .env
 | `WEBAPP_URL` | 🟢 No | `http://localhost:8080` | Public HTTPS WebApp URL (e.g. Ngrok, Cloudflare Tunnel, or custom domain) |
 | `API_SECRET_KEY` | 🟢 No | empty | Secret API key for protecting external REST API endpoints |
 | `SSE_INTERVAL_SECONDS` | 🟢 No | `5.0` | Server-Sent Events live update frequency in seconds |
-| `NGROK_AUTHTOKEN` | 🟢 No | empty | Ngrok authtoken for automatic WebApp HTTPS tunneling |
+| `CLOUDFLARE_TUNNEL_TOKEN` | 🟢 No | empty | Cloudflare Tunnel token for automatic WebApp HTTPS tunneling |
+
 
 | `ELECTRICITY_COST_PER_KWH` | 🟢 No | `4.32` | Electricity rate (UAH/kWh) for commercial price calculation |
 | `LOG_LEVEL` | 🟢 No | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |

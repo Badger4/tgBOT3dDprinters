@@ -5,3 +5,5 @@ aiofiles>=23.2.1
 Pillow>=10.0.0
 google-genai>=0.1.0
 setuptools>=83.0.0
+pycloudflared>=0.2.0
+

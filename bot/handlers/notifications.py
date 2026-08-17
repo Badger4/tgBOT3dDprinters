@@ -11,7 +11,16 @@ from bot.keyboards import get_notify_keyboard
 router = Router()
 
 
-@router.message(F.text.lower().in_(["🔔 сповіщення", "сповіщення"]))
+@router.message(
+    F.text.lower().in_(
+        [
+            "🔔 налаштування сповіщень",
+            "налаштування сповіщень",
+            "🔔 сповіщення",
+            "сповіщення",
+        ]
+    )
+)
 async def handle_notifications_menu(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):

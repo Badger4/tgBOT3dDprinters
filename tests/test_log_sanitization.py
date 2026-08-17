@@ -24,6 +24,13 @@ class TestLogSanitization(unittest.TestCase):
         self.assertNotIn("3HgPFyXRmopOKrpbZJX7Pmj0jG0_2VHEVk9uS3FR9rigGnhkM", sanitized)
         self.assertIn("[NGROK_AUTHTOKEN_MASKED]", sanitized)
 
+    def test_cloudflare_token_sanitization(self):
+        raw_msg = "Cloudflare tunnel token eyJhaWRPaWpvaU5DSWlPZUpNVEVpT0NJaU9pSmthV1J5YVdObElpd2laWGh3YVhKbGN5STZJbk55YVdObElpd2lhV1Z1ZkEwS1N"
+        sanitized = self.filter._sanitize(raw_msg)
+        self.assertNotIn("eyJhaWRPaWpvaU5DSWlPZUpNVEVpT0NJaU9pSmthV1J5YVdObElpd2laWGh3YVhKbGN5STZJbk55YVdObElpd2lhV1Z1ZkEwS1N", sanitized)
+        self.assertIn("[CLOUDFLARE_TOKEN_MASKED]", sanitized)
+
+
     def test_access_code_sanitization(self):
         raw_msg = 'Printer MQTT connection access_code="SECRET_PASS_123"'
         sanitized = self.filter._sanitize(raw_msg)

@@ -54,6 +54,18 @@
                         </span>
                     </div>
                 </div>
+                <div class="fleet-controls mb-3">
+                    <div class="search-box">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" id="printer-search-input" class="form-control search-input" placeholder="Пошук принтера за назвою або моделлю...">
+                    </div>
+                    <div class="filter-pills mt-2">
+                        <button class="pill-btn active" data-filter="all">Всі <span id="count-filter-all" class="pill-badge">0</span></button>
+                        <button class="pill-btn" data-filter="RUNNING">Друк 🟢 <span id="count-filter-running" class="pill-badge">0</span></button>
+                        <button class="pill-btn" data-filter="IDLE">Готовий ⚪ <span id="count-filter-idle" class="pill-badge">0</span></button>
+                        <button class="pill-btn" data-filter="OFFLINE">Офлайн 🔴 <span id="count-filter-offline" class="pill-badge">0</span></button>
+                    </div>
+                </div>
                 <div id="printers-grid" class="printers-grid">
                     <!-- Dynamic Printer Cards inserted here -->
                     <div class="loading-spinner">

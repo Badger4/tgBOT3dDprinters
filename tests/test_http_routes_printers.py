@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiohttp import FormData
-from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
+from aiohttp.test_utils import AioHTTPTestCase
 
 from services.http_server import create_http_app
 from storage.manager import StorageManager
@@ -131,14 +131,12 @@ class BaseHTTPTestCase(AioHTTPTestCase):
 # 1. PRINTERS CRUD & TELEMETRY
 # ============================================================================
 class TestHTTPRoutesPrintersCRUD(BaseHTTPTestCase):
-    @unittest_run_loop
     async def test_get_printers_empty(self):
         resp = await self.client.get("/api/printers")
         self.assertEqual(resp.status, 200)
         data = await resp.json()
         self.assertEqual(data, [])
 
-    @unittest_run_loop
     async def test_get_printers_with_data(self):
         self.dummy_app.printers = {"p1": MockPrinter()}
         resp = await self.client.get("/api/printers")
@@ -147,13 +145,11 @@ class TestHTTPRoutesPrintersCRUD(BaseHTTPTestCase):
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["id"], "p1")
 
-    @unittest_run_loop
     async def test_get_printers_auth_fail(self):
         resp = await self.client.get("/api/printers", headers={"X-Forwarded-For": "192.168.1.1"})
         self.assertEqual(resp.status, 401)
 
     @patch("services.http.routes_printers.BambuPrinter")
-    @unittest_run_loop
     async def test_create_printer_success(self, MockBambuPrinter):
         mock_p = MockPrinter()
         MockBambuPrinter.return_value = mock_p
@@ -172,7 +168,6 @@ class TestHTTPRoutesPrintersCRUD(BaseHTTPTestCase):
         self.assertEqual(data["status"], "ok")
         self.assertIn("printer", data)
 
-    @unittest_run_loop
     async def test_create_printer_missing_fields(self):
         resp = await self.client.post(
             "/api/printers",
@@ -180,12 +175,10 @@ class TestHTTPRoutesPrintersCRUD(BaseHTTPTestCase):
         )
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_create_printer_invalid_json(self):
         resp = await self.client.post("/api/printers", data=b"invalid json")
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_delete_printer_success(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -194,12 +187,10 @@ class TestHTTPRoutesPrintersCRUD(BaseHTTPTestCase):
         self.assertNotIn("p1", self.dummy_app.printers)
         mock_p.destroy.assert_called_once()
 
-    @unittest_run_loop
     async def test_delete_printer_not_found(self):
         resp = await self.client.delete("/api/printers/nonexistent")
         self.assertEqual(resp.status, 404)
 
-    @unittest_run_loop
     async def test_get_single_printer_success(self):
         self.dummy_app.printers = {"p1": MockPrinter()}
         resp = await self.client.get("/api/printers/p1")
@@ -207,13 +198,11 @@ class TestHTTPRoutesPrintersCRUD(BaseHTTPTestCase):
         data = await resp.json()
         self.assertEqual(data["id"], "p1")
 
-    @unittest_run_loop
     async def test_get_single_printer_not_found(self):
         resp = await self.client.get("/api/printers/p1")
         self.assertEqual(resp.status, 404)
 
     @patch("services.http.routes_printers.capture_real_camera_photo", new_callable=AsyncMock)
-    @unittest_run_loop
     async def test_get_snapshot_success(self, mock_capture):
         mock_capture.return_value = b"\xff\xd8fakejpeg\xff\xd9"
         self.dummy_app.printers = {"p1": MockPrinter()}
@@ -222,19 +211,16 @@ class TestHTTPRoutesPrintersCRUD(BaseHTTPTestCase):
         self.assertEqual(resp.headers.get("Content-Type"), "image/jpeg")
 
     @patch("services.http.routes_printers.capture_real_camera_photo", new_callable=AsyncMock)
-    @unittest_run_loop
     async def test_get_snapshot_fail(self, mock_capture):
         mock_capture.return_value = None
         self.dummy_app.printers = {"p1": MockPrinter()}
         resp = await self.client.get("/api/printers/p1/snapshot")
         self.assertEqual(resp.status, 503)
 
-    @unittest_run_loop
     async def test_get_snapshot_not_found(self):
         resp = await self.client.get("/api/printers/p1/snapshot")
         self.assertEqual(resp.status, 404)
 
-    @unittest_run_loop
     async def test_update_access_code_success(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -244,13 +230,11 @@ class TestHTTPRoutesPrintersCRUD(BaseHTTPTestCase):
         mock_p.destroy.assert_called_once()
         mock_p.init_mqtt.assert_called_once()
 
-    @unittest_run_loop
     async def test_update_access_code_invalid_json(self):
         self.dummy_app.printers = {"p1": MockPrinter()}
         resp = await self.client.post("/api/printers/p1/access_code", data=b"invalid json")
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_update_access_code_not_found(self):
         resp = await self.client.post("/api/printers/p1/access_code", json={"accessCode": "8888"})
         self.assertEqual(resp.status, 404)
@@ -260,7 +244,6 @@ class TestHTTPRoutesPrintersCRUD(BaseHTTPTestCase):
 # 2. PRINTER CONTROL ACTIONS
 # ============================================================================
 class TestHTTPRoutesControl(BaseHTTPTestCase):
-    @unittest_run_loop
     async def test_control_pause(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -268,7 +251,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         mock_p.pause.assert_called_once()
 
-    @unittest_run_loop
     async def test_control_resume(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -276,7 +258,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         mock_p.resume.assert_called_once()
 
-    @unittest_run_loop
     async def test_control_stop(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -284,7 +265,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         mock_p.stop_print.assert_called_once()
 
-    @unittest_run_loop
     async def test_control_light_toggle(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -292,7 +272,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         mock_p.toggle_chamber_light.assert_called_once_with("toggle")
 
-    @unittest_run_loop
     async def test_control_toggle_notify(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -300,7 +279,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         self.assertFalse(mock_p.notify)
 
-    @unittest_run_loop
     async def test_control_set_speed(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -308,7 +286,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         mock_p.set_speed_level.assert_called_once_with(3)
 
-    @unittest_run_loop
     async def test_control_reset_maint(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -318,7 +295,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         mock_p.reset_maintenance_counter.assert_called_once_with("lead_screws")
 
-    @unittest_run_loop
     async def test_control_set_maint_interval(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -329,7 +305,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         mock_p.set_maintenance_interval.assert_called_once_with("lead_screws", 150.0)
 
-    @unittest_run_loop
     async def test_control_set_filament(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -339,7 +314,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         mock_p.set_slot_grams.assert_called_once_with(800.0, slot_id=0)
 
-    @unittest_run_loop
     async def test_control_assign_spool_success(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -351,7 +325,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         )
         self.assertEqual(resp.status, 200)
 
-    @unittest_run_loop
     async def test_control_assign_spool_not_found(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -360,7 +333,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         )
         self.assertEqual(resp.status, 404)
 
-    @unittest_run_loop
     async def test_control_unassign_spool(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -369,7 +341,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         )
         self.assertEqual(resp.status, 200)
 
-    @unittest_run_loop
     async def test_control_set_ams_enabled(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -377,7 +348,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         self.assertTrue(mock_p.ams_enabled)
 
-    @unittest_run_loop
     async def test_control_calibrate_idle(self):
         mock_p = MockPrinter(state="IDLE")
         self.dummy_app.printers = {"p1": mock_p}
@@ -387,27 +357,23 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         mock_p.start_calibration.assert_called_once()
 
-    @unittest_run_loop
     async def test_control_calibrate_running_fails(self):
         mock_p = MockPrinter(state="RUNNING")
         self.dummy_app.printers = {"p1": mock_p}
         resp = await self.client.post("/api/printers/p1/control", json={"action": "calibrate"})
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_control_unknown_action(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
         resp = await self.client.post("/api/printers/p1/control", json={"action": "invalid_action"})
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_control_invalid_json(self):
         self.dummy_app.printers = {"p1": MockPrinter()}
         resp = await self.client.post("/api/printers/p1/control", data=b"bad_json")
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_control_printer_not_found(self):
         resp = await self.client.post("/api/printers/p1/control", json={"action": "pause"})
         self.assertEqual(resp.status, 404)
@@ -418,7 +384,6 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
 # ============================================================================
 class TestHTTPRoutesFiles(BaseHTTPTestCase):
     @patch("services.http.routes_files.parse_3mf_file")
-    @unittest_run_loop
     async def test_file_upload_valid_3mf(self, mock_parse):
         import config
 
@@ -440,26 +405,22 @@ class TestHTTPRoutesFiles(BaseHTTPTestCase):
         self.assertEqual(resp_data["status"], "ok")
         self.assertTrue((config.STORAGE_DIR / "uploads").exists())
 
-    @unittest_run_loop
     async def test_file_upload_invalid_ext(self):
         data = FormData()
         data.add_field("file", b"content", filename="test.txt", content_type="text/plain")
         resp = await self.client.post("/api/files/upload", data=data)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_file_upload_no_file(self):
         resp = await self.client.post("/api/files/upload", data=b"")
         self.assertIn(resp.status, (400, 500))
 
-    @unittest_run_loop
     async def test_file_upload_invalid_3mf_signature(self):
         data = FormData()
         data.add_field("file", b"Not a ZIP file", filename="test.3mf", content_type="application/octet-stream")
         resp = await self.client.post("/api/files/upload", data=data)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_print_file_success(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
@@ -475,14 +436,12 @@ class TestHTTPRoutesFiles(BaseHTTPTestCase):
             self.assertEqual(resp.status, 200)
             mock_p.start_print_job_async.assert_called_once()
 
-    @unittest_run_loop
     async def test_print_file_not_found(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
         resp = await self.client.post("/api/printers/p1/print_file", json={"file_token": "missing.3mf"})
         self.assertEqual(resp.status, 404)
 
-    @unittest_run_loop
     async def test_print_file_printer_not_found(self):
         resp = await self.client.post("/api/printers/p1/print_file", json={"file_token": "123_test.3mf"})
         self.assertEqual(resp.status, 404)
@@ -492,7 +451,6 @@ class TestHTTPRoutesFiles(BaseHTTPTestCase):
 # 4. SPOOLS CRUD, SSE STREAM, CORS PREFLIGHT & RATE LIMITING
 # ============================================================================
 class TestHTTPRoutesSpoolsAndSSE(BaseHTTPTestCase):
-    @unittest_run_loop
     async def test_get_spools(self):
         spools = {"s1": {"id": "s1"}}
         await self.dummy_app.storage.save_spools(spools)
@@ -501,7 +459,6 @@ class TestHTTPRoutesSpoolsAndSSE(BaseHTTPTestCase):
         data = await resp.json()
         self.assertEqual(data, spools)
 
-    @unittest_run_loop
     async def test_save_spool(self):
         resp = await self.client.post("/api/spools", json={"id": "s1", "name": "PLA Red"})
         self.assertEqual(resp.status, 200)
@@ -509,7 +466,6 @@ class TestHTTPRoutesSpoolsAndSSE(BaseHTTPTestCase):
         self.assertIn("s1", spools)
         self.assertEqual(spools["s1"]["name"], "PLA Red")
 
-    @unittest_run_loop
     async def test_delete_spool_success(self):
         spools = {"s1": {"id": "s1"}}
         await self.dummy_app.storage.save_spools(spools)
@@ -518,12 +474,10 @@ class TestHTTPRoutesSpoolsAndSSE(BaseHTTPTestCase):
         updated_spools = await self.dummy_app.storage.load_spools()
         self.assertNotIn("s1", updated_spools)
 
-    @unittest_run_loop
     async def test_delete_spool_not_found(self):
         resp = await self.client.delete("/api/spools/s1")
         self.assertEqual(resp.status, 404)
 
-    @unittest_run_loop
     async def test_sse_stream_sends_data(self):
         self.dummy_app.printers = {"p1": MockPrinter()}
         resp = await self.client.get("/api/events")
@@ -537,7 +491,6 @@ class TestHTTPRoutesSpoolsAndSSE(BaseHTTPTestCase):
             pass
         resp.close()
 
-    @unittest_run_loop
     async def test_options_cors_preflight(self):
         # 1. Allowed Telegram WebApp origin
         headers = {"Origin": "https://web.telegram.org"}
@@ -553,7 +506,6 @@ class TestHTTPRoutesSpoolsAndSSE(BaseHTTPTestCase):
         self.assertEqual(bad_resp.status, 204)
         self.assertEqual(bad_resp.headers.get("Access-Control-Allow-Origin"), "null")
 
-    @unittest_run_loop
     async def test_control_rate_limiting(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"printer_test": mock_p}

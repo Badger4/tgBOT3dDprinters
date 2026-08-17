@@ -1039,3 +1039,93 @@ body {
     padding-bottom: 8px;
     min-width: 0;
 }
+
+/* ==========================================================================
+   Fleet Search & Filter Controls
+   ========================================================================== */
+.fleet-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.search-box {
+    position: relative;
+    width: 100%;
+}
+
+.search-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 14px;
+    pointer-events: none;
+}
+
+.search-input {
+    padding-left: 38px !important;
+    background: rgba(30, 41, 59, 0.5) !important;
+    border: 1px solid var(--border-glass) !important;
+    border-radius: var(--radius-md) !important;
+    color: var(--text-main) !important;
+    font-size: 14px !important;
+    transition: var(--transition);
+}
+
+.search-input:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 12px var(--primary-glow) !important;
+    background: rgba(30, 41, 59, 0.8) !important;
+}
+
+.filter-pills {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+}
+
+.filter-pills::-webkit-scrollbar {
+    display: none;
+}
+
+.pill-btn {
+    background: rgba(30, 41, 59, 0.5);
+    border: 1px solid var(--border-glass);
+    color: var(--text-muted);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: var(--transition);
+}
+
+.pill-btn:hover {
+    background: rgba(51, 65, 85, 0.7);
+    color: var(--text-main);
+}
+
+.pill-btn.active {
+    background: linear-gradient(135deg, var(--primary), var(--purple));
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 4px 12px var(--primary-glow);
+}
+
+.pill-badge {
+    background: rgba(255, 255, 255, 0.2);
+    color: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+}
+

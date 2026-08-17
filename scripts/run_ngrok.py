@@ -1,94 +1,82 @@
 """
-Persistent Ngrok HTTPS Tunnel daemon for 3D Printer Farm WebApp.
-Binds to 127.0.0.1:8080 and auto-reconnects on heartbeat timeouts.
+Ngrok HTTPS Tunnel Runner Script for Telegram WebApp SPA.
+Configures pyngrok auth token, opens an HTTPS tunnel to local HTTP_PORT,
+and automatically updates WEBAPP_URL in .env.
 """
 
-import json
-import os
-import re
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
-from pyngrok import exception, ngrok
+# Add project root directory to sys.path
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-
-from dotenv import load_dotenv
-
-ENV_PATH = Path(__file__).parent.parent / ".env"
-load_dotenv(ENV_PATH, override=True)
-AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "")
+from config import ENV_PATH, HTTP_PORT, NGROK_AUTHTOKEN, logger
 
 
-def update_env_webapp_url(new_url: str):
-    """Updates WEBAPP_URL in .env file."""
+def update_env_webapp_url(new_url: str) -> None:
+    """Safely updates WEBAPP_URL in the project's .env file."""
     if not ENV_PATH.exists():
+        logger.warning(f"⚠️ .env file not found at {ENV_PATH}")
         return
+
     content = ENV_PATH.read_text(encoding="utf-8")
-    full_webapp_url = f"{new_url.rstrip('/')}/webapp"
+    lines = content.splitlines()
+    found = False
+    new_lines = []
 
-    if "WEBAPP_URL=" in content:
-        new_content = re.sub(r"WEBAPP_URL=.*", f"WEBAPP_URL={full_webapp_url}", content)
+    for line in lines:
+        if line.strip().startswith("WEBAPP_URL="):
+            new_lines.append(f"WEBAPP_URL={new_url}")
+            found = True
+        else:
+            new_lines.append(line)
+
+    if not found:
+        new_lines.append(f"WEBAPP_URL={new_url}")
+
+    ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    logger.info(f"💾 Updated WEBAPP_URL in .env -> {new_url}")
+
+
+def run_daemon() -> None:
+    """Launches pyngrok HTTPS tunnel and keeps process alive."""
+    from pyngrok import ngrok
+
+    print("🚀 Initializing Ngrok HTTPS Tunnel Service...")
+
+    if NGROK_AUTHTOKEN:
+        ngrok.set_auth_token(NGROK_AUTHTOKEN)
+        print("🔑 Applied Ngrok Authtoken from environment.")
     else:
-        new_content = content + f"\nWEBAPP_URL={full_webapp_url}\n"
+        print("⚠️ Warning: NGROK_AUTHTOKEN not set in .env. Running in unauthenticated mode.")
 
-    ENV_PATH.write_text(new_content, encoding="utf-8")
-    print(f"✅ Updated .env WEBAPP_URL: {full_webapp_url}")
-
-
-def get_active_ngrok_url():
-    """Queries local ngrok REST API for active tunnel URL."""
+    tunnel = None
     try:
-        req = urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels")
-        data = json.loads(req.read().decode("utf-8"))
-        tunnels = data.get("tunnels", [])
-        for t in tunnels:
-            if t.get("proto") == "https" or t.get("public_url", "").startswith("https"):
-                return t.get("public_url")
-            elif t.get("public_url"):
-                return t.get("public_url")
-    except Exception:
-        pass
-    return None
+        tunnel = ngrok.connect(HTTP_PORT, "http")
+        public_url = tunnel.public_url.replace("http://", "https://")
+        print(f"\n✨ Ngrok HTTPS Tunnel Active: {public_url}")
+        print(f"🔗 Forwarding -> http://localhost:{HTTP_PORT}\n")
 
+        update_env_webapp_url(public_url)
+        print("📌 Process running in background daemon mode. Press Ctrl+C to stop.")
 
-def run_daemon():
-    print("🚀 Initializing Ngrok HTTPS Tunnel Daemon...")
-    if AUTHTOKEN:
-        ngrok.set_auth_token(AUTHTOKEN)
-
-    while True:
-        try:
-            public_url = get_active_ngrok_url()
-            if not public_url:
-                print("🌐 Connecting Ngrok tunnel to http://127.0.0.1:8080...")
-                try:
-                    tunnel = ngrok.connect("127.0.0.1:8080", "http")
-                    public_url = tunnel.public_url
-                except exception.PyngrokNgrokHTTPError as e:
-                    if "ERR_NGROK_334" in str(e):
-                        time.sleep(2)
-                        public_url = get_active_ngrok_url()
-                    if not public_url:
-                        raise e
-
-            print(f"✨ Ngrok HTTPS Tunnel Active: {public_url}")
-            update_env_webapp_url(public_url)
-
-            # Monitor process connection
-            ngrok_process = ngrok.get_ngrok_process()
-            ngrok_process.proc.wait()
-            print("⚠️ Ngrok process exited. Reconnecting in 3 seconds...")
-        except Exception as err:
-            print(f"❌ Ngrok connection error: {err}. Retrying in 5 seconds...")
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Stopping Ngrok Tunnel daemon...")
+    except Exception as err:
+        print(f"❌ Ngrok Tunnel Error: {err}")
+    finally:
+        if tunnel:
             try:
+                ngrok.disconnect(tunnel.public_url)
                 ngrok.kill()
             except Exception:
                 pass
-        time.sleep(3)
+        print("👋 Ngrok daemon stopped.")
 
 
 if __name__ == "__main__":
