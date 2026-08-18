@@ -150,21 +150,13 @@
                 </div>
             </section>
 
-            <!-- TAB 3: AMS & MATERIALS -->
+            <!-- TAB 3: SPOOLS WAREHOUSE -->
             <section id="tab-materials" class="tab-page">
                 <div class="section-header">
-                    <h2><i class="fa-solid fa-boxes-packing"></i> Філамент & AMS</h2>
+                    <h2><i class="fa-solid fa-boxes-packing"></i> Склад пластику</h2>
                     <button id="add-spool-btn" class="btn btn-primary btn-sm">
                         <i class="fa-solid fa-plus"></i> Нова котушка
                     </button>
-                </div>
-
-                <!-- AMS Slots Overview -->
-                <div class="glass-card mb-4">
-                    <h3><i class="fa-solid fa-layer-group"></i> Стан слотів AMS</h3>
-                    <div id="ams-printers-container" class="ams-container">
-                        <!-- Dynamic AMS views per printer -->
-                    </div>
                 </div>
 
                 <!-- Spool Inventory -->
@@ -180,10 +172,17 @@
             <section id="tab-history" class="tab-page">
                 <div class="section-header">
                     <h2><i class="fa-solid fa-chart-pie"></i> Аналітика & Історія</h2>
-                    <a href="/api/history/export" id="btn-export-history" class="btn btn-primary btn-sm" download>
-                        <i class="fa-solid fa-file-csv"></i> Звіт (CSV)
-                    </a>
-
+                    <div class="d-flex gap-2">
+                        <button id="btn-refresh-history" class="btn btn-outline btn-sm">
+                            <i class="fa-solid fa-rotate"></i> Оновити
+                        </button>
+                        <button id="btn-clear-history" class="btn btn-outline-danger btn-sm">
+                            <i class="fa-solid fa-trash"></i> Очистити
+                        </button>
+                        <a href="/api/history/export" id="btn-export-history" class="btn btn-primary btn-sm" download>
+                            <i class="fa-solid fa-file-csv"></i> Звіт (CSV)
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Stats Summary Row -->
@@ -223,10 +222,11 @@
                                     <th>Модель</th>
                                     <th>Вага (г)</th>
                                     <th>Собівартість</th>
+                                    <th style="width: 40px;"></th>
                                 </tr>
                             </thead>
                             <tbody id="history-table-body">
-                                <tr><td colspan="5" class="text-center">Немає записів історії</td></tr>
+                                <tr><td colspan="6" class="text-center">Немає записів історії</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -369,8 +369,11 @@
                                     <span class="slider"></span>
                                     <small style="font-size:10px; color:#94a3b8;">Авто (5с)</small>
                                 </label>
-                                <button id="refresh-cam-btn" class="btn btn-xs btn-outline">
+                                <button id="refresh-cam-btn" class="btn btn-xs btn-outline" title="Оновити">
                                     <i class="fa-solid fa-rotate-right"></i> Оновити
+                                </button>
+                                <button id="fullscreen-cam-btn" class="btn btn-xs btn-outline" title="На весь екран">
+                                    <i class="fa-solid fa-expand"></i>
                                 </button>
                             </div>
                         </div>
@@ -426,7 +429,6 @@
                         </div>
                     </div>
 
-                    <!-- Filament & AMS Section -->
                     <div class="control-section">
                         <div class="d-flex align-items-center justify-content-between mb-2">
                             <h4 style="margin:0;"><i class="fa-solid fa-boxes-packing color-purple"></i> Філамент & Слоти</h4>
@@ -542,6 +544,10 @@
                                 <input type="number" id="spool-price" class="form-control" value="650" step="10">
                             </div>
                             <div class="form-group col">
+                                <label>Кількість (шт)</label>
+                                <input type="number" id="spool-quantity" class="form-control" value="1" min="1" max="999">
+                            </div>
+                            <div class="form-group col">
                                 <label>Колір котушки</label>
                                 <input type="color" id="spool-color" class="form-control" value="#3b82f6" style="height: 38px; padding: 2px;">
                             </div>
@@ -600,23 +606,29 @@
                                 <input type="number" id="preset-price-g" class="form-control" value="0.85" step="0.01">
                             </div>
                             <div class="form-group col">
-                                <label>Потужність (Вт)</label>
-                                <input type="number" id="preset-power" class="form-control" value="120" step="10">
+                                <label>Тариф за світло (грн/кВт·год)</label>
+                                <input type="number" id="preset-elec-rate" class="form-control" value="4.32" step="0.01">
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group col">
+                                <label>Потужність принтера (Вт)</label>
+                                <input type="number" id="preset-power" class="form-control" value="120" step="10">
+                            </div>
+                            <div class="form-group col">
                                 <label>Амортизація (грн/год або %)</label>
                                 <input type="text" id="preset-depreciation" class="form-control" value="10" placeholder="10 або 10%">
                             </div>
+                        </div>
+                        <div class="form-row">
                             <div class="form-group col">
                                 <label>Витратні (грн/год або %)</label>
                                 <input type="text" id="preset-consumables" class="form-control" value="5" placeholder="5 або 5%">
                             </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Націнка / Прибуток (маржа)</label>
-                            <input type="text" id="preset-profit" class="form-control" value="100%" placeholder="100% або 50 грн">
+                            <div class="form-group col">
+                                <label>Націнка / Маржа</label>
+                                <input type="text" id="preset-profit" class="form-control" value="100%" placeholder="100% або 50 грн">
+                            </div>
                         </div>
                         <button id="save-preset-submit" class="btn btn-primary w-100 mt-2">Зберегти пресет</button>
                     </form>
@@ -636,7 +648,7 @@
             </button>
             <button class="nav-btn" data-tab="tab-materials">
                 <i class="fa-solid fa-boxes-packing"></i>
-                <span>Матеріали</span>
+                <span>Склад</span>
             </button>
             <button class="nav-btn" data-tab="tab-history">
                 <i class="fa-solid fa-chart-pie"></i>
@@ -647,6 +659,30 @@
                 <span>Налаштування</span>
             </button>
         </nav>
+    </div>
+
+    <!-- FULLSCREEN CAMERA MODAL OVERLAY -->
+    <div id="camera-fullscreen-modal" class="modal-backdrop camera-fullscreen-backdrop">
+        <div class="fullscreen-camera-wrap">
+            <div class="fullscreen-camera-header">
+                <span id="fullscreen-camera-title"><i class="fa-solid fa-video color-green"></i> Камера принтера</span>
+                <div class="d-flex gap-2 align-items-center">
+                    <button id="fullscreen-refresh-cam-btn" class="btn btn-xs btn-outline">
+                        <i class="fa-solid fa-rotate-right"></i> Оновити
+                    </button>
+                    <button id="close-fullscreen-cam-btn" class="icon-btn-close">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="fullscreen-camera-viewport">
+                <img id="fullscreen-camera-img" src="" alt="Кадра немає" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                <div class="camera-fallback" style="display:none;">
+                    <i class="fa-solid fa-camera-rotate"></i>
+                    <p>Кадр камери недоступний</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- WebApp Application JS -->

@@ -75,11 +75,11 @@ async def handle_health(request: web.Request) -> web.Response:
 
 async def load_commercial_presets(app_obj: Any) -> dict:
     presets_file = get_presets_file(app_obj)
-    presets = await app_obj.storage.load_json(presets_file, {})
-    if not presets:
+    presets = await app_obj.storage.load_json(presets_file, None)
+    if presets is None:
         presets = DEFAULT_PRESETS.copy()
         await app_obj.storage.save_json(presets_file, presets)
-    else:
+    elif presets:
         unique_presets = {}
         seen_names = set()
         for pid, p in presets.items():
@@ -239,6 +239,33 @@ async def handle_get_history(request: web.Request) -> web.Response:
             "history": normalized_history,
         }
     )
+
+
+async def handle_delete_history(request: web.Request) -> web.Response:
+    """DELETE /api/history - Clears history or deletes a specific entry by timestamp."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    ts_param = request.query.get("timestamp")
+    if ts_param:
+        try:
+            ts_val = float(ts_param)
+            if hasattr(app_obj.storage, "delete_history_entry"):
+                await app_obj.storage.delete_history_entry(ts_val)
+            else:
+                history = await app_obj.storage.load_history()
+                filtered = [item for item in history if item.get("timestamp") != ts_val]
+                await app_obj.storage.save_json(app_obj.storage.history_file, filtered)
+            return web.json_response({"status": "ok", "message": "Entry deleted"})
+        except ValueError:
+            return web.json_response({"error": "Invalid timestamp"}, status=400)
+
+    if hasattr(app_obj.storage, "clear_history"):
+        await app_obj.storage.clear_history()
+    else:
+        await app_obj.storage.save_json(app_obj.storage.history_file, [])
+    return web.json_response({"status": "ok", "message": "History cleared"})
 
 
 async def handle_export_history_csv(request: web.Request) -> web.Response:

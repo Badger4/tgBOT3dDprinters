@@ -2,6 +2,7 @@
 Printer remote control, actions, speed levels, maintenance, and calibration endpoints.
 """
 
+import time
 from aiohttp import web
 
 from config import logger
@@ -58,44 +59,92 @@ async def handle_printer_control(request: web.Request) -> web.Response:
         return web.json_response(
             {"status": "ok", "action": "set_maint_interval", "item_key": item_key, "interval_hours": interval}
         )
-    elif action == "set_filament":
+    elif action in ["set_filament", "set_slot_grams"]:
         grams = float(data.get("grams", 1000.0))
-        slot_id = data.get("slot_id")
-        p.set_slot_grams(grams, slot_id=slot_id)
+        raw_slot = data.get("slot_id")
+        slot_id = str(raw_slot) if raw_slot is not None else "255"
+        p.set_slot_grams(grams, slot_id=raw_slot if raw_slot is not None else "255")
+
+        spools = await app_obj.storage.load_spools()
+        for s_id, s in spools.items():
+            if s.get("assigned_printer_id") == p.id and str(s.get("assigned_slot_key")) == slot_id:
+                s["remaining_grams"] = round(float(grams), 1)
+                spools[s_id] = s
+        await app_obj.storage.save_spools(spools)
         await app_obj.save_printers_config()
-        return web.json_response({"status": "ok", "action": "set_filament", "grams": grams, "slot_id": slot_id})
+        return web.json_response({"status": "ok", "action": action, "grams": grams, "slot_id": raw_slot if raw_slot is not None else "255"})
     elif action == "assign_spool":
         spool_id = str(data.get("spool_id", ""))
-        slot_id = str(data.get("slot_id") or "255")
+        raw_slot = data.get("slot_id")
+        slot_id = str(raw_slot) if raw_slot is not None else "255"
         spools = await app_obj.storage.load_spools()
         spool = spools.get(spool_id)
         if not spool:
             return web.json_response({"error": "Котушку не знайдено на складі"}, status=404)
 
+        # Unassign any previously mounted spool from this printer slot
+        current_slot_grams = p.get_slot_grams(slot_id) if hasattr(p, "get_slot_grams") else 1000.0
+        for s_id, s in list(spools.items()):
+            if s.get("assigned_printer_id") == p.id and str(s.get("assigned_slot_key")) == slot_id and s_id != spool_id:
+                s["assigned_printer_id"] = None
+                s["assigned_slot_key"] = None
+                s["remaining_grams"] = round(float(current_slot_grams), 1)
+                s["quantity"] = max(1, int(s.get("quantity", 1)))
+                spools[s_id] = s
+
         grams = float(spool.get("remaining_grams", 1000.0))
-        p.set_slot_grams(grams, slot_id=slot_id)
-        p.active_spool_id = spool_id
+        p.set_slot_grams(grams, slot_id=raw_slot if raw_slot is not None else "255")
         if spool.get("type"):
             p.filament_type = str(spool.get("type"))
         if spool.get("price_per_kg") or spool.get("price_uah"):
             p.price_per_kg = float(spool.get("price_per_kg") or spool.get("price_uah"))
 
-        spool["assigned_printer_id"] = p.id
-        spool["assigned_slot_key"] = slot_id
-        spools[spool_id] = spool
+        qty = max(1, int(spool.get("quantity", 1)))
+        if qty > 1:
+            spool["quantity"] = qty - 1
+            spools[spool_id] = spool
+
+            assigned_spool_id = f"spool_{int(time.time() * 1000)}"
+            assigned_spool = spool.copy()
+            assigned_spool["id"] = assigned_spool_id
+            assigned_spool["quantity"] = 1
+            assigned_spool["assigned_printer_id"] = p.id
+            assigned_spool["assigned_slot_key"] = slot_id
+            spools[assigned_spool_id] = assigned_spool
+            p.active_spool_id = assigned_spool_id
+            target_spool = assigned_spool
+        else:
+            spool["assigned_printer_id"] = p.id
+            spool["assigned_slot_key"] = slot_id
+            spool["quantity"] = 1
+            spools[spool_id] = spool
+            p.active_spool_id = spool_id
+            target_spool = spool
+
         await app_obj.storage.save_spools(spools)
         await app_obj.save_printers_config()
-        return web.json_response({"status": "ok", "action": "assign_spool", "spool": spool, "slot_id": slot_id})
+        return web.json_response({"status": "ok", "action": "assign_spool", "spool": target_spool, "slot_id": raw_slot if raw_slot is not None else "255"})
     elif action == "unassign_spool":
-        slot_id = str(data.get("slot_id") or "255")
+        raw_slot = data.get("slot_id")
+        slot_id = str(raw_slot) if raw_slot is not None else "255"
+        slot_grams = p.get_slot_grams(slot_id) if hasattr(p, "get_slot_grams") else 1000.0
         spools = await app_obj.storage.load_spools()
         for s_id, s in spools.items():
             if s.get("assigned_printer_id") == p.id and str(s.get("assigned_slot_key")) == slot_id:
                 s["assigned_printer_id"] = None
                 s["assigned_slot_key"] = None
+                s["remaining_grams"] = round(float(slot_grams), 1)
+                s["quantity"] = max(1, int(s.get("quantity", 1)))
                 spools[s_id] = s
         await app_obj.storage.save_spools(spools)
-        return web.json_response({"status": "ok", "action": "unassign_spool", "slot_id": slot_id})
+        return web.json_response(
+            {
+                "status": "ok",
+                "action": "unassign_spool",
+                "slot_id": slot_id,
+                "remaining_grams": round(float(slot_grams), 1),
+            }
+        )
     elif action == "set_ams_enabled":
         enabled = bool(data.get("enabled", False))
         p.ams_enabled = enabled

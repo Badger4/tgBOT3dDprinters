@@ -25,6 +25,8 @@ __all__ = [
 
 def build_printer_telemetry(p: Any) -> dict:
     used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
+    active_slot = p.get_active_slot_key() if hasattr(p, "get_active_slot_key") else "255"
+    slot_grams = p.get_slot_grams(active_slot) if hasattr(p, "get_slot_grams") else getattr(p, "filament_grams", 1000.0)
     return {
         "id": p.id,
         "name": p.name,
@@ -39,7 +41,7 @@ def build_printer_telemetry(p: Any) -> dict:
         "total_layers": p.total_layer_num,
         "subtask_name": p.subtask_name or "",
         "filament_type": p.filament_type,
-        "filament_grams_left": p.filament_grams,
+        "filament_grams_left": round(float(slot_grams), 1),
         "job_weight_g": round(used_w, 2),
         "chamber_light_state": getattr(p, "chamber_light_state", "off"),
         "spd_lvl": getattr(p, "spd_lvl", 2),

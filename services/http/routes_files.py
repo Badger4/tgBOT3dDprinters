@@ -134,6 +134,20 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
 
         ok, msg = await p.start_print_job_async(file_bytes, filename)
         if ok:
+            try:
+                cost_info = p.calculate_job_cost(0.0)
+                entry = {
+                    "timestamp": time.time(),
+                    "printer_name": p.name,
+                    "subtask_name": filename,
+                    "weight_g": getattr(p, "_current_job_grams", 0.0) or 0.0,
+                    "filament_type": p.filament_type,
+                    "cost_uah": round(float(cost_info["total_cost"]), 2),
+                    "note": "Запущено з WebApp",
+                }
+                await app_obj.storage.add_history_entry(entry)
+            except Exception as hist_err:
+                logger.warning(f"Failed adding immediate launch history entry: {hist_err}")
             return web.json_response({"status": "ok", "message": msg})
         else:
             return web.json_response({"error": msg}, status=500)

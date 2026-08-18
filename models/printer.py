@@ -414,7 +414,11 @@ class BambuPrinter:
                     self._trigger_save()
 
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
-                if self.gcode_state == "FINISH":
+                should_record_history = (self._is_printing or self.gcode_state == "FINISH") and not getattr(
+                    self, "_history_recorded", False
+                )
+
+                if self.gcode_state == "FINISH" or should_record_history:
                     if not self._job_deducted:
                         if self._current_job_grams == 0.0:
                             cache_file = STORAGE_DIR / "last_sliced_weight.json"
@@ -460,12 +464,13 @@ class BambuPrinter:
                     if self.finish_timestamp == 0.0:
                         self.finish_timestamp = time.time()
 
-                    if not getattr(self, "_history_recorded", False):
-                        logger.info(f"🎉 Print finished on [{self.name}]!")
+                    if should_record_history:
+                        logger.info(f"🎉 Print finished/completed on [{self.name}] (state: {self.gcode_state})!")
                         final_weight = self.last_job_grams or self._current_job_grams or 0.0
                         if final_weight == 0.0 and self.subtask_name:
                             final_weight = extract_subtask_weight(self.subtask_name)
                         cost_info = self.calculate_job_cost(final_weight)
+                        note_text = "Успішно виконано" if self.gcode_state == "FINISH" else "Завершено"
                         entry = {
                             "timestamp": time.time(),
                             "printer_name": self.name,
@@ -473,6 +478,7 @@ class BambuPrinter:
                             "weight_g": round(float(final_weight), 1),
                             "filament_type": self.filament_type,
                             "cost_uah": round(float(cost_info["total_cost"]), 2),
+                            "note": note_text,
                         }
                         if self._main_loop and self._main_loop.is_running():
                             asyncio.run_coroutine_threadsafe(self.storage.add_history_entry(entry), self._main_loop)
@@ -480,8 +486,8 @@ class BambuPrinter:
 
                     self._is_printing = False
 
-                else:
-                    # IDLE or FAILED state reset
+                if self.gcode_state in ["IDLE", "FAILED"]:
+                    # Reset state counters for next job
                     self.finish_timestamp = 0.0
                     self._is_printing = False
                     self._job_deducted = False

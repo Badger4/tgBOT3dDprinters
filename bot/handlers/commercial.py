@@ -48,8 +48,8 @@ DEFAULT_PRESETS = {
 
 
 async def get_user_presets(app) -> dict:
-    presets = await app.storage.load_json(PRESETS_PATH, {})
-    if not presets:
+    presets = await app.storage.load_json(PRESETS_PATH, None)
+    if presets is None:
         presets = DEFAULT_PRESETS.copy()
         await app.storage.save_json(PRESETS_PATH, presets)
     return presets

@@ -317,3 +317,14 @@ class StorageManager:
         if len(history) > 500:
             history = history[-500:]
         return await self.save_json(self.history_file, history)
+
+    async def clear_history(self) -> bool:
+        """Clears all print history records."""
+        return await self.save_json(self.history_file, [])
+
+    async def delete_history_entry(self, timestamp: float) -> bool:
+        """Deletes a single history record matching the given timestamp."""
+        history = await self.load_history()
+        filtered = [item for item in history if item.get("timestamp") != timestamp]
+        return await self.save_json(self.history_file, filtered)
+

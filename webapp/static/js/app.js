@@ -199,6 +199,9 @@ document.addEventListener("DOMContentLoaded", () => {
                             const currentP = printersData.find(p => p.id === selectedPrinterId);
                             if (currentP) updatePrinterModalContent(currentP);
                         }
+                        if (data.some(p => String(p.state || "").toUpperCase() === "FINISH")) {
+                            loadHistory();
+                        }
                     }
                 } catch (e) {
                     console.error("SSE parse error:", e);
@@ -221,6 +224,14 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             if (!res.ok) throw new Error("Failed fetching printers");
             printersData = await res.json();
+
+            if (!window.latestSpools) {
+                try {
+                    const sRes = await fetch("/api/spools");
+                    if (sRes.ok) window.latestSpools = await sRes.json();
+                } catch (e) {}
+            }
+
             renderPrinters(printersData);
 
             if (selectedPrinterId && printerModal.classList.contains("active")) {
@@ -339,6 +350,49 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const layerStr = (st === "IDLE" && p.current_layer === 0) ? "—" : `${p.current_layer}/${p.total_layers}`;
 
+            const spoolsList = Object.values(window.latestSpools || {});
+            const assignedSpools = spoolsList.filter(s => s.assigned_printer_id === p.id);
+            const activeKey = String(p.active_slot_key || "255");
+            const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": "VT" };
+            const hasAms = Boolean(p.has_ams);
+
+            let displaySlotKey = activeKey;
+            let assignedSpool = assignedSpools.find(s => String(s.assigned_slot_key) === activeKey);
+
+            if (!assignedSpool && assignedSpools.length > 0) {
+                assignedSpool = assignedSpools[0];
+                displaySlotKey = String(assignedSpool.assigned_slot_key !== undefined ? assignedSpool.assigned_slot_key : "255");
+            } else if (!assignedSpool && hasAms && activeKey === "255") {
+                const amsKeys = ["0", "1", "2", "3"];
+                const firstNonEmptyKey = amsKeys.find(k => {
+                    const g = p.ams_slots ? p.ams_slots[k] : 0;
+                    const t = (p.ams_trays_info || {})[k] || {};
+                    return (g > 0 || (t.type && !t.empty));
+                });
+                if (firstNonEmptyKey !== undefined) {
+                    displaySlotKey = firstNonEmptyKey;
+                }
+            }
+
+            const slotGrams = (p.ams_slots && p.ams_slots[displaySlotKey] !== undefined)
+                ? p.ams_slots[displaySlotKey]
+                : (assignedSpool ? assignedSpool.remaining_grams : (p.filament_grams_left !== undefined ? p.filament_grams_left : 1000));
+
+            const slotTag = (hasAms && slotLabels[displaySlotKey]) ? `[${slotLabels[displaySlotKey]}] ` : "";
+
+            let filamentDisplay = "";
+            if (assignedSpool) {
+                filamentDisplay = `${slotTag}${escapeHtml(assignedSpool.name)} (${slotGrams}g)`;
+            } else if (p.ams_trays_info && p.ams_trays_info[displaySlotKey] && p.ams_trays_info[displaySlotKey].type) {
+                const tInfo = p.ams_trays_info[displaySlotKey];
+                const name = tInfo.sub_brands ? `Bambu ${tInfo.type} ${tInfo.sub_brands}` : `Bambu ${tInfo.type}`;
+                filamentDisplay = `${slotTag}${escapeHtml(name)} (${slotGrams}g)`;
+            } else if (p.filament_type && p.filament_type !== "Невизначено") {
+                filamentDisplay = `${slotTag}${escapeHtml(p.filament_type)} (${slotGrams}g)`;
+            } else {
+                filamentDisplay = `${slotTag}${slotGrams}g`;
+            }
+
             return `
                 <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-state="${st}">
                     <div class="printer-card-header">
@@ -363,7 +417,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <span><i class="fa-solid fa-temperature-high color-red"></i> ${p.nozzle_temp}°C</span>
                         <span><i class="fa-solid fa-hot-tub-person color-orange"></i> ${p.bed_temp}°C</span>
                         <span><i class="fa-solid fa-layer-group color-blue"></i> ${layerStr}</span>
-                        <span><i class="fa-solid fa-spool color-purple"></i> ${escapeHtml(p.filament_type || 'PLA')} (${p.filament_grams_left}g)</span>
+                        <span><i class="fa-solid fa-spool color-purple"></i> ${filamentDisplay}</span>
                     </div>
                 </div>`;
         }).join("");
@@ -469,37 +523,46 @@ document.addEventListener("DOMContentLoaded", () => {
             const spoolsList = Object.values(window.latestSpools || {});
 
             amsSlotsContainer.innerHTML = slotKeys.map(k => {
-                const grams = slots[k] !== undefined ? slots[k] : 1000;
+                const rawGrams = slots[k] !== undefined ? slots[k] : 1000;
                 const isActive = (k === activeKey);
                 const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && String(s.assigned_slot_key) === k);
                 const trayInfo = (p.ams_trays_info || {})[k] || {};
-                const isTrayEmpty = trayInfo.empty === true;
+                const isTrayEmpty = trayInfo.empty === true || (!assignedSpool && !trayInfo.type);
 
-                let spoolColor = '#64748b';
+                let spoolColor = '#334155';
                 let spoolName = 'Порожньо';
-                let spoolType = '—';
-                let pct = Math.min(100, Math.max(0, Math.round((grams / 1000) * 100)));
+                let spoolType = 'Порожньо';
+                let pct = 0;
+                let displayGrams = 0;
 
                 if (assignedSpool) {
                     spoolColor = assignedSpool.color || '#3b82f6';
                     spoolName = escapeHtml(assignedSpool.name);
                     spoolType = escapeHtml(assignedSpool.type);
-                } else if (!isTrayEmpty && (trayInfo.type || trayInfo.color)) {
+                    displayGrams = rawGrams;
+                    pct = Math.min(100, Math.max(0, Math.round((displayGrams / 1000) * 100)));
+                } else if (!isTrayEmpty && trayInfo.type) {
                     spoolColor = trayInfo.color || (isActive ? '#22c55e' : '#3b82f6');
                     spoolType = escapeHtml(trayInfo.type);
-                    spoolName = trayInfo.sub_brands ? `${spoolType} ${escapeHtml(trayInfo.sub_brands)}` : `Bambu ${spoolType}`;
+                    spoolName = trayInfo.sub_brands ? `Bambu ${spoolType} ${escapeHtml(trayInfo.sub_brands)}` : `Bambu ${spoolType}`;
+                    displayGrams = rawGrams;
                     if (trayInfo.remain !== undefined && trayInfo.remain >= 0) {
                         pct = trayInfo.remain;
+                    } else {
+                        pct = Math.min(100, Math.max(0, Math.round((displayGrams / 1000) * 100)));
                     }
-                } else if (isActive && !isTrayEmpty) {
+                } else if (isActive && !isTrayEmpty && (p.filament_type && p.filament_type !== "Невизначено")) {
                     spoolColor = '#22c55e';
                     spoolName = 'Активна нитка';
-                    spoolType = escapeHtml(p.filament_type || 'PLA');
-                } else if (isTrayEmpty) {
+                    spoolType = escapeHtml(p.filament_type);
+                    displayGrams = rawGrams;
+                    pct = Math.min(100, Math.max(0, Math.round((displayGrams / 1000) * 100)));
+                } else {
                     spoolColor = '#334155';
-                    spoolName = 'Порожній слот';
+                    spoolName = 'Порожньо';
                     spoolType = 'Порожньо';
                     pct = 0;
+                    displayGrams = 0;
                 }
 
                 return `
@@ -513,7 +576,10 @@ document.addEventListener("DOMContentLoaded", () => {
                                 ${assignedSpool ? `
                                 <button class="btn btn-xs btn-outline-danger btn-unassign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Зняти котушку">
                                     <i class="fa-solid fa-xmark"></i>
-                                </button>` : ''}
+                                </button>` : `
+                                <button class="btn btn-xs btn-outline-primary btn-assign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Встановити котушку зі Складу">
+                                    <i class="fa-solid fa-plus"></i>
+                                </button>`}
                             </div>
                         </div>
                         <div class="d-flex align-items-center gap-2 mb-1" style="min-width:0;">
@@ -523,7 +589,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             </div>
                         </div>
                         <div class="d-flex align-items-center justify-content-between" style="font-size:11px;">
-                            <span>${grams}g</span>
+                            <span>${displayGrams}g</span>
                             <span class="text-muted">${pct}%</span>
                         </div>
                         <div class="progress-bar-wrap sm mt-1">
@@ -532,6 +598,35 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>`;
             }).join("");
 
+            amsSlotsContainer.querySelectorAll(".btn-assign-slot-spool").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const sId = btn.getAttribute("data-slot");
+                    let spoolsMap = window.latestSpools;
+                    if (!spoolsMap) {
+                        try {
+                            const res = await fetch("/api/spools");
+                            if (res.ok) spoolsMap = await res.json();
+                        } catch (e) {}
+                    }
+                    const availableSpools = Object.values(spoolsMap || {}).filter(s => !s.assigned_printer_id);
+                    if (availableSpools.length === 0) {
+                        alert("На Складі немає вільних котушок. Додайте котушку у вкладці 'Склад'.");
+                        return;
+                    }
+                    const optionsText = availableSpools.map((s, idx) => `${idx + 1}. ${s.name} (${s.type || 'PLA'}, ${s.remaining_grams || 1000}g)`).join("\n");
+                    const choice = prompt(`Виберіть котушку зі Складу для слоту ${slotLabels[sId]}:\n\n${optionsText}\n\nВведіть номер (1-${availableSpools.length}):`);
+                    if (choice) {
+                        const idx = parseInt(choice.trim()) - 1;
+                        if (!isNaN(idx) && availableSpools[idx]) {
+                            const targetSpool = availableSpools[idx];
+                            await sendPrinterAction({ action: "assign_spool", spool_id: targetSpool.id, slot_id: sId });
+                        } else {
+                            alert("Невірно вибраний номер!");
+                        }
+                    }
+                });
+            });
+
             amsSlotsContainer.querySelectorAll(".btn-edit-slot-grams").forEach(btn => {
                 btn.addEventListener("click", () => {
                     const sId = btn.getAttribute("data-slot");
@@ -539,7 +634,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     const val = prompt(`Введіть новий залишок ваги (в грамах) для слоту ${slotLabels[sId]}:`, curG);
                     if (val !== null && val.trim() !== "") {
                         try {
-                            const parsed = evalMathSimple(val.trim());
+                            const parsed = safeMathEval(val.trim());
                             if (!isNaN(parsed) && parsed >= 0) {
                                 sendPrinterAction({ action: "set_slot_grams", slot_id: sId, grams: parsed });
                             } else {
@@ -616,13 +711,81 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let autoCamInterval = null;
     const autoCamToggle = document.getElementById("auto-cam-toggle");
+    const fullscreenCamModal = document.getElementById("camera-fullscreen-modal");
+    const fullscreenCamImg = document.getElementById("fullscreen-camera-img");
+    const fullscreenCamTitle = document.getElementById("fullscreen-camera-title");
+    const fullscreenCamBtn = document.getElementById("fullscreen-cam-btn");
+    const closeFullscreenCamBtn = document.getElementById("close-fullscreen-cam-btn");
+    const fullscreenRefreshCamBtn = document.getElementById("fullscreen-refresh-cam-btn");
 
     function loadCameraSnapshot(pId) {
-        cameraImg.style.display = "block";
-        cameraImg.nextElementSibling.style.display = "none";
+        if (!pId) return;
         const initDataParam = tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : "";
-        cameraImg.src = `/api/printers/${pId}/snapshot?t=${Date.now()}${initDataParam}`;
+        const srcUrl = `/api/printers/${pId}/snapshot?t=${Date.now()}${initDataParam}`;
+
+        if (cameraImg) {
+            cameraImg.style.display = "block";
+            if (cameraImg.nextElementSibling) cameraImg.nextElementSibling.style.display = "none";
+            cameraImg.src = srcUrl;
+        }
+
+        if (fullscreenCamImg && fullscreenCamModal && fullscreenCamModal.classList.contains("active")) {
+            fullscreenCamImg.style.display = "block";
+            if (fullscreenCamImg.nextElementSibling) fullscreenCamImg.nextElementSibling.style.display = "none";
+            fullscreenCamImg.src = srcUrl;
+        }
     }
+
+    function openFullscreenCamera() {
+        if (!selectedPrinterId) return;
+        triggerHaptic("medium");
+        const currentP = printersData.find(p => p.id === selectedPrinterId);
+        if (fullscreenCamTitle && currentP) {
+            fullscreenCamTitle.innerHTML = `<i class="fa-solid fa-video color-green"></i> ${escapeHtml(currentP.name)} (Жива камера)`;
+        }
+        if (fullscreenCamModal) {
+            fullscreenCamModal.classList.add("active");
+            if (fullscreenCamModal.requestFullscreen) {
+                fullscreenCamModal.requestFullscreen().catch(() => {});
+            }
+        }
+        loadCameraSnapshot(selectedPrinterId);
+    }
+
+    function closeFullscreenCamera() {
+        triggerHaptic("light");
+        if (fullscreenCamModal) {
+            fullscreenCamModal.classList.remove("active");
+        }
+        if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+        }
+    }
+
+    if (fullscreenCamBtn) {
+        fullscreenCamBtn.addEventListener("click", openFullscreenCamera);
+    }
+
+    if (cameraImg) {
+        cameraImg.addEventListener("click", openFullscreenCamera);
+    }
+
+    if (closeFullscreenCamBtn) {
+        closeFullscreenCamBtn.addEventListener("click", closeFullscreenCamera);
+    }
+
+    if (fullscreenRefreshCamBtn) {
+        fullscreenRefreshCamBtn.addEventListener("click", () => {
+            triggerHaptic("light");
+            if (selectedPrinterId) loadCameraSnapshot(selectedPrinterId);
+        });
+    }
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && fullscreenCamModal && fullscreenCamModal.classList.contains("active")) {
+            closeFullscreenCamera();
+        }
+    });
 
     if (autoCamToggle) {
         autoCamToggle.addEventListener("change", () => {
@@ -630,7 +793,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (selectedPrinterId) loadCameraSnapshot(selectedPrinterId);
                 if (autoCamInterval) clearInterval(autoCamInterval);
                 autoCamInterval = setInterval(() => {
-                    if (selectedPrinterId && printerModal.classList.contains("active") && autoCamToggle.checked) {
+                    if (selectedPrinterId && (printerModal.classList.contains("active") || (fullscreenCamModal && fullscreenCamModal.classList.contains("active"))) && autoCamToggle.checked) {
                         loadCameraSnapshot(selectedPrinterId);
                     } else {
                         if (autoCamInterval) clearInterval(autoCamInterval);
@@ -647,6 +810,7 @@ document.addEventListener("DOMContentLoaded", () => {
     closeModalBtn.addEventListener("click", () => {
         triggerHaptic("light");
         printerModal.classList.remove("active");
+        if (fullscreenCamModal) fullscreenCamModal.classList.remove("active");
         selectedPrinterId = null;
         if (autoCamInterval) clearInterval(autoCamInterval);
         autoCamInterval = null;
@@ -670,7 +834,17 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             const data = await res.json();
             if (data.status === "ok") {
-                fetchPrinters();
+                if (["assign_spool", "unassign_spool", "set_slot_grams", "set_filament"].includes(actionPayload.action)) {
+                    try {
+                        const sRes = await fetch("/api/spools");
+                        if (sRes.ok) window.latestSpools = await sRes.json();
+                    } catch (e) {}
+                }
+                await fetchPrinters();
+                if (selectedPrinterId && printerModal.classList.contains("active")) {
+                    const currentP = printersData.find(p => p.id === selectedPrinterId);
+                    if (currentP) updatePrinterModalContent(currentP);
+                }
             } else {
                 alert("Помилка при виконанні дії: " + (data.error || "Невідомо"));
             }
@@ -799,7 +973,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // 6. Tab 2: Materials & AMS
     async function loadMaterials() {
         const container = document.getElementById("ams-printers-container");
-        container.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-circle-notch fa-spin"></i> Завантаження...</div>`;
+        if (container) {
+            container.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-circle-notch fa-spin"></i> Завантаження...</div>`;
+        }
 
         try {
             const [printersRes, spoolsRes] = await Promise.all([
@@ -809,10 +985,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const printers = await printersRes.json();
             const spools = await spoolsRes.json();
 
-            // Render AMS for printers
-            if (!printers || printers.length === 0) {
-                container.innerHTML = `<p class="text-muted text-center p-3">Немає активних принтерів</p>`;
-            } else {
+            // Render AMS for printers if container exists
+            if (container) {
+                if (!printers || printers.length === 0) {
+                    container.innerHTML = `<p class="text-muted text-center p-3">Немає активних принтерів</p>`;
+                } else {
                 const spoolsList = Object.values(spools || {});
 
                 container.innerHTML = printers.map(p => {
@@ -944,10 +1121,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     });
                 });
             }
+            }
 
             // Render Spool Inventory
             const spoolsList = document.getElementById("spools-list");
-            const spoolsArray = Object.values(spools || {});
+            const spoolsArray = Object.values(spools || {}).filter(s => !s.assigned_printer_id && (s.quantity || 1) > 0);
             if (spoolsArray.length === 0) {
                 spoolsList.innerHTML = `<p class="text-muted text-center p-3">Склад порожній. Натисніть "+ Нова котушка", щоб додати.</p>`;
             } else {
@@ -956,8 +1134,11 @@ document.addEventListener("DOMContentLoaded", () => {
                         <div class="spool-left d-flex align-items-center gap-2">
                             <div class="spool-color-circle" style="background-color: ${s.color || '#3b82f6'}; width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3);"></div>
                             <div class="spool-details">
-                                <h4 style="margin:0; font-size:14px;">${escapeHtml(s.name)}</h4>
-                                <small class="text-muted">${escapeHtml(s.type || 'PLA')} • ${s.price_per_kg || s.price_uah || 650} ₴/кг • ${s.remaining_grams || 1000}g</small>
+                                <h4 style="margin:0; font-size:14px;">
+                                    ${escapeHtml(s.name)} 
+                                    <span class="badge badge-secondary" style="font-size:10px; font-weight:500; margin-left:4px;">📦 ${s.quantity || 1} шт</span>
+                                </h4>
+                                <small class="text-muted">${escapeHtml(s.type || 'PLA')} • ${s.price_per_kg || s.price_uah || 650} ₴/кг • ⚡ ${s.remaining_grams || 1000}g</small>
                             </div>
                         </div>
                         <div class="spool-right d-flex align-items-center gap-2">
@@ -994,6 +1175,8 @@ document.addEventListener("DOMContentLoaded", () => {
                             document.getElementById("spool-name").value = s.name || "";
                             document.getElementById("spool-type").value = s.type || "PLA";
                             document.getElementById("spool-grams").value = s.remaining_grams || 1000;
+                            const qtyEl = document.getElementById("spool-quantity");
+                            if (qtyEl) qtyEl.value = s.quantity || 1;
                             document.getElementById("spool-price").value = s.price_per_kg || s.price_uah || 650;
                             const colEl = document.getElementById("spool-color");
                             if (colEl) colEl.value = s.color || "#3b82f6";
@@ -1028,16 +1211,42 @@ document.addEventListener("DOMContentLoaded", () => {
         const selectPrinter = document.getElementById("assign-printer-select");
         if (!modal || !selectPrinter) return;
 
-        selectPrinter.innerHTML = printers.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.ip})</option>`).join("");
+        const list = Array.isArray(printers) && printers.length > 0 ? printers : (printersData || []);
+        if (list.length === 0) {
+            alert("Немає підключених принтерів для встановлення котушки.");
+            return;
+        }
+
+        selectPrinter.innerHTML = list.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.ip})</option>`).join("");
+        triggerHaptic("light");
         modal.classList.add("active");
+    }
+
+    const closeAssignSpoolModalBtn = document.getElementById("close-assign-spool-modal");
+    if (closeAssignSpoolModalBtn) {
+        closeAssignSpoolModalBtn.addEventListener("click", () => {
+            const modal = document.getElementById("assign-spool-modal");
+            if (modal) modal.classList.remove("active");
+        });
     }
 
     const confirmAssignBtn = document.getElementById("confirm-assign-spool-btn");
     if (confirmAssignBtn) {
         confirmAssignBtn.addEventListener("click", async () => {
             if (!selectedSpoolForAssign) return;
-            const printerId = document.getElementById("assign-printer-select").value;
-            const slotId = document.getElementById("assign-slot-select").value;
+            const printerSelect = document.getElementById("assign-printer-select");
+            const slotSelect = document.getElementById("assign-slot-select");
+            const printerId = printerSelect ? printerSelect.value : "";
+            const slotId = slotSelect ? slotSelect.value : "255";
+
+            if (!printerId) {
+                alert("Виберіть принтер зі списку!");
+                return;
+            }
+
+            triggerHaptic("medium");
+            confirmAssignBtn.disabled = true;
+            confirmAssignBtn.textContent = "⏳ Встановлення...";
 
             try {
                 const res = await fetch(`/api/printers/${printerId}/control`, {
@@ -1049,17 +1258,31 @@ document.addEventListener("DOMContentLoaded", () => {
                         slot_id: slotId
                     })
                 });
-                const result = await res.json();
-                if (result.status === "ok") {
-                    document.getElementById("assign-spool-modal").classList.remove("active");
-                    loadMaterials();
-                    fetchPrinters();
+                const result = await res.json().catch(() => ({}));
+                if (res.ok && result.status === "ok") {
+                    try {
+                        const sRes = await fetch("/api/spools");
+                        if (sRes.ok) window.latestSpools = await sRes.json();
+                    } catch (e) {}
+
+                    const modal = document.getElementById("assign-spool-modal");
+                    if (modal) modal.classList.remove("active");
+                    await loadMaterials();
+                    await fetchPrinters();
+
+                    if (selectedPrinterId && printerModal.classList.contains("active")) {
+                        const currentP = printersData.find(p => p.id === selectedPrinterId);
+                        if (currentP) updatePrinterModalContent(currentP);
+                    }
                 } else {
-                    alert("Помилка встановлення: " + (result.error || "Невідомо"));
+                    alert("Помилка встановлення: " + (result.error || `HTTP ${res.status}`));
                 }
             } catch (err) {
                 console.error("Assign spool error:", err);
                 alert("Помилка з'єднання при встановленні котушки.");
+            } finally {
+                confirmAssignBtn.disabled = false;
+                confirmAssignBtn.textContent = "Встановити на принтер";
             }
         });
     }
@@ -1073,6 +1296,8 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("spool-name").value = "";
             document.getElementById("spool-type").value = "PLA";
             document.getElementById("spool-grams").value = "1000";
+            const qtyEl = document.getElementById("spool-quantity");
+            if (qtyEl) qtyEl.value = "1";
             document.getElementById("spool-price").value = "650";
             const colEl = document.getElementById("spool-color");
             if (colEl) colEl.value = "#3b82f6";
@@ -1093,6 +1318,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const name = document.getElementById("spool-name").value.trim();
             const type = document.getElementById("spool-type").value;
             const grams = parseFloat(document.getElementById("spool-grams").value) || 1000;
+            const qtyEl = document.getElementById("spool-quantity");
+            const quantity = qtyEl ? (parseInt(qtyEl.value) || 1) : 1;
             const price = parseFloat(document.getElementById("spool-price").value) || 650;
             const colEl = document.getElementById("spool-color");
             const color = colEl ? colEl.value : "#3b82f6";
@@ -1104,6 +1331,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 name,
                 type,
                 remaining_grams: grams,
+                quantity: Math.max(1, quantity),
                 price_per_kg: price,
                 color
             };
@@ -1165,7 +1393,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!tbody) return;
             const history = data.history || [];
             if (history.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" class="text-center">Журнал історії порожній</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center">Журнал історії порожній</td></tr>`;
             } else {
                 tbody.innerHTML = history.slice(-50).reverse().map(item => {
                     const dateFormatted = formatHistoryDate(item.timestamp, item.datetime);
@@ -1181,12 +1409,46 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td><code>${taskName}</code></td>
                         <td>${weightVal}g</td>
                         <td><strong>${costVal} ₴</strong></td>
+                        <td class="text-center">
+                            <button class="btn btn-xs btn-outline-danger btn-delete-history-entry" data-ts="${item.timestamp}" title="Видалити запис">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </td>
                     </tr>`;
                 }).join("");
+
+                tbody.querySelectorAll(".btn-delete-history-entry").forEach(btn => {
+                    btn.addEventListener("click", async () => {
+                        const ts = btn.getAttribute("data-ts");
+                        if (ts && confirm("Видалити цей запис із історії?")) {
+                            await fetch(`/api/history?timestamp=${encodeURIComponent(ts)}`, { method: "DELETE" });
+                            loadHistory();
+                        }
+                    });
+                });
             }
         } catch (e) {
             console.error("Failed loading history:", e);
         }
+    }
+
+    const btnRefreshHistory = document.getElementById("btn-refresh-history");
+    if (btnRefreshHistory) {
+        btnRefreshHistory.addEventListener("click", () => {
+            triggerHaptic("light");
+            loadHistory();
+        });
+    }
+
+    const btnClearHistory = document.getElementById("btn-clear-history");
+    if (btnClearHistory) {
+        btnClearHistory.addEventListener("click", async () => {
+            triggerHaptic("heavy");
+            if (confirm("Ви дійсно хочете ОЧИСТИТИ всю історію друку?")) {
+                await fetch("/api/history", { method: "DELETE" });
+                loadHistory();
+            }
+        });
     }
 
     const exportBtn = document.getElementById("btn-export-history");
@@ -1235,33 +1497,35 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
 
-            selectEl.innerHTML = presetList.map(p =>
-                `<option value="${p.id}">${escapeHtml(p.name)}</option>`
-            ).join("");
-
-            if (presetList.length > 0) {
+            if (presetList.length === 0) {
+                selectEl.innerHTML = `<option value="">(Пресети відсутні)</option>`;
+                listEl.innerHTML = `<p class="text-muted text-center p-3">Список пресетів порожній. Натисніть "+ Новий пресет", щоб додати.</p>`;
+            } else {
+                selectEl.innerHTML = presetList.map(p =>
+                    `<option value="${p.id}">${escapeHtml(p.name)}</option>`
+                ).join("");
                 if (!selectEl.value) selectEl.value = presetList[0].id;
-            }
 
-            listEl.innerHTML = presetList.map(p => `
-                <div class="spool-item">
-                    <div class="spool-left">
-                        <i class="fa-solid fa-calculator color-orange" style="font-size:20px;"></i>
-                        <div class="spool-details">
-                            <h4>${escapeHtml(p.name)}</h4>
-                            <p>Пластик: ${p.price_per_g} грн/г | Потужність: ${p.power_watts} Вт | Маржа: ${p.profit_val}</p>
+                listEl.innerHTML = presetList.map(p => `
+                    <div class="spool-item">
+                        <div class="spool-left">
+                            <i class="fa-solid fa-calculator color-orange" style="font-size:20px;"></i>
+                            <div class="spool-details">
+                                <h4>${escapeHtml(p.name)}</h4>
+                                <p>Пластик: ${p.price_per_g} грн/г | Світло: ${p.electricity_rate_uah || 4.32} ₴/кВт·год (${p.power_watts || 120} Вт) | Маржа: ${p.profit_val}</p>
+                            </div>
+                        </div>
+                        <div class="preset-actions-wrap" style="display:flex; gap:6px;">
+                            <button class="btn btn-xs btn-outline-warning btn-edit-preset" data-id="${p.id}" title="Редагувати">
+                                <i class="fa-solid fa-pen-to-square"></i>
+                            </button>
+                            <button class="btn btn-xs btn-outline-danger btn-delete-preset" data-id="${p.id}" title="Видалити">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
                         </div>
                     </div>
-                    <div class="preset-actions-wrap" style="display:flex; gap:6px;">
-                        <button class="btn btn-xs btn-outline-warning btn-edit-preset" data-id="${p.id}" title="Редагувати">
-                            <i class="fa-solid fa-pen-to-square"></i>
-                        </button>
-                        <button class="btn btn-xs btn-outline-danger btn-delete-preset" data-id="${p.id}" title="Видалити">
-                            <i class="fa-solid fa-trash"></i>
-                        </button>
-                    </div>
-                </div>
-            `).join("");
+                `).join("");
+            }
 
             document.querySelectorAll(".btn-edit-preset").forEach(btn => {
                 btn.addEventListener("click", (e) => {
@@ -1276,6 +1540,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
                     document.getElementById("preset-name").value = p.name || "";
                     document.getElementById("preset-price-g").value = p.price_per_g !== undefined ? p.price_per_g : 0.85;
+                    const elecEl = document.getElementById("preset-elec-rate");
+                    if (elecEl) elecEl.value = p.electricity_rate_uah !== undefined ? p.electricity_rate_uah : 4.32;
                     document.getElementById("preset-power").value = p.power_watts !== undefined ? p.power_watts : 120;
                     document.getElementById("preset-depreciation").value = p.depreciation_val || "10";
                     document.getElementById("preset-consumables").value = p.consumables_val || "5";
@@ -1343,6 +1609,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         document.getElementById("preset-name").value = "";
         document.getElementById("preset-price-g").value = "0.85";
+        const elecEl = document.getElementById("preset-elec-rate");
+        if (elecEl) elecEl.value = "4.32";
         document.getElementById("preset-power").value = "120";
         document.getElementById("preset-depreciation").value = "10";
         document.getElementById("preset-consumables").value = "5";
@@ -1359,6 +1627,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const name = document.getElementById("preset-name").value.trim();
         const raw_price = document.getElementById("preset-price-g").value;
         const price_per_g = (raw_price && !isNaN(parseFloat(raw_price))) ? parseFloat(raw_price) : 0.85;
+        const elecEl = document.getElementById("preset-elec-rate");
+        const raw_elec = elecEl ? elecEl.value : "4.32";
+        const electricity_rate_uah = (raw_elec && !isNaN(parseFloat(raw_elec))) ? parseFloat(raw_elec) : 4.32;
         const raw_power = document.getElementById("preset-power").value;
         const power_watts = (raw_power && !isNaN(parseFloat(raw_power))) ? parseFloat(raw_power) : 120.0;
         const depreciation_val = document.getElementById("preset-depreciation").value.trim() || "10";
@@ -1368,7 +1639,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!name) return alert("⚠️ Введіть назву пресета");
 
         const payload = {
-            name, price_per_g, power_watts, depreciation_val, consumables_val, profit_val
+            name, price_per_g, electricity_rate_uah, power_watts, depreciation_val, consumables_val, profit_val
         };
         if (editingPresetId) {
             payload.id = editingPresetId;
@@ -1626,6 +1897,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Initial Load & Fail-Safe Polling Loop (Runs always every 3s)
     fetchPrinters();
+    loadHistory();
     pollInterval = setInterval(fetchPrinters, 3000);
     initSSEStream();
 });

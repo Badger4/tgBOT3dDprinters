@@ -189,6 +189,9 @@ async def handle_3mf_preset_choice(message: Message, app):
     from models.commercial import calculate_commercial_price
 
     presets = await get_user_presets(app)
+    if not presets:
+        from bot.handlers.commercial import DEFAULT_PRESETS
+        presets = DEFAULT_PRESETS.copy()
 
     w_g = pending_file.get("weight_g", 0.0)
     t_mins = pending_file.get("time_mins", 0)

@@ -24,6 +24,7 @@ from services.http.routes_printers import (
 from services.http.routes_settings import (
     WEBAPP_DIR,
     handle_calculate_commercial,
+    handle_delete_history,
     handle_delete_preset,
     handle_export_history_csv,
     handle_get_history,
@@ -92,6 +93,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     # History & Events API
     web_app.router.add_get("/api/events", handle_sse_stream)
     web_app.router.add_get("/api/history", handle_get_history)
+    web_app.router.add_delete("/api/history", handle_delete_history)
     web_app.router.add_get("/api/history/export", handle_export_history_csv)
     web_app.router.add_get("/api/settings", handle_get_settings)
     web_app.router.add_post("/api/settings", handle_update_settings)

@@ -35,6 +35,7 @@ async def handle_save_spool(request: web.Request) -> web.Response:
             "type": data.get("type", "PLA"),
             "color": data.get("color", "#ffffff"),
             "remaining_grams": float(data.get("remaining_grams", 1000.0)),
+            "quantity": max(1, int(data.get("quantity", 1))),
             "price_per_kg": float(data.get("price_per_kg", 650.0)),
             "notes": data.get("notes", ""),
         }
