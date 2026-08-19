@@ -1857,6 +1857,42 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Dynamic WebApp i18n support
+    window.setAppLanguage = function(lang) {
+        if (!lang || !["uk", "en"].includes(lang.toLowerCase())) lang = "uk";
+        lang = lang.toLowerCase();
+        localStorage.setItem("app_lang", lang);
+        
+        const langSelect = document.getElementById("setting-app-language");
+        if (langSelect) langSelect.value = lang;
+
+        const dict = {
+            uk: {
+                save_settings_btn: "Зберегти налаштування",
+                lang_select_label: "Мова / Language",
+                save_success: "✅ Налаштування успішно збережено!",
+            },
+            en: {
+                save_settings_btn: "Save Settings",
+                lang_select_label: "Language / Мова",
+                save_success: "✅ Settings saved successfully!",
+            }
+        }[lang];
+
+        document.querySelectorAll("[data-i18n]").forEach(el => {
+            const k = el.getAttribute("data-i18n");
+            if (dict[k]) el.innerText = dict[k];
+        });
+    };
+
+    // Load initial language from localStorage
+    const savedLang = localStorage.getItem("app_lang") || "uk";
+    window.setAppLanguage(savedLang);
+
+    document.getElementById("setting-app-language")?.addEventListener("change", (e) => {
+        window.setAppLanguage(e.target.value);
+    });
+
     document.getElementById("save-settings-btn")?.addEventListener("click", async () => {
         triggerHaptic("medium");
         const notify = {
@@ -1868,14 +1904,16 @@ document.addEventListener("DOMContentLoaded", () => {
             min_time_to_end: parseInt(document.getElementById("setting-notify-min-time")?.value || 0),
             min_filament: parseInt(document.getElementById("setting-notify-min-filament")?.value || 0),
         };
+        const language = document.getElementById("setting-app-language")?.value || "uk";
 
         try {
             await fetch("/api/user/settings", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ notify })
+                body: JSON.stringify({ notify, language })
             });
-            alert("✅ Повноцінні налаштування сповіщень успішно збережено!");
+            window.setAppLanguage(language);
+            alert(language === "en" ? "✅ Settings saved successfully!" : "✅ Налаштування успішно збережено!");
         } catch (e) {
             console.error("Failed saving settings:", e);
             alert("⚠️ Помилка збереження налаштувань: " + e);

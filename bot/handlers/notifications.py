@@ -18,6 +18,8 @@ router = Router()
             "налаштування сповіщень",
             "🔔 сповіщення",
             "сповіщення",
+            "🔔 notification settings",
+            "notification settings",
         ]
     )
 )
@@ -28,12 +30,32 @@ async def handle_notifications_menu(message: Message, app):
 
     user = await app.storage.load_user(chat_id)
     u_notify = user.get("notify", {})
-    kb = get_notify_keyboard(u_notify)
+    u_lang = user.get("language", "uk")
+    kb = get_notify_keyboard(u_notify, lang=u_lang)
+    msg_title = "<b>⚙️ Notification Settings:</b>" if u_lang == "en" else "<b>⚙️ Налаштування сповіщень:</b>"
     await message.answer(
-        "<b>⚙️ Налаштування сповіщень:</b>\nОберіть потрібні типи сповіщень та пороги:",
+        msg_title,
         parse_mode=ParseMode.HTML,
         reply_markup=kb,
     )
+
+
+@router.message(F.text.startswith("🌐 Мова / Language"))
+async def toggle_language(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    cur_lang = user.get("language", "uk")
+    new_lang = "en" if cur_lang == "uk" else "uk"
+    user["language"] = new_lang
+    await app.storage.save_user(user)
+
+    kb = get_notify_keyboard(user.get("notify", {}), lang=new_lang)
+    confirm_text = (
+        "🇬🇧 Language changed to <b>English</b>!"
+        if new_lang == "en"
+        else "🇺🇦 Мову інтерфейсу змінено на <b>Українську</b>!"
+    )
+    await message.answer(confirm_text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
 @router.message(F.text.startswith("✅ Початок друку:") | F.text.startswith("❌ Початок друку:"))

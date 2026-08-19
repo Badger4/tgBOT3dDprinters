@@ -4,6 +4,7 @@ Main Application orchestrating Telegram bot, storage, and printer monitoring.
 
 import asyncio
 import gc
+import html
 import os
 import time
 from typing import Any
@@ -273,8 +274,16 @@ class PrinterBotApp:
 
                     # 5. HMS Error Alert
                     if getattr(p, "hms_errors", None) and not st.get("notifiedHMS"):
-                        err_codes = ", ".join([str(e) for e in p.hms_errors])
-                        hms_txt = f"⚡ *HMS Помилка на принтері {p.name}!*\n⚠️ Виявлено коди збоїв: `{err_codes}`\nБіжи перевіряй принтер, Бака! 😤"
+                        resolved = getattr(p, "hms_resolved", []) or []
+                        if resolved:
+                            hms_lines = "\n".join([f"• <code>{html.escape(str(h))}</code>" for h in resolved])
+                        else:
+                            hms_lines = ", ".join([str(e) for e in p.hms_errors])
+                        hms_txt = (
+                            f"⚡ <b>HMS Помилка на принтері {html.escape(p.name)}!</b>\n\n"
+                            f"⚠️ <b>Виявлено збої:</b>\n{hms_lines}\n\n"
+                            f"Біжи перевіряй принтер, Бака! 😤"
+                        )
                         await self.send_notification("pause", hms_txt)
                         st["notifiedHMS"] = True
                     elif not getattr(p, "hms_errors", None):

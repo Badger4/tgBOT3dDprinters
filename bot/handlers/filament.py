@@ -180,6 +180,77 @@ async def handle_filament_menu(message: Message, app):
     await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard())
 
 
+@router.message(F.text.lower().in_(["🏷️ зчитати rfid котушки", "зчитати rfid котушки", "zchytaty rfid", "rfid"]))
+async def handle_rfid_sync(message: Message, app):
+    spools = await app.storage.load_spools()
+    added_count = 0
+    updated_count = 0
+
+    for p in app.printers.values():
+        trays = getattr(p, "ams_trays_info", {}) or {}
+        for slot_id, t_info in trays.items():
+            if not isinstance(t_info, dict) or t_info.get("empty", True):
+                continue
+
+            tag_uid = str(t_info.get("tag_uid") or "").strip()
+            if not tag_uid:
+                continue
+
+            t_type = str(t_info.get("type") or "PLA").upper()
+            t_sub = str(t_info.get("sub_brands") or "").strip()
+            t_color = str(t_info.get("color") or "#000000")
+            remain_pct = t_info.get("remain", -1)
+
+            slot_grams = p.get_slot_grams(slot_id) if hasattr(p, "get_slot_grams") else 1000.0
+            if remain_pct >= 0:
+                rem_g = round((remain_pct / 100.0) * 1000.0, 1)
+            else:
+                rem_g = float(slot_grams)
+
+            # Match existing spool by tag_uid
+            existing = next((s for s in spools.values() if s.get("tag_uid") == tag_uid), None)
+
+            if existing:
+                existing["remaining_grams"] = rem_g
+                existing["assigned_printer_id"] = p.id
+                existing["assigned_slot_key"] = str(slot_id)
+                spools[existing["id"]] = existing
+                updated_count += 1
+            else:
+                spool_name = f"Bambu {t_type} {t_sub}".strip()
+                if not t_sub:
+                    spool_name = f"Bambu {t_type} (RFID:{tag_uid[:6]})"
+                new_id = str(uuid.uuid4())
+                spools[new_id] = {
+                    "id": new_id,
+                    "name": spool_name,
+                    "type": t_type,
+                    "color": t_color,
+                    "remaining_grams": rem_g,
+                    "price_per_kg": 850.0,
+                    "assigned_printer_id": p.id,
+                    "assigned_slot_key": str(slot_id),
+                    "tag_uid": tag_uid,
+                    "quantity": 1,
+                }
+                added_count += 1
+
+    if added_count > 0 or updated_count > 0:
+        await app.storage.save_spools(spools)
+        msg_txt = (
+            f"✅ <b>Авто-зчитано RFID котушки AMS!</b>\n\n"
+            f"🆕 Додано нових котушок: <b>{added_count} шт.</b>\n"
+            f"🔄 Оновлено наявних: <b>{updated_count} шт.</b>"
+        )
+    else:
+        msg_txt = (
+            "ℹ️ <b>RFID Зчитування AMS:</b>\n\n"
+            "У слотах AMS не виявлено нових котушок з RFID-мітками або слоти порожні."
+        )
+
+    await message.answer(msg_txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard())
+
+
 @router.message(F.text.lower().in_(["🔗 встановити на принтер", "встановити на принтер"]))
 async def handle_mount_spool_start(message: Message, app):
     chat_id = str(message.chat.id)

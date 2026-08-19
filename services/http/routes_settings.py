@@ -374,6 +374,7 @@ async def handle_get_user_settings(request: web.Request) -> web.Response:
         "min_filament": 0,
     }
     user_info = {"id": u_id or "", "role": "USER", "approved": True}
+    user_lang = "uk"
 
     if u_id and hasattr(app_obj, "storage"):
         user = await app_obj.storage.load_user(u_id)
@@ -381,8 +382,9 @@ async def handle_get_user_settings(request: web.Request) -> web.Response:
             user_notify.update(user.get("notify", {}))
             user_info["role"] = user.get("role", "USER")
             user_info["approved"] = user.get("approved", True)
+            user_lang = user.get("language", "uk")
 
-    return web.json_response({"notify": user_notify, "user": user_info})
+    return web.json_response({"notify": user_notify, "user": user_info, "language": user_lang})
 
 
 async def handle_update_user_settings(request: web.Request) -> web.Response:
@@ -395,16 +397,20 @@ async def handle_update_user_settings(request: web.Request) -> web.Response:
     try:
         data = await request.json()
         notify_data = data.get("notify", {})
+        new_lang = data.get("language")
 
         if u_id and hasattr(app_obj, "storage"):
             user = await app_obj.storage.load_user(u_id)
             if not isinstance(user.get("notify"), dict):
                 user["notify"] = {}
-            user["notify"].update(notify_data)
+            if notify_data:
+                user["notify"].update(notify_data)
+            if new_lang and str(new_lang).lower() in ["uk", "en"]:
+                user["language"] = str(new_lang).lower()
             await app_obj.storage.save_user(user)
-            return web.json_response({"status": "ok", "notify": user["notify"]})
+            return web.json_response({"status": "ok", "notify": user["notify"], "language": user.get("language", "uk")})
 
-        return web.json_response({"status": "ok", "notify": notify_data})
+        return web.json_response({"status": "ok", "notify": notify_data, "language": new_lang or "uk"})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
 

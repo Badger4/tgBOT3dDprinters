@@ -274,7 +274,7 @@
                             </select>
                         </div>
                         <div class="form-group col">
-                            <label><i class="fa-solid fa-weight-hanging"></i> Поріг залишку нитки</label>
+                            <label><i class="fa-solid fa-weight-hanging"></i> <span data-i18n="notify_filament_threshold">Поріг залишку нитки</span></label>
                             <select id="setting-notify-min-filament" class="form-control">
                                 <option value="0">❌ Вимкнути ліміт</option>
                                 <option value="50">📦 Менше 50г</option>
@@ -282,10 +282,17 @@
                                 <option value="200">📦 Менше 200г</option>
                             </select>
                         </div>
+                        <div class="form-group col">
+                            <label><i class="fa-solid fa-globe"></i> <span data-i18n="lang_select_label">Мова / Language</span></label>
+                            <select id="setting-app-language" class="form-control">
+                                <option value="uk">🇺🇦 Українська</option>
+                                <option value="en">🇬🇧 English</option>
+                            </select>
+                        </div>
                     </div>
 
                     <button id="save-settings-btn" class="btn btn-primary mt-3 w-100">
-                        <i class="fa-solid fa-floppy-disk"></i> Зберегти налаштування сповіщень
+                        <i class="fa-solid fa-floppy-disk"></i> <span data-i18n="save_settings_btn">Зберегти налаштування</span>
                     </button>
                 </div>
 

@@ -15,10 +15,19 @@ class TestHMSResolver(unittest.TestCase):
         self.assertIn("HMS_0300_0800_0001_0001", decoded)
         self.assertIn("Застрягання нитки", decoded)
 
-    def test_decode_unknown_hms_code(self):
-        entry = {"code": 0x99999999, "attr": 0x88888888}
-        decoded = decode_hms_entry(entry)
-        self.assertEqual(decoded, "HMS_9999_9999_8888_8888")
+    def test_decode_dash_format(self):
+        decoded = decode_hms_entry("0300-0100-0001-0003")
+        self.assertIn("HMS_0300_0100_0001_0003", decoded)
+        self.assertIn("Помилка датчика вирівнювання столу", decoded)
+
+    def test_tier_fallback(self):
+        # Tier 2: sub-prefix match HMS_0500_0100
+        decoded_sub = decode_hms_entry("HMS_0500_0100_9999_9999")
+        self.assertIn("Помилка мотора подачі нитки AMS", decoded_sub)
+
+        # Tier 3: main category match HMS_0700
+        decoded_main = decode_hms_entry("HMS_0700_9999_8888_7777")
+        self.assertIn("Помилка сенсора Micro Lidar", decoded_main)
 
     def test_format_hms_errors(self):
         hms_list = [
