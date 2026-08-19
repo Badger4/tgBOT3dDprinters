@@ -47,6 +47,7 @@ API_SECRET_KEY = os.getenv("API_SECRET_KEY", "").strip()
 WEBAPP_URL = os.getenv("WEBAPP_URL", f"http://localhost:{HTTP_PORT}").strip()
 SSE_INTERVAL_SECONDS = _get_env_float("SSE_INTERVAL_SECONDS", 5.0)
 NGROK_AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "").strip()
+NGROK_DOMAIN = os.getenv("NGROK_DOMAIN", "").strip()
 CLOUDFLARE_TUNNEL_TOKEN = os.getenv("CLOUDFLARE_TUNNEL_TOKEN", os.getenv("CLOUDFLARE_TOKEN", "")).strip()
 ELECTRICITY_COST_PER_KWH = _get_env_float("ELECTRICITY_COST_PER_KWH", 4.32)
 

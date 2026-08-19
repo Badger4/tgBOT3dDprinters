@@ -18,7 +18,7 @@ def get_main_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     keyboard.extend(
         [
             [KeyboardButton(text="🖨️ Принтери"), KeyboardButton(text="📊 Стан ферми")],
-            [KeyboardButton(text="🧵 Філамент & AMS"), KeyboardButton(text="💰 Комерція")],
+            [KeyboardButton(text="📦 Склад"), KeyboardButton(text="💰 Комерція")],
             [KeyboardButton(text="🔔 Налаштування сповіщень")],
         ]
     )
@@ -124,12 +124,25 @@ def get_admin_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+def get_spool_presets_inline_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="⚫ Bambu PLA Black (850 грн)", callback_data="spool_preset_bambu_pla_black"),
+            InlineKeyboardButton(text="⚪ Sunlu PLA White (650 грн)", callback_data="spool_preset_sunlu_pla_white"),
+        ],
+        [
+            InlineKeyboardButton(text="🩶 eSUN PETG Grey (700 грн)", callback_data="spool_preset_esun_petg_grey"),
+            InlineKeyboardButton(text="🔴 TPU 95A Red (950 грн)", callback_data="spool_preset_tpu_red"),
+        ],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_filament_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text="🌈 Слоти AMS")],
-        [KeyboardButton(text="📦 Обрати котушку зі складу"), KeyboardButton(text="➕ Нова котушка")],
-        [KeyboardButton(text="✏️ Редагувати котушку"), KeyboardButton(text="🗑️ Видалити котушку")],
-        [KeyboardButton(text="✏️ Ручне введення ваги"), KeyboardButton(text="💰 Ціна 1 кг (Грн)")],
+        [KeyboardButton(text="➕ Нова котушка"), KeyboardButton(text="🔗 Встановити на принтер")],
+        [KeyboardButton(text="🔓 Зняти з принтера"), KeyboardButton(text="✏️ Редагувати котушку")],
+        [KeyboardButton(text="✏️ Ручне введення ваги"), KeyboardButton(text="🗑️ Видалити котушку")],
         [KeyboardButton(text="⬅️ Назад")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)

@@ -8,7 +8,7 @@ import asyncio
 from app import PrinterBotApp
 
 
-def main():
+def main() -> None:
     app = PrinterBotApp()
     try:
         asyncio.run(app.run())

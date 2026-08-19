@@ -208,7 +208,6 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert "P1" in text
         assert "Model" in text
         assert "1000.0" in text
-        assert "500.00" in text
 
     async def test_get_settings(self):
         resp = await self.client.get("/api/settings")
@@ -240,15 +239,29 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert post_data["notify"]["start"] is False
 
     async def test_users_admin_api(self):
+        # Save a new unapproved non-admin user
+        await self.app["app_obj"].storage.save_user({"user_id": "99999", "is_approved": False, "personal": {"first_name": "TestBot"}})
+
         get_resp = await self.client.get("/api/users")
         assert get_resp.status == 200
         data = await get_resp.json()
         assert "users" in data
 
-        access_resp = await self.client.post("/api/users/access", json={"user_id": "12345", "approved": True, "role": "ADMIN"})
+        # Verify user 99999 defaults to approved: False
+        u_99999 = next((u for u in data["users"] if u["user_id"] == "99999"), None)
+        assert u_99999 is not None
+        assert u_99999["approved"] is False
+
+        access_resp = await self.client.post("/api/users/access", json={"user_id": "99999", "approved": True, "role": "ADMIN"})
         assert access_resp.status == 200
         access_data = await access_resp.json()
         assert access_data["status"] == "ok"
+
+        # Test deleting user 99999
+        del_resp = await self.client.post("/api/users/delete", json={"user_id": "99999"})
+        assert del_resp.status == 200
+        del_data = await del_resp.json()
+        assert del_data["status"] == "ok"
 
     async def test_auth_rejection(self):
         resp = await self.client.get("/api/settings", headers={"X-Forwarded-For": "1.2.3.4"})

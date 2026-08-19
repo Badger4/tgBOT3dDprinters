@@ -230,3 +230,19 @@ async def test_capture_real_camera_photo_http_fallback():
             # Verify port 80 was checked (HTTP fallback path entered)
             assert 80 in call_log
             assert result == fake_jpeg
+
+
+@pytest.mark.asyncio
+async def test_async_stream_camera_frames():
+    from services.camera_stream import async_stream_camera_frames
+
+    fake_frame = b"\xff\xd8" + b"\x00" * 100 + b"\xff\xd9"
+    with patch("services.camera_stream.check_tcp_port_open", AsyncMock(return_value=True)):
+        with patch("services.camera_stream.stream_bambu_port6000_jpegs", return_value=iter([fake_frame])):
+            frames = []
+            async for frame in async_stream_camera_frames("1.2.3.4", "code"):
+                frames.append(frame)
+                if len(frames) >= 1:
+                    break
+            assert len(frames) == 1
+            assert frames[0] == fake_frame

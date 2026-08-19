@@ -54,6 +54,22 @@ class TestStorageManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0]["subtask_name"], "Test Model")
 
+    async def test_history_deduplication(self):
+        entry = {
+            "timestamp": 1234567890.0,
+            "printer_name": "Test P1S",
+            "subtask_name": "Test Model",
+            "weight_g": 50.0,
+        }
+        await self.storage.add_history_entry(entry)
+
+        entry_dup = dict(entry)
+        entry_dup["timestamp"] = 1234567900.0
+        await self.storage.add_history_entry(entry_dup)
+
+        history = await self.storage.load_history()
+        self.assertEqual(len(history), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

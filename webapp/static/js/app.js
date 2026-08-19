@@ -732,8 +732,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    let autoCamInterval = null;
-    const autoCamToggle = document.getElementById("auto-cam-toggle");
     const fullscreenCamModal = document.getElementById("camera-fullscreen-modal");
     const fullscreenCamImg = document.getElementById("fullscreen-camera-img");
     const fullscreenCamTitle = document.getElementById("fullscreen-camera-title");
@@ -743,19 +741,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function loadCameraSnapshot(pId) {
         if (!pId) return;
-        const initDataParam = tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : "";
-        const srcUrl = `/api/printers/${pId}/snapshot?t=${Date.now()}${initDataParam}`;
+        const initDataParam = tg?.initData ? "?initData=" + encodeURIComponent(tg.initData) : "";
+        const streamUrl = `/api/printers/${pId}/stream${initDataParam}`;
 
         if (cameraImg) {
             cameraImg.style.display = "block";
             if (cameraImg.nextElementSibling) cameraImg.nextElementSibling.style.display = "none";
-            cameraImg.src = srcUrl;
+            if (!cameraImg.src.includes(`/api/printers/${pId}/stream`)) {
+                cameraImg.src = streamUrl;
+                cameraImg.onerror = () => {
+                    setTimeout(() => {
+                        if (selectedPrinterId === pId && cameraImg) {
+                            cameraImg.src = `/api/printers/${pId}/stream?t=${Date.now()}${tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : ""}`;
+                        }
+                    }, 2000);
+                };
+            }
         }
 
         if (fullscreenCamImg && fullscreenCamModal && fullscreenCamModal.classList.contains("active")) {
             fullscreenCamImg.style.display = "block";
             if (fullscreenCamImg.nextElementSibling) fullscreenCamImg.nextElementSibling.style.display = "none";
-            fullscreenCamImg.src = srcUrl;
+            if (!fullscreenCamImg.src.includes(`/api/printers/${pId}/stream`)) {
+                fullscreenCamImg.src = streamUrl;
+                fullscreenCamImg.onerror = () => {
+                    setTimeout(() => {
+                        if (selectedPrinterId === pId && fullscreenCamImg) {
+                            fullscreenCamImg.src = `/api/printers/${pId}/stream?t=${Date.now()}${tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : ""}`;
+                        }
+                    }, 2000);
+                };
+            }
         }
     }
 
@@ -810,34 +826,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    if (autoCamToggle) {
-        autoCamToggle.addEventListener("change", () => {
-            if (autoCamToggle.checked) {
-                if (selectedPrinterId) loadCameraSnapshot(selectedPrinterId);
-                if (autoCamInterval) clearInterval(autoCamInterval);
-                autoCamInterval = setInterval(() => {
-                    if (selectedPrinterId && (printerModal.classList.contains("active") || (fullscreenCamModal && fullscreenCamModal.classList.contains("active"))) && autoCamToggle.checked) {
-                        loadCameraSnapshot(selectedPrinterId);
-                    } else {
-                        if (autoCamInterval) clearInterval(autoCamInterval);
-                        autoCamInterval = null;
-                    }
-                }, 5000);
-            } else {
-                if (autoCamInterval) clearInterval(autoCamInterval);
-                autoCamInterval = null;
-            }
-        });
-    }
-
     closeModalBtn.addEventListener("click", () => {
         triggerHaptic("light");
         printerModal.classList.remove("active");
         if (fullscreenCamModal) fullscreenCamModal.classList.remove("active");
         selectedPrinterId = null;
-        if (autoCamInterval) clearInterval(autoCamInterval);
-        autoCamInterval = null;
-        if (autoCamToggle) autoCamToggle.checked = false;
     });
 
     refreshCamBtn.addEventListener("click", () => {
@@ -1310,6 +1303,35 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Preset Chips & Form Control Focus Handlers
+    document.querySelectorAll(".preset-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+            triggerHaptic("light");
+            const pName = chip.getAttribute("data-name");
+            const pType = chip.getAttribute("data-type");
+            const pColor = chip.getAttribute("data-color");
+            const pPrice = chip.getAttribute("data-price");
+
+            const nameEl = document.getElementById("spool-name");
+            const typeEl = document.getElementById("spool-type");
+            const colorEl = document.getElementById("spool-color");
+            const priceEl = document.getElementById("spool-price");
+
+            if (nameEl && pName) nameEl.value = pName;
+            if (typeEl && pType) typeEl.value = pType;
+            if (colorEl && pColor) colorEl.value = pColor;
+            if (priceEl && pPrice) priceEl.value = pPrice;
+
+            if (nameEl) nameEl.focus();
+        });
+    });
+
+    document.querySelectorAll(".form-control, .modal-window input, .modal-window select").forEach(el => {
+        el.addEventListener("focus", () => {
+            if (tg?.expand) tg.expand();
+        });
+    });
+
     // Add / Edit Spool Form Modal
     if (addSpoolBtn) {
         addSpoolBtn.addEventListener("click", () => {
@@ -1327,6 +1349,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             triggerHaptic("medium");
             if (spoolModal) spoolModal.classList.add("active");
+            if (tg?.expand) tg.expand();
+            setTimeout(() => {
+                const nameEl = document.getElementById("spool-name");
+                if (nameEl) nameEl.focus();
+            }, 150);
         });
     }
 
@@ -1410,20 +1437,18 @@ document.addEventListener("DOMContentLoaded", () => {
                     statWeightEl.textContent = `${kg} kg`;
                 }
             }
-            if (statCostEl) statCostEl.textContent = `${data.total_cost_uah || 0} ₴`;
 
             const tbody = document.getElementById("history-table-body");
             if (!tbody) return;
             const history = data.history || [];
             if (history.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="text-center">Журнал історії порожній</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center">Журнал історії порожній</td></tr>`;
             } else {
                 tbody.innerHTML = history.slice(-50).reverse().map(item => {
                     const dateFormatted = formatHistoryDate(item.timestamp, item.datetime);
                     const printerName = escapeHtml(item.printer_name || item.printer || "Принтер");
                     const taskName = escapeHtml(item.subtask_name || item.task || "Модель");
                     const weightVal = item.weight_g !== undefined ? item.weight_g : 0;
-                    const costVal = item.cost_uah !== undefined ? item.cost_uah : 0;
 
                     return `
                     <tr>
@@ -1431,7 +1456,6 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td><strong>${printerName}</strong></td>
                         <td><code>${taskName}</code></td>
                         <td>${weightVal}g</td>
-                        <td><strong>${costVal} ₴</strong></td>
                         <td class="text-center">
                             <button class="btn btn-xs btn-outline-danger btn-delete-history-entry" data-ts="${item.timestamp}" title="Видалити запис">
                                 <i class="fa-solid fa-xmark"></i>
@@ -1757,29 +1781,32 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const res = await fetch("/api/users");
             if (!res.ok) {
-                usersTableBody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">Потрібні права адміністратора</td></tr>`;
+                usersTableBody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Потрібні права адміністратора</td></tr>`;
                 return;
             }
             const data = await res.json();
             const users = data.users || [];
 
             if (users.length === 0) {
-                usersTableBody.innerHTML = `<tr><td colspan="4" class="text-center">Немає зареєстрованих користувачів</td></tr>`;
+                usersTableBody.innerHTML = `<tr><td colspan="5" class="text-center">Немає зареєстрованих користувачів</td></tr>`;
                 return;
             }
 
             usersTableBody.innerHTML = users.map(u => {
                 const isAdmin = u.role === "ADMIN";
-                const isApproved = Boolean(u.approved);
+                const isApproved = Boolean(u.approved || u.is_approved);
+                const displayName = u.name || u.first_name || `User ${u.user_id}`;
                 return `
                     <tr>
-                        <td><strong>${escapeHtml(u.user_id)}</strong></td>
+                        <td><strong>${escapeHtml(displayName)}</strong></td>
+                        <td><code>${escapeHtml(u.user_id)}</code></td>
                         <td><span class="badge ${isAdmin ? 'badge-primary' : 'badge-secondary'}">${u.role}</span></td>
-                        <td><span class="badge ${isApproved ? 'badge-success' : 'badge-danger'}">${isApproved ? 'Схвалено ✅' : 'Заблоковано ⛔'}</span></td>
+                        <td><span class="badge ${isApproved ? 'badge-success' : 'badge-danger'}">${isApproved ? 'Схвалено ✅' : 'Очікує / Заблоковано ⛔'}</span></td>
                         <td>
                             <button class="btn btn-xs ${isApproved ? 'btn-danger' : 'btn-primary'} toggle-user-access-btn" data-id="${u.user_id}" data-approved="${isApproved ? 'false' : 'true'}">
                                 ${isApproved ? 'Скасувати' : 'Схвалити'}
                             </button>
+                            ${!isAdmin ? `<button class="btn btn-xs btn-outline-danger delete-user-btn ml-1" data-id="${u.user_id}">🗑️ Видалити</button>` : ''}
                         </td>
                     </tr>`;
             }).join("");
@@ -1797,6 +1824,30 @@ document.addEventListener("DOMContentLoaded", () => {
                         loadUsersTable();
                     } catch (err) {
                         alert("Помилка оновлення доступу: " + err);
+                    }
+                });
+            });
+
+            usersTableBody.querySelectorAll(".delete-user-btn").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const uid = btn.getAttribute("data-id");
+                    if (!confirm(`Ви впевнені, що хочете остаточно видалити користувача/бота (ID: ${uid})?`)) {
+                        return;
+                    }
+                    try {
+                        const delRes = await fetch("/api/users/delete", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ user_id: uid })
+                        });
+                        if (!delRes.ok) {
+                            const errData = await delRes.json();
+                            alert("Помилка видалення: " + (errData.error || delRes.statusText));
+                            return;
+                        }
+                        loadUsersTable();
+                    } catch (err) {
+                        alert("Помилка видалення користувача: " + err);
                     }
                 });
             });

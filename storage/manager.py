@@ -313,6 +313,18 @@ class StorageManager:
 
     async def add_history_entry(self, entry: dict[str, Any]) -> bool:
         history = await self.load_history()
+        p_name = entry.get("printer_name")
+        sub_name = entry.get("subtask_name")
+        ts = float(entry.get("timestamp", time.time()))
+
+        for existing in history[-20:]:
+            e_p_name = existing.get("printer_name")
+            e_sub_name = existing.get("subtask_name")
+            e_ts = float(existing.get("timestamp", 0.0))
+            if e_p_name == p_name and e_sub_name == sub_name and abs(ts - e_ts) < 120:
+                logger.info(f"🛡️ Skipped duplicate history entry for [{p_name}] - '{sub_name}'")
+                return True
+
         history.append(entry)
         if len(history) > 500:
             history = history[-500:]

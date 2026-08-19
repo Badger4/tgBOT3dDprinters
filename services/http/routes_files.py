@@ -132,22 +132,31 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
         file_bytes = save_path.read_bytes()
         filename = data.get("filename") or file_token.split("_", 1)[-1]
 
+        # Parse 3MF / Gcode metadata for current job weight
+        meta = parse_3mf_file(file_bytes, filename)
+        job_w = float(meta.get("weight_g", 0.0))
+
         ok, msg = await p.start_print_job_async(file_bytes, filename)
         if ok:
-            try:
-                cost_info = p.calculate_job_cost(0.0)
-                entry = {
-                    "timestamp": time.time(),
-                    "printer_name": p.name,
-                    "subtask_name": filename,
-                    "weight_g": getattr(p, "_current_job_grams", 0.0) or 0.0,
-                    "filament_type": p.filament_type,
-                    "cost_uah": round(float(cost_info["total_cost"]), 2),
-                    "note": "Запущено з WebApp",
-                }
-                await app_obj.storage.add_history_entry(entry)
-            except Exception as hist_err:
-                logger.warning(f"Failed adding immediate launch history entry: {hist_err}")
+            p._is_printing = True
+            p._was_running = True
+            p._job_started_from_app = True
+            p._history_recorded = False
+            p._job_deducted = False
+            if job_w > 0:
+                p._current_job_grams = job_w
+                try:
+                    import json
+                    cache_file = config.STORAGE_DIR / "last_sliced_weight.json"
+                    cache_payload = {
+                        "filename": filename,
+                        "weight": job_w,
+                        "timestamp": time.time(),
+                    }
+                    cache_file.write_text(json.dumps(cache_payload), encoding="utf-8")
+                except Exception as cache_err:
+                    logger.warning(f"Failed writing weight cache: {cache_err}")
+
             return web.json_response({"status": "ok", "message": msg})
         else:
             return web.json_response({"error": msg}, status=500)

@@ -9,7 +9,7 @@ from typing import Any
 from aiohttp import web
 
 import config
-from config import TELEGRAM_BOT_TOKEN, __version__, logger
+from config import ADMIN_CHAT_ID, TELEGRAM_BOT_TOKEN, __version__, logger
 from models.commercial import calculate_commercial_price
 from services.http.auth import check_auth, verify_telegram_init_data
 
@@ -73,23 +73,46 @@ async def handle_health(request: web.Request) -> web.Response:
     )
 
 
+def sanitize_commercial_presets(presets: dict[str, Any]) -> dict[str, Any]:
+    """Purges any preset entries containing test / demo / sample markers."""
+    if not isinstance(presets, dict):
+        return {}
+    clean = {}
+    test_keywords = {"test", "тест", "тестовий", "sample", "demo"}
+    for pid, p in presets.items():
+        if not isinstance(p, dict):
+            continue
+        p_id_str = str(p.get("id") or pid).lower()
+        p_name_str = str(p.get("name") or "").lower()
+        if any(kw in p_id_str or kw in p_name_str for kw in test_keywords):
+            continue
+        clean[pid] = p
+    return clean
+
+
 async def load_commercial_presets(app_obj: Any) -> dict:
     presets_file = get_presets_file(app_obj)
     presets = await app_obj.storage.load_json(presets_file, None)
     if presets is None:
         presets = DEFAULT_PRESETS.copy()
         await app_obj.storage.save_json(presets_file, presets)
-    elif presets:
-        unique_presets = {}
-        seen_names = set()
-        for pid, p in presets.items():
-            pname = str(p.get("name", "")).strip()
-            if pname and pname not in seen_names:
-                seen_names.add(pname)
-                unique_presets[pid] = p
-        if len(unique_presets) != len(presets):
-            presets = unique_presets
-            await app_obj.storage.save_json(presets_file, presets)
+
+    sanitized = sanitize_commercial_presets(presets)
+
+    unique_presets = {}
+    seen_names = set()
+    for pid, p in sanitized.items():
+        pname = str(p.get("name", "")).strip()
+        if pname and pname not in seen_names:
+            seen_names.add(pname)
+            unique_presets[pid] = p
+
+    if len(unique_presets) != len(presets):
+        presets = unique_presets
+        await app_obj.storage.save_json(presets_file, presets)
+    else:
+        presets = unique_presets
+
     return presets
 
 
@@ -112,6 +135,11 @@ async def handle_save_preset(request: web.Request) -> web.Response:
     try:
         data = await request.json()
         p_id = data.get("id") or f"preset_{int(time.time())}"
+
+        name = str(data.get("name") or "Новий пресет").strip()
+        test_keywords = {"test", "тест", "тестовий", "sample", "demo"}
+        if any(kw in name.lower() or kw in str(p_id).lower() for kw in test_keywords):
+            return web.json_response({"error": "Тестові назви пресетів заборонені"}, status=400)
 
         raw_price = data.get("price_per_g")
         try:
@@ -390,14 +418,34 @@ async def handle_get_users(request: web.Request) -> web.Response:
     users = {}
     if hasattr(app_obj, "storage"):
         users = await app_obj.storage.load_all_users()
-    
+
     user_list = []
     for uid, udata in users.items():
+        uid_str = str(uid)
+        is_admin = (uid_str == str(ADMIN_CHAT_ID)) or bool(udata.get("admin", {}).get("access_admin"))
+
+        # Strictly default to False for non-admin users if is_approved is missing or False
+        raw_approved = udata.get("is_approved")
+        if raw_approved is None:
+            raw_approved = udata.get("approved")
+        is_approved = is_admin or (bool(raw_approved) if raw_approved is not None else False)
+
+        first_name = str(udata.get("personal", {}).get("first_name") or udata.get("first_name") or "").strip()
+        last_name = str(udata.get("personal", {}).get("last_name") or udata.get("last_name") or "").strip()
+        username = str(udata.get("personal", {}).get("username") or udata.get("username") or "").strip()
+
+        full_name = f"{first_name} {last_name}".strip() or f"Користувач {uid_str}"
+        display_name = f"{full_name} (@{username})" if username else full_name
+
         user_list.append({
-            "id": uid,
-            "user_id": uid,
-            "role": udata.get("role") or ("ADMIN" if udata.get("admin", {}).get("access_admin") else "USER"),
-            "approved": bool(udata.get("approved") if "approved" in udata else udata.get("is_approved", True)),
+            "id": uid_str,
+            "user_id": uid_str,
+            "first_name": first_name,
+            "username": username,
+            "name": display_name,
+            "role": udata.get("role") or ("ADMIN" if is_admin else "USER"),
+            "approved": is_approved,
+            "is_approved": is_approved,
             "created_at": udata.get("created_at", 0),
         })
 
@@ -428,6 +476,38 @@ async def handle_update_user_access(request: web.Request) -> web.Response:
                 user["admin"]["access_admin"] = (data["role"] == "ADMIN")
             await app_obj.storage.save_user(user)
             return web.json_response({"status": "ok", "user": user})
+
+        return web.json_response({"error": "Storage unresolvable"}, status=500)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def handle_delete_user(request: web.Request) -> web.Response:
+    """POST /api/users/delete or DELETE /api/users/{id} - Admin delete a user/bot account."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    try:
+        target_id = request.match_info.get("id", "").strip()
+        if not target_id:
+            try:
+                data = await request.json()
+                target_id = str(data.get("user_id", "")).strip()
+            except Exception:
+                pass
+
+        if not target_id:
+            return web.json_response({"error": "Missing user_id"}, status=400)
+
+        if target_id == str(ADMIN_CHAT_ID):
+            return web.json_response({"error": "Cannot delete main admin"}, status=400)
+
+        if hasattr(app_obj, "storage"):
+            deleted = await app_obj.storage.delete_user(target_id)
+            if deleted:
+                return web.json_response({"status": "ok", "deleted_user_id": target_id})
+            return web.json_response({"error": "User not found"}, status=404)
 
         return web.json_response({"error": "Storage unresolvable"}, status=500)
     except Exception as e:

@@ -40,6 +40,12 @@ class TestPrinterModel(unittest.TestCase):
         self.assertGreater(cost_info["electricity_cost"], 0.0)
         self.assertEqual(cost_info["total_cost"], round(cost_info["filament_cost"] + cost_info["electricity_cost"], 2))
 
+    def test_maintenance_items_keys(self) -> None:
+        m_items = self.printer.maintenance_items
+        self.assertEqual(set(m_items.keys()), {"rails", "belts"})
+        self.assertNotIn("nozzle", m_items)
+        self.assertNotIn("filter", m_items)
+
     def test_calculate_job_cost_zero_or_negative_weight(self) -> None:
         cost_zero = self.printer.calculate_job_cost(0.0)
         self.assertEqual(cost_zero, {"filament_cost": 0.0, "electricity_cost": 0.0, "total_cost": 0.0})
@@ -232,6 +238,53 @@ class TestPrinterModel(unittest.TestCase):
         mock_threadsafe.assert_called_once()
         coro = mock_threadsafe.call_args[0][0]
         coro.close()
+
+    @patch("asyncio.run_coroutine_threadsafe")
+    def test_no_phantom_history_on_initial_finish(self, mock_threadsafe) -> None:
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = True
+        self.printer._main_loop = mock_loop
+        self.printer._is_printing = False
+        self.printer.subtask_name = "OldModel.3mf"
+
+        msg = MagicMock()
+        msg.topic = f"device/{self.printer.serial_number}/report"
+        msg.payload = json.dumps({"print": {"gcode_state": "FINISH", "mc_percent": 100}}).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        mock_threadsafe.assert_not_called()
+
+    @patch("asyncio.run_coroutine_threadsafe")
+    def test_history_recording_when_started_from_app(self, mock_threadsafe) -> None:
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = True
+        self.printer._main_loop = mock_loop
+        self.printer.subtask_name = "AppModel_20g.3mf"
+        self.printer._job_started_from_app = True
+        self.printer._was_running = True
+
+        msg = MagicMock()
+        msg.topic = f"device/{self.printer.serial_number}/report"
+        msg.payload = json.dumps({"print": {"gcode_state": "IDLE", "mc_percent": 0}}).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        msg.payload = json.dumps({"print": {"gcode_state": "FINISH", "mc_percent": 100}}).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+        self.assertTrue(self.printer._history_recorded)
+        mock_threadsafe.assert_called_once()
+        coro = mock_threadsafe.call_args[0][0]
+        coro.close()
+
+    def test_subtask_weight_reset_for_identical_filename(self) -> None:
+        self.printer._current_job_grams = 150.0
+        self.printer._last_subtask_name = "box.3mf"
+
+        msg = MagicMock()
+        msg.topic = f"device/{self.printer.serial_number}/report"
+        msg.payload = json.dumps({"print": {"gcode_state": "RUNNING", "subtask_name": "box_45g.3mf", "mc_percent": 10}}).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        self.assertEqual(self.printer._current_job_grams, 45.0)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from config import logger
+from services.hms_resolver import format_hms_errors
 
 
 def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
@@ -155,6 +156,7 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
 
     if "hms" in print_data and isinstance(print_data["hms"], list):
         result["hms_errors"] = print_data["hms"]
+        result["hms_resolved"] = format_hms_errors(print_data["hms"])
 
     if "ams" in print_data and isinstance(print_data["ams"], dict):
         ams_info = print_data["ams"]

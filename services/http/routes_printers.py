@@ -10,7 +10,7 @@ from aiohttp import web
 
 from config import logger
 from models.printer import BambuPrinter
-from services.camera_stream import capture_real_camera_photo
+from services.camera_stream import async_stream_camera_frames, capture_real_camera_photo
 from services.http.auth import check_auth
 
 __all__ = [
@@ -20,6 +20,7 @@ __all__ = [
     "handle_delete_printer",
     "handle_get_printer_by_id",
     "handle_get_snapshot",
+    "handle_get_camera_stream",
     "handle_update_access_code",
 ]
 
@@ -49,6 +50,7 @@ def build_printer_telemetry(p: Any) -> dict:
         "spd_mag": getattr(p, "spd_mag", 100),
         "maintenance_hours_counter": round(getattr(p, "maintenance_hours_counter", 0.0), 1),
         "maintenance_interval_hours": getattr(p, "maintenance_interval_hours", 100),
+        "maintenance_items": getattr(p, "maintenance_items", {}),
         "total_print_hours": round(getattr(p, "total_print_hours", 0.0), 1),
         "hms_errors": getattr(p, "hms_errors", []),
         "ams_slots": getattr(p, "ams_slots", {}),
@@ -156,6 +158,49 @@ async def handle_get_snapshot(request: web.Request) -> web.Response:
         return web.json_response({"error": "Failed capturing camera frame"}, status=503)
 
     return web.Response(body=frame, content_type="image/jpeg")
+
+
+async def handle_get_camera_stream(request: web.Request) -> web.StreamResponse:
+    """GET /api/printers/{id}/stream - Real-time MJPEG camera video stream (multipart/x-mixed-replace)."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    p_id = request.match_info.get("id", "")
+    p = app_obj.printers.get(p_id)
+    if not p:
+        return web.json_response({"error": "Printer not found"}, status=404)
+
+    response = web.StreamResponse(
+        status=200,
+        reason="OK",
+        headers={
+            "Content-Type": "multipart/x-mixed-replace; boundary=frame",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Connection": "close",
+        },
+    )
+    await response.prepare(request)
+
+    try:
+        async for jpeg_bytes in async_stream_camera_frames(p.ip, p.access_code):
+            if request.transport and request.transport.is_closing():
+                break
+
+            header = (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n"
+                + f"Content-Length: {len(jpeg_bytes)}\r\n\r\n".encode()
+            )
+            await response.write(header + jpeg_bytes + b"\r\n")
+            await asyncio.sleep(0.02)
+    except (asyncio.CancelledError, ConnectionResetError):
+        pass
+    except Exception as e:
+        logger.warning(f"MJPEG Stream error for [{p.name}]: {e}")
+
+    return response
 
 
 async def handle_update_access_code(request: web.Request) -> web.Response:

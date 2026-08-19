@@ -16,6 +16,7 @@ from services.http.routes_printers import (
     build_printer_telemetry,
     handle_create_printer,
     handle_delete_printer,
+    handle_get_camera_stream,
     handle_get_printer_by_id,
     handle_get_printers,
     handle_get_snapshot,
@@ -26,6 +27,7 @@ from services.http.routes_settings import (
     handle_calculate_commercial,
     handle_delete_history,
     handle_delete_preset,
+    handle_delete_user,
     handle_export_history_csv,
     handle_get_history,
     handle_get_presets,
@@ -76,6 +78,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_delete("/api/printers/{id}", handle_delete_printer)
     web_app.router.add_get("/api/printers/{id}", handle_get_printer_by_id)
     web_app.router.add_get("/api/printers/{id}/snapshot", handle_get_snapshot)
+    web_app.router.add_get("/api/printers/{id}/stream", handle_get_camera_stream)
     web_app.router.add_post("/api/printers/{id}/control", handle_printer_control)
     web_app.router.add_post("/api/printers/{id}/access_code", handle_update_access_code)
 
@@ -105,6 +108,8 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_post("/api/user/settings", handle_update_user_settings)
     web_app.router.add_get("/api/users", handle_get_users)
     web_app.router.add_post("/api/users/access", handle_update_user_access)
+    web_app.router.add_post("/api/users/delete", handle_delete_user)
+    web_app.router.add_delete("/api/users/{id}", handle_delete_user)
 
     return web_app
 

@@ -115,7 +115,7 @@ class TestBotHandlersFull(unittest.TestCase):
             self.assertTrue(ans_maint.called)
 
             # 5. Filament Menu
-            ans_fil = await self._send_msg("🧵 Філамент")
+            ans_fil = await self._send_msg("📦 Склад")
             self.assertTrue(ans_fil.called)
 
             # 6. 3MF Commercial Calculation Flow (including direct button click with idle state)

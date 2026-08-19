@@ -4,6 +4,7 @@ Main Application orchestrating Telegram bot, storage, and printer monitoring.
 
 import asyncio
 import gc
+import os
 import time
 from typing import Any
 
@@ -18,7 +19,7 @@ from storage.manager import StorageManager
 
 
 class PrinterBotApp:
-    def __init__(self):
+    def __init__(self) -> None:
         self.storage = StorageManager(STORAGE_DIR)
         self.printers: dict[str, BambuPrinter] = {}
         self.global_settings = {
@@ -32,7 +33,7 @@ class PrinterBotApp:
         self.dp: Dispatcher | None = None
         self.printer_states: dict[str, dict[str, Any]] = {}
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         printers_data = await self.storage.load_json(self.storage.printers_file, [])
         logger.info(f"Loaded {len(printers_data)} printers from {self.storage.printers_file}")
         running_loop = asyncio.get_running_loop()
@@ -44,7 +45,7 @@ class PrinterBotApp:
 
         self.global_settings = await self.storage.load_json(self.storage.settings_file, self.global_settings)
 
-    async def save_printers_config(self):
+    async def save_printers_config(self) -> None:
         printers_list = [p.to_storage_dict() for p in self.printers.values()]
         await self.storage.save_json(self.storage.printers_file, printers_list)
 
@@ -81,7 +82,7 @@ class PrinterBotApp:
                 logger.warning(f"Failed sending message to {chat_id}: {e}")
             return False
 
-    async def send_notification(self, event_type: str, text: str, reply_markup: Any | None = None):
+    async def send_notification(self, event_type: str, text: str, reply_markup: Any | None = None) -> None:
         users = await self.storage.load_all_users()
         for chat_id, udata in users.items():
             if udata.get("chat_active") is False:
@@ -91,7 +92,7 @@ class PrinterBotApp:
             if user_allows and is_app:
                 await self.safe_send_message(chat_id, text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
-    async def monitoring_loop(self):
+    async def monitoring_loop(self) -> None:
         logger.info("⚙️ [Monitoring] Background printer monitor loop started!")
         await asyncio.sleep(5)
 
@@ -315,7 +316,7 @@ class PrinterBotApp:
                 logger.error(f"Error in monitoring loop: {e}")
                 await asyncio.sleep(10)
 
-    async def run(self):
+    async def run(self) -> None:
         if not TELEGRAM_BOT_TOKEN:
             logger.error("❌ TELEGRAM_BOT_TOKEN is missing! Please set it in your environment or .env file.")
             return
@@ -336,16 +337,36 @@ class PrinterBotApp:
 
         await start_http_server(self)
 
+        # Auto-start Ngrok HTTPS tunnel if configured
+        ngrok_tunnel = None
+        from config import HTTP_PORT, NGROK_AUTHTOKEN, NGROK_DOMAIN
+
+        auto_ngrok = os.getenv("AUTO_NGROK", "true").lower() in ("true", "1", "yes")
+        if (NGROK_AUTHTOKEN or auto_ngrok) and not os.getenv("DISABLE_NGROK"):
+            try:
+                from scripts.run_ngrok import start_ngrok_tunnel
+
+                ngrok_tunnel = start_ngrok_tunnel(HTTP_PORT, NGROK_AUTHTOKEN, NGROK_DOMAIN)
+                if ngrok_tunnel:
+                    active_url = str(getattr(ngrok_tunnel, "public_url", "")).replace("http://", "https://")
+                    if active_url:
+                        import config
+
+                        config.WEBAPP_URL = active_url
+                        logger.info(f"🌐 [Ngrok] Auto-started HTTPS Tunnel: {active_url}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not auto-start Ngrok tunnel: {e}")
+
         try:
             from aiogram.types import MenuButtonWebApp, WebAppInfo
 
-            from config import WEBAPP_URL
+            from config import WEBAPP_URL as current_webapp_url
 
-            if WEBAPP_URL:
+            if current_webapp_url:
                 await self.bot.set_chat_menu_button(
-                    menu_button=MenuButtonWebApp(text="WebApp 🖨️", web_app=WebAppInfo(url=WEBAPP_URL))
+                    menu_button=MenuButtonWebApp(text="WebApp 🖨️", web_app=WebAppInfo(url=current_webapp_url))
                 )
-                logger.info(f"📱 WebApp Chat Menu Button configured with URL: {WEBAPP_URL}")
+                logger.info(f"📱 WebApp Chat Menu Button configured with URL: {current_webapp_url}")
         except Exception as e:
             logger.warning(f"Could not set chat menu button: {e}")
 
@@ -354,6 +375,13 @@ class PrinterBotApp:
             await self.dp.start_polling(self.bot)
         finally:
             monitor_task.cancel()
+            if ngrok_tunnel:
+                try:
+                    from scripts.run_ngrok import stop_ngrok_tunnel
+
+                    stop_ngrok_tunnel(ngrok_tunnel)
+                except Exception as e:
+                    logger.warning(f"Error stopping ngrok tunnel on bot shutdown: {e}")
             for p in self.printers.values():
                 p.destroy()
             await self.bot.session.close()

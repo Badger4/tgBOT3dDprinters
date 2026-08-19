@@ -63,14 +63,12 @@ async def handle_history(message: Message, app):
 
     total_prints = len(history)
     total_g = round(sum(item.get("weight_g", 0.0) for item in history), 1)
-    total_cost = round(sum(item.get("cost_uah", 0.0) for item in history), 2)
 
     hist_txt = (
         f"<b>📜 Журнал & Статистика Ферми</b>\n"
         f"Х-хмпф! Дивись, скільки всього ми вже надрукували! Але не пишайся занадто, Бака! 😤💅\n\n"
         f"📊 Загалом надруковано: <b>{total_prints} деталей</b>\n"
         f"🧵 Витрачено пластику: <b>{total_g}g</b>\n"
-        f"💰 Сумарна собівартість: <b>{total_cost} грн</b>\n"
         f"-----------------------------------\n"
         f"<b>Останні виконані завдання:</b>\n\n"
     )
@@ -82,8 +80,7 @@ async def handle_history(message: Message, app):
         p_name = html.escape(item.get("printer_name", "Принтер"))
         sub = html.escape(item.get("subtask_name", "Модель"))
         w = item.get("weight_g", 0.0)
-        cost = item.get("cost_uah", 0.0)
-        hist_txt += f"<b>{idx}. {p_name}</b> ({dt_str})\n   📄 <i>{sub}</i> | {w}g | 💰 {cost} грн\n"
+        hist_txt += f"<b>{idx}. {p_name}</b> ({dt_str})\n   📄 <i>{sub}</i> | ⚖️ {w}g\n"
 
     from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
@@ -94,7 +91,18 @@ async def handle_history(message: Message, app):
     await message.answer(hist_txt, parse_mode=ParseMode.HTML, reply_markup=csv_kb)
 
 
-@router.message(F.text.lower().in_(["📥 завантажити csv звіт", "завантажити csv звіт", "експорт csv", "csv"]))
+@router.message(
+    F.text.lower().in_(
+        [
+            "📥 завантажити csv звіт",
+            "завантажити csv звіт",
+            "експорт csv",
+            "csv",
+            "/export_history",
+            "/export",
+        ]
+    )
+)
 async def handle_export_csv(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):

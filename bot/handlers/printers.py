@@ -2,6 +2,7 @@
 Printer management, telemetry, camera, GIF, settings, wizard, and deletion handlers.
 """
 
+import asyncio
 import html
 import uuid
 
@@ -53,14 +54,50 @@ async def handle_printer_status(message: Message, app):
             "⏸️" if target_printer.gcode_state == "PAUSE" else ("🎉" if target_printer.gcode_state == "FINISH" else "💤")
         )
     )
+    nozzle_target = getattr(target_printer, "nozzle_target_temper", 0)
+    bed_target = getattr(target_printer, "bed_target_temper", 0)
+    chamber_t = getattr(target_printer, "chamber_temper", 0)
+    wifi_sig = getattr(target_printer, "wifi_signal", "")
+
+    nozzle_target_str = (
+        f" / {nozzle_target}°C" if isinstance(nozzle_target, (int, float)) and nozzle_target > 0 else ""
+    )
+    bed_target_str = f" / {bed_target}°C" if isinstance(bed_target, (int, float)) and bed_target > 0 else ""
+    chamber_str = f" | 🌡️ <b>Камера:</b> <code>{chamber_t}°C</code>" if isinstance(chamber_t, (int, float)) and chamber_t > 0 else ""
+    wifi_str = f" | 📶 <b>Wi-Fi:</b> <code>{wifi_sig}</code>" if isinstance(wifi_sig, str) and wifi_sig else ""
+
     status_txt = (
         f"<b>📊 Стан принтера: {target_printer.name}</b>\n"
         f"Х-хмпф! Тримай свою телеметрію... Тільки не думай, що я роблю це раді тебе! 😤\n\n"
-        f"{state_emoji} <b>Стан:</b> <code>{target_printer.gcode_state}</code>\n"
-        f"🔥 <b>Сопло:</b> <code>{target_printer.nozzle_temper}°C</code> | 🛏️ <b>Стіл:</b> <code>{target_printer.bed_temper}°C</code>\n"
+        f"{state_emoji} <b>Стан:</b> <code>{target_printer.gcode_state}</code>{wifi_str}\n"
+        f"🔥 <b>Сопло:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> | 🛏️ <b>Стіл:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
         f"🧵 <b>Тип пластику:</b> <b>{target_printer.filament_type}</b>\n"
         f"📦 <b>Залишок на бабіні:</b> <b>{target_printer.filament_grams}g</b>\n"
     )
+
+    ams_hum = getattr(target_printer, "ams_humidity_idx", 0)
+    ams_temp_val = getattr(target_printer, "ams_temp", 0.0)
+    if getattr(target_printer, "has_ams", False) and isinstance(ams_hum, int) and ams_hum > 0:
+        hum_labels = {
+            5: "🟢 Ідеально сухо (5/5)",
+            4: "🟢 Оптимально сухо (4/5)",
+            3: "🟡 Помірно (3/5)",
+            2: "🟠 Волого (2/5)",
+            1: "🔴 Критично волого (1/5)",
+        }
+        hum_text = hum_labels.get(ams_hum, f"Рівень {ams_hum}/5")
+        ams_temp_str = f" | 🌡️ {ams_temp_val:.1f}°C" if isinstance(ams_temp_val, (int, float)) and ams_temp_val > 0 else ""
+        status_txt += f"💧 <b>Вологість AMS:</b> <code>{hum_text}</code>{ams_temp_str}\n"
+
+    hms_res = getattr(target_printer, "hms_resolved", None)
+    if isinstance(hms_res, list) and hms_res:
+        hms_lines = "\n".join([f"• <code>{h}</code>" for h in hms_res])
+        status_txt += f"\n⚠️ <b>Активні HMS Сповіщення:</b>\n{hms_lines}\n"
+
+    upg_info = getattr(target_printer, "upgrade_state", {})
+    if isinstance(upg_info, dict) and upg_info.get("new_version_state") and upg_info.get("ota_new_version_number"):
+        status_txt += f"\n🆕 <b>Доступне оновлення прошивки:</b> <code>{upg_info['ota_new_version_number']}</code>\n"
+
     if target_printer.gcode_state in ["RUNNING", "PAUSE"]:
         model_w = target_printer._current_job_grams or getattr(target_printer, "last_job_grams", 0.0)
         weight_str = f"<b>{model_w}g</b>" if model_w > 0 else "<b>Невизначено</b>"

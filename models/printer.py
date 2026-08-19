@@ -20,6 +20,7 @@ from config import STORAGE_DIR, logger
 from models.enums import AMSSlot
 from services.ftps_client import extract_model_weight, fetch_bambu_ftps_weight, upload_3mf_to_bambu
 from services.gcode_parser import parse_3mf_file
+from services.hms_resolver import format_hms_errors
 from services.mqtt_message_parser import extract_subtask_weight, parse_mqtt_payload
 from storage.manager import StorageManager
 
@@ -31,25 +32,11 @@ DEFAULT_MAINTENANCE_ITEMS = {
         "interval_hours": 100.0,
         "last_reset": 0.0,
     },
-    "nozzle": {
-        "key": "nozzle",
-        "name": "Чистка сопла & екструдера",
-        "counter_hours": 0.0,
-        "interval_hours": 50.0,
-        "last_reset": 0.0,
-    },
     "belts": {
         "key": "belts",
         "name": "Перевірка натягу ременів",
         "counter_hours": 0.0,
         "interval_hours": 150.0,
-        "last_reset": 0.0,
-    },
-    "filter": {
-        "key": "filter",
-        "name": "Заміна вугільного фільтра",
-        "counter_hours": 0.0,
-        "interval_hours": 300.0,
         "last_reset": 0.0,
     },
 }
@@ -113,6 +100,8 @@ class BambuPrinter:
         self.save_callback = save_callback
         self._client: mqtt.Client | None = None
         self._is_printing = False
+        self._was_running = False
+        self._job_started_from_app = False
         self._history_recorded = False
         self._current_job_grams = 0.0
         self._job_deducted = False
@@ -150,6 +139,7 @@ class BambuPrinter:
         self.spd_mag = int(config.get("spd_mag", 100))
         self.chamber_light_state = "off"
         self.hms_errors: list = []
+        self.hms_resolved: list[str] = []
         self.finish_timestamp: float = 0.0
         self.job_start_time: float = 0.0
         self.ams_units: list = []
@@ -400,6 +390,7 @@ class BambuPrinter:
                 self.chamber_light_state = parsed["chamber_light_state"]
             if "hms_errors" in parsed:
                 self.hms_errors = parsed["hms_errors"]
+                self.hms_resolved = parsed.get("hms_resolved") or format_hms_errors(self.hms_errors)
 
             if "ams_exist_bits" in parsed:
                 self.ams_exist_bits = parsed["ams_exist_bits"]
@@ -475,9 +466,22 @@ class BambuPrinter:
                     self._last_ftps_time = now_ts
                     self._try_ftps_fetch()
 
-            if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING"]:
+            # Subtask change tracking
+            curr_subtask = str(self.subtask_name or "").strip()
+            if curr_subtask and curr_subtask != getattr(self, "_last_subtask_name", ""):
+                if getattr(self, "_last_subtask_name", "") != "":
+                    logger.info(f"🔄 Subtask changed for [{self.name}]: '{getattr(self, '_last_subtask_name', '')}' -> '{curr_subtask}'. Resetting job weight.")
+                    self._current_job_grams = 0.0
+                    self._job_deducted = False
+                self._last_subtask_name = curr_subtask
+
+            if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]:
                 if not self._is_printing:
                     self._is_printing = True
+                    if not getattr(self, "_job_started_from_app", False):
+                        self._current_job_grams = 0.0
+                        self._job_deducted = False
+                self._was_running = True
                 self._history_recorded = False
                 if getattr(self, "job_start_time", 0.0) == 0.0:
                     self.job_start_time = time.time()
@@ -495,9 +499,12 @@ class BambuPrinter:
                     self._trigger_save()
 
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
-                should_record_history = (self._is_printing or self.gcode_state == "FINISH") and not getattr(
-                    self, "_history_recorded", False
+                was_active = (
+                    self._is_printing
+                    or getattr(self, "_was_running", False)
+                    or getattr(self, "_job_started_from_app", False)
                 )
+                should_record_history = was_active and not getattr(self, "_history_recorded", False)
 
                 if self.gcode_state == "FINISH" or should_record_history:
                     if not self._job_deducted:
@@ -532,7 +539,7 @@ class BambuPrinter:
                                 except ValueError:
                                     pass
 
-                        deduct_w = self._current_job_grams or self.last_job_grams
+                        deduct_w = self._current_job_grams
                         if deduct_w > 0:
                             active_key = self.get_active_slot_key()
                             old_w = self.get_slot_grams(active_key)
@@ -550,15 +557,21 @@ class BambuPrinter:
 
                     if should_record_history:
                         logger.info(f"🎉 Print finished/completed on [{self.name}] (state: {self.gcode_state})!")
-                        final_weight = self.last_job_grams or self._current_job_grams or 0.0
+                        final_weight = self._current_job_grams or 0.0
                         if final_weight == 0.0 and self.subtask_name:
                             final_weight = extract_subtask_weight(self.subtask_name)
 
-                        duration_mins = 0
-                        if getattr(self, "job_start_time", 0.0) > 0.0:
-                            duration_mins = max(1, int((time.time() - self.job_start_time) / 60.0))
+                        if final_weight == 0.0:
+                            cache_file = STORAGE_DIR / "last_sliced_weight.json"
+                            if cache_file.exists():
+                                try:
+                                    c_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                                    c_w = float(c_data.get("weight", 0.0))
+                                    if c_w > 0:
+                                        final_weight = c_w
+                                except Exception:
+                                    pass
 
-                        cost_info = self.calculate_job_cost(final_weight, print_mins=duration_mins)
                         note_text = "Успішно виконано" if self.gcode_state == "FINISH" else "Завершено"
 
                         clean_subtask = str(self.subtask_name or "").strip()
@@ -571,7 +584,6 @@ class BambuPrinter:
                             "subtask_name": clean_subtask,
                             "weight_g": round(float(final_weight), 1),
                             "filament_type": self.filament_type,
-                            "cost_uah": round(float(cost_info["total_cost"]), 2),
                             "note": note_text,
                         }
                         if self.storage:
@@ -581,6 +593,9 @@ class BambuPrinter:
                             else:
                                 logger.warning(f"⚠️ Event loop unresolvable for history entry on [{self.name}]")
                         self._history_recorded = True
+                        self._is_printing = False
+                        self._was_running = False
+                        self._job_started_from_app = False
 
                     self._is_printing = False
 
@@ -589,6 +604,8 @@ class BambuPrinter:
                     self.finish_timestamp = 0.0
                     self.job_start_time = 0.0
                     self._is_printing = False
+                    self._was_running = False
+                    self._job_started_from_app = False
                     self._job_deducted = False
                     self._ftps_attempted = False
                     self._ftps_attempts = 0
@@ -903,6 +920,7 @@ class BambuPrinter:
             "ams_temp": self.ams_temp,
             "ams_trays_info": self.ams_trays_info,
             "hms_errors": self.hms_errors,
+            "hms_resolved": self.hms_resolved,
         }
 
     def to_storage_dict(self) -> dict[str, Any]:

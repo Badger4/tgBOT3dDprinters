@@ -26,7 +26,6 @@ def generate_csv_report(history: list[dict[str, Any]]) -> bytes:
             "Назва моделі / 3MF",
             "Тип пластику",
             "Витрачено пластику (г)",
-            "Собівартість (грн)",
             "Примітка",
         ]
     )
@@ -42,9 +41,8 @@ def generate_csv_report(history: list[dict[str, Any]]) -> bytes:
         subtask = item.get("subtask_name", "Модель")
         filament = item.get("filament_type", "PLA")
         weight_g = item.get("weight_g", 0.0)
-        cost_uah = item.get("cost_uah", 0.0)
         note = item.get("note", "Успішно виконано")
 
-        writer.writerow([idx, dt_str, p_name, subtask, filament, f"{weight_g:.1f}", f"{cost_uah:.2f}", note])
+        writer.writerow([idx, dt_str, p_name, subtask, filament, f"{weight_g:.1f}", note])
 
     return output.getvalue().encode("utf-8")

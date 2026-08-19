@@ -32,6 +32,35 @@ class TestRunNgrok(unittest.TestCase):
         self.assertIn("WEBAPP_URL=https://new.ngrok-free.dev", content)
         self.assertIn("OTHER_KEY=123", content)
 
+    @patch("pyngrok.ngrok.connect")
+    @patch("pyngrok.ngrok.set_auth_token")
+    def test_start_ngrok_tunnel(self, mock_set_auth, mock_connect):
+        from scripts.run_ngrok import start_ngrok_tunnel
+
+        mock_tunnel = patch("pyngrok.ngrok.NgrokTunnel").start()
+        mock_tunnel.public_url = "http://auto.ngrok-free.dev"
+        mock_connect.return_value = mock_tunnel
+
+        with patch("scripts.run_ngrok.ENV_PATH", self.env_file):
+            tunnel = start_ngrok_tunnel(8080, "mytoken", domain="my-domain.ngrok-free.dev")
+
+        mock_set_auth.assert_called_with("mytoken")
+        mock_connect.assert_called_with(8080, "http", domain="my-domain.ngrok-free.dev")
+        self.assertEqual(tunnel, mock_tunnel)
+
+    @patch("pyngrok.ngrok.kill")
+    @patch("pyngrok.ngrok.disconnect")
+    def test_stop_ngrok_tunnel(self, mock_disconnect, mock_kill):
+        from scripts.run_ngrok import stop_ngrok_tunnel
+
+        mock_tunnel = patch("pyngrok.ngrok.NgrokTunnel").start()
+        mock_tunnel.public_url = "https://auto.ngrok-free.dev"
+
+        stop_ngrok_tunnel(mock_tunnel)
+
+        mock_disconnect.assert_called_with("https://auto.ngrok-free.dev")
+        mock_kill.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

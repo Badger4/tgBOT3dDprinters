@@ -3,6 +3,7 @@ Printer remote control, actions, speed levels, maintenance, and calibration endp
 """
 
 import time
+
 from aiohttp import web
 
 from config import logger

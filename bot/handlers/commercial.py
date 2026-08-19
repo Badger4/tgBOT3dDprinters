@@ -47,11 +47,34 @@ DEFAULT_PRESETS = {
 }
 
 
+def sanitize_commercial_presets(presets: dict) -> dict:
+    if not isinstance(presets, dict):
+        return {}
+    clean = {}
+    test_keywords = {"test", "тест", "тестовий", "sample", "demo"}
+    for pid, p in presets.items():
+        if not isinstance(p, dict):
+            continue
+        p_id_str = str(p.get("id") or pid).lower()
+        p_name_str = str(p.get("name") or "").lower()
+        if any(kw in p_id_str or kw in p_name_str for kw in test_keywords):
+            continue
+        clean[pid] = p
+    return clean
+
+
 async def get_user_presets(app) -> dict:
     presets = await app.storage.load_json(PRESETS_PATH, None)
     if presets is None:
         presets = DEFAULT_PRESETS.copy()
         await app.storage.save_json(PRESETS_PATH, presets)
+
+    sanitized = sanitize_commercial_presets(presets)
+    if len(sanitized) != len(presets):
+        presets = sanitized
+        await app.storage.save_json(PRESETS_PATH, presets)
+    else:
+        presets = sanitized
     return presets
 
 

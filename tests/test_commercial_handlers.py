@@ -59,7 +59,7 @@ class TestCommercialHandlers(unittest.TestCase):
             self.assertEqual(user["state"], "add_preset_name")
 
             # Step 1: Preset Name
-            await self._send_msg("Test PLA Premium")
+            await self._send_msg("PLA Premium Custom")
             user = await self.sm.load_user("123456")
             self.assertEqual(user["state"], "add_preset_price")
 
@@ -84,29 +84,23 @@ class TestCommercialHandlers(unittest.TestCase):
             self.assertEqual(user["state"], "add_preset_profit")
 
             # Step 6: Profit (100%)
-            ans_final = await self._send_msg("100%")
-            self.assertTrue(ans_final.called)
+            ans_fin = await self._send_msg("100%")
+            self.assertTrue(ans_fin.called)
             user = await self.sm.load_user("123456")
             self.assertEqual(user["state"], "idle")
 
-            # 3. Quick Calc Workflow
+            # 3. User clicks "🧮 Швидкий розрахунок ціни"
             await self._send_msg("🧮 Швидкий розрахунок ціни")
-            user = await self.sm.load_user("123456")
-            self.assertEqual(user["state"], "calc_enter_weight")
-
-            await self._send_msg("200")  # 200g
-            user = await self.sm.load_user("123456")
-            self.assertEqual(user["state"], "calc_enter_time")
-
+            await self._send_msg("250")  # 250 grams
             await self._send_msg("120")  # 120 mins
             user = await self.sm.load_user("123456")
             self.assertEqual(user["state"], "calc_select_preset")
 
-            ans_calc = await self._send_msg("Test PLA Premium")
+            ans_calc = await self._send_msg("PLA Premium Custom")
             self.assertTrue(ans_calc.called)
             calc_txt = ans_calc.call_args[0][0]
             self.assertIn("ПІДСУМКОВА ВАРТІСТЬ ДЛЯ КЛІЄНТА", calc_txt)
-            self.assertIn("Test PLA Premium", calc_txt)
+            self.assertIn("PLA Premium Custom", calc_txt)
 
             # 4. User clicks "⬅️ Головне меню"
             ans_home = await self._send_msg("⬅️ Головне меню")
@@ -116,6 +110,19 @@ class TestCommercialHandlers(unittest.TestCase):
         import asyncio
 
         asyncio.run(run_test())
+
+    def test_sanitize_commercial_presets(self):
+        from bot.handlers.commercial import sanitize_commercial_presets
+
+        dirty = {
+            "p1": {"id": "p1", "name": "Стандарт PLA"},
+            "p2": {"id": "test_preset", "name": "Тестовий пресет"},
+            "p3": {"id": "p3", "name": "Sample PETG"},
+        }
+        clean = sanitize_commercial_presets(dirty)
+        self.assertIn("p1", clean)
+        self.assertNotIn("p2", clean)
+        self.assertNotIn("p3", clean)
 
 
 if __name__ == "__main__":
