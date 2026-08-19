@@ -82,6 +82,8 @@ def parse_slot_key_from_text(text: str) -> str:
             "філамент",
             "📦 склад котушок",
             "склад котушок",
+            "📦 warehouse",
+            "warehouse",
         ]
     )
 )
@@ -92,20 +94,21 @@ async def handle_filament_menu(message: Message, app):
 
     spools = await app.storage.load_spools()
     spool_list = list(spools.values())
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
 
     txt = (
-        "<b>📦 Склад Матеріалів & AMS 3D Ферми</b>\n"
-        "Х-хмпф! Ось повний стан котушок та модулів AMS по всіх принтерах, Бака! 😤\n\n"
-        "-----------------------------------\n"
-        "<b>🌈 Принтери & Слоти AMS:</b>\n\n"
+        "<b>📦 Склад Матеріалів & AMS 3D Ферми</b>\n" if u_lang != "en" else "<b>📦 Materials Stock & AMS Farm</b>\n"
     )
+    txt += "-----------------------------------\n"
+    txt += "<b>🌈 Принтери & Слоти AMS:</b>\n\n" if u_lang != "en" else "<b>🌈 Printers & AMS Slots:</b>\n\n"
 
     hum_map = {
-        5: "🟢 5/5 (Ідеально сухо)",
-        4: "🟢 4/5 (Оптимально сухо)",
-        3: "🟡 3/5 (Помірна вологість)",
-        2: "🟠 2/5 (Волого)",
-        1: "🔴 1/5 (Критично волого)",
+        5: "🟢 5/5 (Ідеально сухо)" if u_lang != "en" else "🟢 5/5 (Perfectly Dry)",
+        4: "🟢 4/5 (Оптимально сухо)" if u_lang != "en" else "🟢 4/5 (Optimal)",
+        3: "🟡 3/5 (Помірна вологість)" if u_lang != "en" else "🟡 3/5 (Moderate)",
+        2: "🟠 2/5 (Волого)" if u_lang != "en" else "🟠 2/5 (Humid)",
+        1: "🔴 1/5 (Критично волого)" if u_lang != "en" else "🔴 1/5 (Critical)",
     }
 
     if app.printers:
@@ -144,44 +147,51 @@ async def handle_filament_menu(message: Message, app):
                     sp_title = f"Bambu {t_type} {t_sub}".strip()
                     raw_g = slots.get(k, 1000.0)
                 else:
-                    sp_title = "Порожньо"
+                    sp_title = "Порожньо" if u_lang != "en" else "Empty"
                     raw_g = 0.0
 
                 is_act = (str(k) == str(active_key)) and has_filament
-                act_str = " ⚡ [АКТИВНИЙ]" if is_act else ""
+                act_str = (" ⚡ [АКТИВНИЙ]" if u_lang != "en" else " ⚡ [ACTIVE]") if is_act else ""
 
                 if has_filament:
                     pct = min(100, max(0, int((raw_g / 1000.0) * 100)))
                     txt += f"   • <b>{s_name}</b>: {sp_title} — <b>{raw_g}g</b> ({pct}%){act_str}\n"
                 else:
-                    txt += f"   • <b>{s_name}</b>: Порожньо\n"
+                    empty_label = "Порожньо" if u_lang != "en" else "Empty"
+                    txt += f"   • <b>{s_name}</b>: {empty_label}\n"
             txt += "\n"
     else:
-        txt += "⚠️ Принтери не додані.\n\n"
+        txt += ("⚠️ Принтери не додані.\n\n" if u_lang != "en" else "⚠️ No printers added.\n\n")
 
+    sp_stock_lbl = "📦 <b>Склад Котушок:</b>" if u_lang != "en" else "📦 <b>Spool Stock:</b>"
+    free_sp_lbl = "🔹 Вільних котушок на складі:" if u_lang != "en" else "🔹 Free spools in stock:"
     txt += (
         f"-----------------------------------\n"
-        f"📦 <b>Склад Котушок:</b> {len(spool_list)} шт.\n"
+        f"{sp_stock_lbl} {len(spool_list)} pcs.\n"
     )
 
     unassigned_count = len([s for s in spool_list if not s.get("assigned_printer_id")])
-    txt += f"🔹 Вільних котушок на складі: <b>{unassigned_count} шт.</b>\n\n"
+    txt += f"{free_sp_lbl} <b>{unassigned_count} pcs.</b>\n\n"
 
     if spool_list:
-        txt += "<b>Котушки на складі:</b>\n"
+        txt += ("<b>Котушки на складі:</b>\n" if u_lang != "en" else "<b>Spools in Stock:</b>\n")
         for s in spool_list[-5:]:
-            s_n = html.escape(s.get("name", "Котушка"))
+            s_n = html.escape(s.get("name", "Spool" if u_lang == "en" else "Котушка"))
             s_t = html.escape(s.get("type", "PLA"))
             s_g = s.get("remaining_grams", 1000.0)
             s_pr = s.get("price_per_kg") or s.get("price_uah", 0.0)
-            st_str = "🟢 Монтовано" if s.get("assigned_printer_id") else "📦 На складі"
-            txt += f"• <b>{s_n}</b> ({s_t}) — {s_g}g | {s_pr} грн/кг [{st_str}]\n"
+            st_str = ("🟢 Монтовано" if u_lang != "en" else "🟢 Mounted") if s.get("assigned_printer_id") else ("📦 На складі" if u_lang != "en" else "📦 Stock")
+            cur_str = "грн/кг" if u_lang != "en" else "UAH/kg"
+            txt += f"• <b>{s_n}</b> ({s_t}) — {s_g}g | {s_pr} {cur_str} [{st_str}]\n"
 
-    await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard())
+    await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard(lang=u_lang))
 
 
-@router.message(F.text.lower().in_(["🏷️ зчитати rfid котушки", "зчитати rfid котушки", "zchytaty rfid", "rfid"]))
+@router.message(F.text.lower().in_(["🏷️ зчитати rfid котушки", "зчитати rfid котушки", "zchytaty rfid", "rfid", "🏷️ read rfid spools", "read rfid spools"]))
 async def handle_rfid_sync(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
     spools = await app.storage.load_spools()
     added_count = 0
     updated_count = 0
@@ -238,61 +248,72 @@ async def handle_rfid_sync(message: Message, app):
     if added_count > 0 or updated_count > 0:
         await app.storage.save_spools(spools)
         msg_txt = (
+            f"✅ <b>Auto-read AMS RFID spools!</b>\n\n"
+            f"🆕 Added new spools: <b>{added_count} pcs.</b>\n"
+            f"🔄 Updated existing: <b>{updated_count} pcs.</b>"
+        ) if u_lang == "en" else (
             f"✅ <b>Авто-зчитано RFID котушки AMS!</b>\n\n"
             f"🆕 Додано нових котушок: <b>{added_count} шт.</b>\n"
             f"🔄 Оновлено наявних: <b>{updated_count} шт.</b>"
         )
     else:
         msg_txt = (
+            "ℹ️ <b>AMS RFID Sync:</b>\n\n"
+            "No new RFID-tagged spools detected in AMS slots."
+        ) if u_lang == "en" else (
             "ℹ️ <b>RFID Зчитування AMS:</b>\n\n"
             "У слотах AMS не виявлено нових котушок з RFID-мітками або слоти порожні."
         )
 
-    await message.answer(msg_txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard())
+    await message.answer(msg_txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard(lang=u_lang))
 
 
-@router.message(F.text.lower().in_(["🔗 встановити на принтер", "встановити на принтер"]))
+@router.message(F.text.lower().in_(["🔗 встановити на принтер", "встановити на принтер", "🔗 mount to printer", "mount to printer"]))
 async def handle_mount_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
     spools = await app.storage.load_spools()
     available_spools = [s for s in spools.values() if not s.get("assigned_printer_id")]
     if not available_spools:
-        await message.answer("⚠️ На Складі немає вільних котушок для установки. Додайте нову котушку кнопкою ➕ Нова котушка.")
+        await message.answer("⚠️ На Складі немає вільних котушок для установки." if u_lang != "en" else "⚠️ No free spools available in warehouse.")
         return
 
     user["state"] = "select_spool_to_mount"
     await app.storage.save_user(user)
     await message.answer(
-        "🔗 <b>Оберіть котушку зі Складу для установки на принтер:</b>",
+        "🔗 <b>Оберіть котушку зі Складу для установки на принтер:</b>" if u_lang != "en" else "🔗 <b>Select spool from stock to mount:</b>",
         parse_mode=ParseMode.HTML,
-        reply_markup=get_spools_keyboard({s["id"]: s for s in available_spools}),
+        reply_markup=get_spools_keyboard({s["id"]: s for s in available_spools}, lang=u_lang),
     )
 
 
-@router.message(F.text.lower().in_(["🔓 зняти з принтера", "зняти з принтера"]))
+@router.message(F.text.lower().in_(["🔓 зняти з принтера", "зняти з принтера", "🔓 unmount spool", "unmount spool"]))
 async def handle_unmount_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
     spools = await app.storage.load_spools()
     mounted_spools = [s for s in spools.values() if s.get("assigned_printer_id")]
     if not mounted_spools:
-        await message.answer("⚠️ Наразі жодної котушки не встановлено на принтери.")
+        await message.answer("⚠️ Наразі жодної котушки не встановлено на принтери." if u_lang != "en" else "⚠️ No spools currently mounted on printers.")
         return
 
     user["state"] = "select_spool_to_unmount"
     await app.storage.save_user(user)
     await message.answer(
-        "🔓 <b>Оберіть котушку для зняття з принтера:</b>",
+        "🔓 <b>Оберіть котушку для зняття з принтера:</b>" if u_lang != "en" else "🔓 <b>Select spool to unmount:</b>",
         parse_mode=ParseMode.HTML,
-        reply_markup=get_spools_keyboard({s["id"]: s for s in mounted_spools}),
+        reply_markup=get_spools_keyboard({s["id"]: s for s in mounted_spools}, lang=u_lang),
     )
 
 
-@router.message(F.text.lower().in_(["🌈 слоти ams", "слоти ams", "ams"]))
+@router.message(F.text.lower().in_(["🌈 слоти ams", "слоти ams", "ams", "🌈 ams slots", "ams slots"]))
 async def handle_ams_slots(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
@@ -301,24 +322,27 @@ async def handle_ams_slots(message: Message, app):
 
     if not target_printer.ams_units:
         await message.answer(
-            f"<b>🌈 Модуль AMS для {html.escape(target_printer.name)}</b>\n\n"
-            f"⚠️ <i>Дані AMS оновлюються або модуль AMS не підключено.</i>",
+            f"<b>🌈 AMS Module for {html.escape(target_printer.name)}</b>\n\n⚠️ <i>AMS data is updating or AMS is not connected.</i>" if is_en else f"<b>🌈 Модуль AMS для {html.escape(target_printer.name)}</b>\n\n⚠️ <i>Дані AMS оновлюються або модуль AMS не підключено.</i>",
             parse_mode=ParseMode.HTML,
         )
         return
 
     hum_map = {
-        5: "🟢 Рівень 5 (Ідеально сухо)",
-        4: "🟢 Рівень 4 (Оптимально сухо)",
-        3: "🟡 Рівень 3 (Помірна вологість)",
-        2: "🟠 Рівень 2 (Волого - потрібна сушка)",
-        1: "🔴 Рівень 1 (Критично волого - замініть десикант)",
+        5: "🟢 Level 5 (Perfectly Dry)" if is_en else "🟢 Рівень 5 (Ідеально сухо)",
+        4: "🟢 Level 4 (Optimal Dry)" if is_en else "🟢 Рівень 4 (Оптимально сухо)",
+        3: "🟡 Level 3 (Moderate)" if is_en else "🟡 Рівень 3 (Помірна вологість)",
+        2: "🟠 Level 2 (Humid - drying required)" if is_en else "🟠 Рівень 2 (Волого - потрібна сушка)",
+        1: "🔴 Level 1 (Critical - replace desiccant)" if is_en else "🔴 Рівень 1 (Критично волого - замініть десикант)",
     }
-    hum_str = hum_map.get(target_printer.ams_humidity_idx, f"Рівень {target_printer.ams_humidity_idx}")
+    hum_str = hum_map.get(target_printer.ams_humidity_idx, f"Level {target_printer.ams_humidity_idx}")
 
     ams_txt = (
+        f"<b>🌈 AMS Module — {html.escape(target_printer.name)}</b>\n"
+        f"💧 <b>AMS Humidity:</b> {hum_str}\n"
+        f"🌡️ <b>AMS Temp:</b> {target_printer.ams_temp}°C\n"
+        f"-----------------------------------\n\n"
+    ) if is_en else (
         f"<b>🌈 Модуль AMS — {html.escape(target_printer.name)}</b>\n"
-        f"Х-хмпф! Ось твої слоти AMS... Тільки не переплутай нитки, Бака! 😤\n"
         f"💧 <b>Вологість в AMS:</b> {hum_str}\n"
         f"🌡️ <b>Температура AMS:</b> {target_printer.ams_temp}°C\n"
         f"-----------------------------------\n\n"
@@ -384,7 +408,10 @@ async def handle_select_spool_warehouse(message: Message, app):
 
 @router.message(
     F.text.lower().in_(
-        ["⚖️ змінити залишок ваги", "змінити залишок ваги", "✏️ ручне введення ваги", "ручне введення ваги"]
+        [
+            "⚖️ змінити залишок ваги", "змінити залишок ваги", "✏️ ручне введення ваги", "ручне введення ваги",
+            "✏️ manual weight input", "manual weight input"
+        ]
     )
 )
 async def handle_manual_weight_start(message: Message, app):
@@ -422,7 +449,7 @@ async def handle_manual_price_start(message: Message, app):
     )
 
 
-@router.message(F.text == "✏️ Редагувати котушку")
+@router.message(F.text.lower().in_(["✏️ редагувати котушку", "редагувати котушку", "✏️ edit spool", "edit spool"]))
 async def handle_edit_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -439,7 +466,7 @@ async def handle_edit_spool_start(message: Message, app):
     )
 
 
-@router.message(F.text == "🗑️ Видалити котушку")
+@router.message(F.text.lower().in_(["🗑️ видалити котушку", "видалити котушку", "🗑️ delete spool", "delete spool"]))
 async def handle_delete_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -456,7 +483,7 @@ async def handle_delete_spool_start(message: Message, app):
     )
 
 
-@router.message(F.text == "➕ Нова котушка")
+@router.message(F.text.lower().in_(["➕ нова котушка", "нова котушка", "➕ new spool", "new spool"]))
 async def handle_add_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)

@@ -265,7 +265,7 @@ class TestPrinterModel(unittest.TestCase):
 
         msg = MagicMock()
         msg.topic = f"device/{self.printer.serial_number}/report"
-        msg.payload = json.dumps({"print": {"gcode_state": "IDLE", "mc_percent": 0}}).encode("utf-8")
+        msg.payload = json.dumps({"print": {"gcode_state": "RUNNING", "mc_percent": 50}}).encode("utf-8")
         self.printer._on_message(None, None, msg)
 
         msg.payload = json.dumps({"print": {"gcode_state": "FINISH", "mc_percent": 100}}).encode("utf-8")
@@ -275,16 +275,43 @@ class TestPrinterModel(unittest.TestCase):
         coro = mock_threadsafe.call_args[0][0]
         coro.close()
 
-    def test_subtask_weight_reset_for_identical_filename(self) -> None:
-        self.printer._current_job_grams = 150.0
-        self.printer._last_subtask_name = "box.3mf"
+    def test_start_calibration_prevents_weight_deduction(self) -> None:
+        self.printer._client = MagicMock()
+        self.printer._client.is_connected.return_value = True
+        self.printer.subtask_name = "OldModel_100g.3mf"
+        initial_grams = self.printer.get_slot_grams("255")
+
+        self.printer.start_calibration()
+        self.assertTrue(self.printer._is_calibrating)
+        self.assertTrue(self.printer._job_deducted)
+
+        # Simulate MQTT transition through RUNNING and FINISH
+        msg = MagicMock()
+        msg.topic = f"device/{self.printer.serial_number}/report"
+        msg.payload = json.dumps({"print": {"gcode_state": "RUNNING", "subtask_name": "OldModel_100g.3mf"}}).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        msg.payload = json.dumps({"print": {"gcode_state": "FINISH", "subtask_name": "OldModel_100g.3mf"}}).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        # Weight should not have changed at all
+        self.assertEqual(self.printer.get_slot_grams("255"), initial_grams)
+        self.assertFalse(self.printer._is_calibrating)
+        self.assertTrue(self.printer._job_deducted)
+
+    def test_subtask_calibration_name_prevents_weight_deduction(self) -> None:
+        self.printer._client = MagicMock()
+        self.printer._client.is_connected.return_value = True
+        initial_grams = self.printer.get_slot_grams("255")
 
         msg = MagicMock()
         msg.topic = f"device/{self.printer.serial_number}/report"
-        msg.payload = json.dumps({"print": {"gcode_state": "RUNNING", "subtask_name": "box_45g.3mf", "mc_percent": 10}}).encode("utf-8")
+        msg.payload = json.dumps({"print": {"gcode_state": "RUNNING", "subtask_name": "auto_calibration_g32_50g.gcode"}}).encode("utf-8")
         self.printer._on_message(None, None, msg)
 
-        self.assertEqual(self.printer._current_job_grams, 45.0)
+        self.assertTrue(self.printer._is_calibrating)
+        self.assertTrue(self.printer._job_deducted)
+        self.assertEqual(self.printer.get_slot_grams("255"), initial_grams)
 
 
 if __name__ == "__main__":

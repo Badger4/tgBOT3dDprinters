@@ -78,19 +78,20 @@ async def get_user_presets(app) -> dict:
     return presets
 
 
-def get_commercial_menu_keyboard() -> ReplyKeyboardMarkup:
+def get_commercial_menu_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🧮 Швидкий розрахунок ціни")],
-            [KeyboardButton(text="➕ Створити пресет"), KeyboardButton(text="📋 Копіювати пресет")],
-            [KeyboardButton(text="✏️ Редагувати пресет"), KeyboardButton(text="🗑️ Видалити пресет")],
-            [KeyboardButton(text="⬅️ Головне меню")],
+            [KeyboardButton(text="🧮 Quick Price Calculation" if is_en else "🧮 Швидкий розрахунок ціни")],
+            [KeyboardButton(text="➕ Create Preset" if is_en else "➕ Створити пресет"), KeyboardButton(text="📋 Copy Preset" if is_en else "📋 Копіювати пресет")],
+            [KeyboardButton(text="✏️ Edit Preset" if is_en else "✏️ Редагувати пресет"), KeyboardButton(text="🗑️ Delete Preset" if is_en else "🗑️ Видалити пресет")],
+            [KeyboardButton(text="⬅️ Main Menu" if is_en else "⬅️ Головне меню")],
         ],
         resize_keyboard=True,
     )
 
 
-@router.message(F.text.lower().in_(["💰 комерція", "комерція", "калькулятор ціни", "пресети"]))
+@router.message(F.text.lower().in_(["💰 комерція", "комерція", "калькулятор ціни", "пресети", "💰 commercial", "commercial"]))
 async def handle_commercial_menu(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
@@ -101,22 +102,36 @@ async def handle_commercial_menu(message: Message, app):
     await app.storage.save_user(user)
 
     presets = await get_user_presets(app)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
 
-    txt = (
-        "<b>💰 Комерційний калькулятор ціни</b>\n"
-        "<i>Налаштування себевартості та маржі для комерційного друку</i> 💼✨\n\n"
-        "<b>📋 Наявні пресети:</b>\n"
-    )
-    for p in presets.values():
-        txt += (
-            f"• <b>{html.escape(p['name'])}</b>\n"
-            f"  <i>Пластик: {p['price_per_g']}грн/г | Світло: {p['electricity_rate_uah']}грн | Аморт: {p['depreciation_val']} | Витрат: {p['consumables_val']} | Маржа: {p['profit_val']}</i>\n"
+    if is_en:
+        txt = (
+            "<b>💰 Commercial Price Calculator</b>\n"
+            "<i>Cost price & profit margin configuration for commercial 3D printing</i> 💼✨\n\n"
+            "<b>📋 Available Presets:</b>\n"
         )
+        for p in presets.values():
+            txt += (
+                f"• <b>{html.escape(p['name'])}</b>\n"
+                f"  <i>Filament: {p['price_per_g']}UAH/g | Power: {p['electricity_rate_uah']}UAH | Depr: {p['depreciation_val']} | Consumables: {p['consumables_val']} | Margin: {p['profit_val']}</i>\n"
+            )
+    else:
+        txt = (
+            "<b>💰 Комерційний калькулятор ціни</b>\n"
+            "<i>Налаштування себевартості та маржі для комерційного друку</i> 💼✨\n\n"
+            "<b>📋 Наявні пресети:</b>\n"
+        )
+        for p in presets.values():
+            txt += (
+                f"• <b>{html.escape(p['name'])}</b>\n"
+                f"  <i>Пластик: {p['price_per_g']}грн/г | Світло: {p['electricity_rate_uah']}грн | Аморт: {p['depreciation_val']} | Витрат: {p['consumables_val']} | Маржа: {p['profit_val']}</i>\n"
+            )
 
-    await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_commercial_menu_keyboard())
+    await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_commercial_menu_keyboard(lang=u_lang))
 
 
-@router.message(F.text.lower().in_(["➕ створити пресет", "створити пресет"]))
+@router.message(F.text.lower().in_(["➕ створити пресет", "створити пресет", "➕ create preset", "create preset"]))
 async def start_add_preset(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -124,78 +139,82 @@ async def start_add_preset(message: Message, app):
     user["context_data"]["new_preset"] = {}
     await app.storage.save_user(user)
 
+    u_lang = user.get("language", "uk")
     await message.answer(
-        "➕ <b>Створення нового пресету</b>\nStep 1/6: Введіть назву пресету (наприклад: <i>PLA Sunlu Black</i>):",
+        "➕ <b>Створення нового пресету</b>\nStep 1/6: Введіть назву пресету (наприклад: <i>PLA Sunlu Black</i>):" if u_lang != "en" else "➕ <b>Create New Preset</b>\nStep 1/6: Enter preset name (e.g. <i>PLA Sunlu Black</i>):",
         parse_mode=ParseMode.HTML,
-        reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True),
+        reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")]], resize_keyboard=True),
     )
 
 
-@router.message(F.text.lower().in_(["📋 копіювати пресет", "копіювати пресет"]))
+@router.message(F.text.lower().in_(["📋 копіювати пресет", "копіювати пресет", "📋 copy preset", "copy preset"]))
 async def start_copy_preset(message: Message, app):
     chat_id = str(message.chat.id)
     presets = await get_user_presets(app)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
     if not presets:
-        await message.answer("⚠️ Немає наявних пресетів для копіювання.")
+        await message.answer("⚠️ Немає наявних пресетів для копіювання." if u_lang != "en" else "⚠️ No presets available to copy.")
         return
 
-    user = await app.storage.load_user(chat_id)
     user["state"] = "select_preset_to_copy"
     await app.storage.save_user(user)
 
     kb = [[KeyboardButton(text=p["name"])] for p in presets.values()]
-    kb.append([KeyboardButton(text="⬅️ Назад")])
+    kb.append([KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")])
     await message.answer(
         "📋 <b>Оберіть пресет, який хочете скопіювати:</b>\n"
-        "<i>Ви зможете дати нову назву і змінити тільки потрібні параметри (наприклад, ціну нитки)!</i>",
+        "<i>Ви зможете дати нову назву і змінити тільки потрібні параметри!</i>" if u_lang != "en" else "📋 <b>Select preset to copy:</b>\n<i>You will be able to set a new name and update parameters!</i>",
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True),
     )
 
 
-@router.message(F.text.lower().in_(["✏️ редагувати пресет", "редагувати пресет"]))
+@router.message(F.text.lower().in_(["✏️ редагувати пресет", "редагувати пресет", "✏️ edit preset", "edit preset"]))
 async def start_edit_preset(message: Message, app):
     chat_id = str(message.chat.id)
     presets = await get_user_presets(app)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
     if not presets:
-        await message.answer("⚠️ Немає наявних пресетів для редагування.")
+        await message.answer("⚠️ Немає наявних пресетів для редагування." if u_lang != "en" else "⚠️ No presets available to edit.")
         return
 
-    user = await app.storage.load_user(chat_id)
     user["state"] = "select_preset_to_edit"
     await app.storage.save_user(user)
 
     kb = [[KeyboardButton(text=p["name"])] for p in presets.values()]
-    kb.append([KeyboardButton(text="⬅️ Назад")])
+    kb.append([KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")])
     await message.answer(
-        "✏️ <b>Оберіть пресет для редагування:</b>",
+        "✏️ <b>Оберіть пресет для редагування:</b>" if u_lang != "en" else "✏️ <b>Select preset to edit:</b>",
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True),
     )
 
 
-@router.message(F.text.lower().in_(["🗑️ видалити пресет", "видалити пресет"]))
+@router.message(F.text.lower().in_(["🗑️ видалити пресет", "видалити пресет", "🗑️ delete preset", "delete preset"]))
 async def start_delete_preset(message: Message, app):
     chat_id = str(message.chat.id)
     presets = await get_user_presets(app)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
     if not presets:
-        await message.answer("⚠️ Немає наявних пресетів для видалення.")
+        await message.answer("⚠️ Немає наявних пресетів для видалення." if u_lang != "en" else "⚠️ No presets available to delete.")
         return
 
-    user = await app.storage.load_user(chat_id)
     user["state"] = "select_preset_to_delete"
     await app.storage.save_user(user)
 
     kb = [[KeyboardButton(text=p["name"])] for p in presets.values()]
-    kb.append([KeyboardButton(text="⬅️ Назад")])
+    kb.append([KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")])
     await message.answer(
-        "🗑️ <b>Оберіть пресет для видалення:</b>",
+        "🗑️ <b>Оберіть пресет для видалення:</b>" if u_lang != "en" else "🗑️ <b>Select preset to delete:</b>",
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True),
     )
 
 
-@router.message(F.text.lower().in_(["🧮 швидкий розрахунок ціни", "розрахунок ціни", "розрахувати"]))
+@router.message(F.text.lower().in_(["🧮 швидкий розрахунок ціни", "розрахунок ціни", "розрахувати", "🧮 quick price calculation", "quick price calculation", "quick calc"]))
 async def start_quick_calc(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)

@@ -114,6 +114,12 @@ class TestBotHandlersFull(unittest.TestCase):
             ans_maint = await self._send_msg("🧹 Скинути лічильник ТО")
             self.assertTrue(ans_maint.called)
 
+            # Calibrate Button
+            mock_printer.start_calibration.return_value = True
+            ans_cal = await self._send_msg("🎯 Калібрувати")
+            self.assertTrue(ans_cal.called)
+            mock_printer.start_calibration.assert_called_once()
+
             # 5. Filament Menu
             ans_fil = await self._send_msg("📦 Склад")
             self.assertTrue(ans_fil.called)

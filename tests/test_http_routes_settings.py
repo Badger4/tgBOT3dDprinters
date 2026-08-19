@@ -101,7 +101,7 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
 
     async def test_post_preset(self):
         payload = {
-            "name": "Test Preset",
+            "name": "Custom Preset",
             "price_per_g": 1.5,
             "electricity_rate_uah": 5.0,
             "power_watts": 200.0,
@@ -113,7 +113,7 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         assert resp.status == 200
         data = await resp.json()
         assert data["status"] == "ok"
-        assert data["preset"]["name"] == "Test Preset"
+        assert data["preset"]["name"] == "Custom Preset"
 
         resp2 = await self.client.get("/api/commercial/presets")
         data2 = await resp2.json()

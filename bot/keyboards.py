@@ -38,24 +38,28 @@ def get_webapp_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[btn]])
 
 
-def get_printers_keyboard(printers: dict[str, BambuPrinter]) -> ReplyKeyboardMarkup:
+def get_printers_keyboard(printers: dict[str, BambuPrinter], lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard = []
     for p in printers.values():
         keyboard.append([KeyboardButton(text=f"🖨️ {p.name}")])
-    keyboard.append([KeyboardButton(text="➕ Додати принтер")])
-    keyboard.append([KeyboardButton(text="Головне меню")])
+    keyboard.append([KeyboardButton(text=t("btn_add_printer", lang))])
+    keyboard.append([KeyboardButton(text=t("btn_main_menu", lang))])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def get_printer_menu_keyboard(printer: BambuPrinter) -> ReplyKeyboardMarkup:
-    notify_str = "🔔 Сповіщення: Включено" if printer.notify else "🔕 Сповіщення: Виключено"
+def get_printer_menu_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    if is_en:
+        notify_str = "🔔 Notifications: On" if printer.notify else "🔕 Notifications: Off"
+    else:
+        notify_str = "🔔 Сповіщення: Включено" if printer.notify else "🔕 Сповіщення: Виключено"
 
     keyboard = [
-        [KeyboardButton(text="📊 Статус"), KeyboardButton(text="📷 Камера")],
-        [KeyboardButton(text="🎛️ Керування принтером"), KeyboardButton(text="🧵 Філамент")],
-        [KeyboardButton(text="🎯 Калібрувати"), KeyboardButton(text=notify_str)],
-        [KeyboardButton(text="🧹 Скинути лічильник ТО"), KeyboardButton(text="🗑️ Видалити принтер")],
-        [KeyboardButton(text="🖨️ Назад до принтерів")],
+        [KeyboardButton(text=t("btn_status", lang)), KeyboardButton(text=t("btn_camera", lang))],
+        [KeyboardButton(text=t("btn_control", lang)), KeyboardButton(text=t("btn_filament", lang))],
+        [KeyboardButton(text=t("btn_calibrate", lang)), KeyboardButton(text=notify_str)],
+        [KeyboardButton(text=t("btn_reset_maint", lang)), KeyboardButton(text=t("btn_delete_printer", lang))],
+        [KeyboardButton(text=t("btn_back_to_printers", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -104,23 +108,25 @@ def get_deduct_weight_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_printer_control_keyboard(printer: BambuPrinter) -> ReplyKeyboardMarkup:
-    pause_resume_btn = (
-        KeyboardButton(text="▶️ Відновити друк") if printer.gcode_state == "PAUSE" else KeyboardButton(text="⏸️ Пауза")
-    )
+def get_printer_control_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyboardMarkup:
+    if printer.gcode_state == "PAUSE":
+        pause_resume_btn = KeyboardButton(text=t("btn_resume_print", lang))
+    else:
+        pause_resume_btn = KeyboardButton(text=t("btn_pause_print", lang))
+
     keyboard = [
-        [KeyboardButton(text="⚡ Швидкість"), KeyboardButton(text="💡 Підсвітка")],
-        [KeyboardButton(text="⏹️ Зупинити друк"), pause_resume_btn],
-        [KeyboardButton(text="⬅️ Назад")],
+        [KeyboardButton(text=t("btn_speed", lang)), KeyboardButton(text=t("btn_light", lang))],
+        [KeyboardButton(text=t("btn_stop_print", lang)), pause_resume_btn],
+        [KeyboardButton(text=t("btn_back", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def get_admin_keyboard() -> ReplyKeyboardMarkup:
+def get_admin_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text="👥 Користувачі")],
-        [KeyboardButton(text="🆕 Нові користувачі")],
-        [KeyboardButton(text="Головне меню")],
+        [KeyboardButton(text=t("btn_users", lang))],
+        [KeyboardButton(text=t("btn_new_users", lang))],
+        [KeyboardButton(text=t("btn_main_menu", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -149,10 +155,10 @@ def get_filament_menu_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def get_spools_keyboard(spools: dict[str, dict[str, Any]]) -> ReplyKeyboardMarkup:
+def get_spools_keyboard(spools: dict[str, dict[str, Any]], lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard = []
     for s_id, s in spools.items():
-        name = s.get("name", "Котушка")
+        name = s.get("name", "Spool")
         grams = s.get("remaining_grams", 1000.0)
         stype = s.get("type", "")
         if stype and stype.lower() in name.lower():
@@ -162,31 +168,33 @@ def get_spools_keyboard(spools: dict[str, dict[str, Any]]) -> ReplyKeyboardMarku
         else:
             title = f"🧵 {name} ({grams}g)"
         keyboard.append([KeyboardButton(text=title)])
-    keyboard.append([KeyboardButton(text="⬅️ Назад")])
+    keyboard.append([KeyboardButton(text=t("btn_back", lang))])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def get_ams_slots_keyboard(printer: BambuPrinter) -> ReplyKeyboardMarkup:
+def get_ams_slots_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
     active_key = printer.get_active_slot_key()
-    mark = lambda key, label: f"{label} [⚡ АКТИВНИЙ]" if active_key == key else label
+    active_mark_str = " [⚡ ACTIVE]" if is_en else " [⚡ АКТИВНИЙ]"
+    mark = lambda key, label: f"{label}{active_mark_str}" if active_key == key else label
 
     if getattr(printer, "has_ams", False):
         keyboard = [
             [
-                KeyboardButton(text=mark("0", "📍 Слот A1 (Slot 1)")),
-                KeyboardButton(text=mark("1", "📍 Слот A2 (Slot 2)")),
+                KeyboardButton(text=mark("0", "📍 Slot A1 (Slot 1)" if is_en else "📍 Слот A1 (Slot 1)")),
+                KeyboardButton(text=mark("1", "📍 Slot A2 (Slot 2)" if is_en else "📍 Слот A2 (Slot 2)")),
             ],
             [
-                KeyboardButton(text=mark("2", "📍 Слот A3 (Slot 3)")),
-                KeyboardButton(text=mark("3", "📍 Слот A4 (Slot 4)")),
+                KeyboardButton(text=mark("2", "📍 Slot A3 (Slot 3)" if is_en else "📍 Слот A3 (Slot 3)")),
+                KeyboardButton(text=mark("3", "📍 Slot A4 (Slot 4)" if is_en else "📍 Слот A4 (Slot 4)")),
             ],
-            [KeyboardButton(text=mark("255", "📍 Зовнішній слот (VT)"))],
-            [KeyboardButton(text="⬅️ Назад")],
+            [KeyboardButton(text=mark("255", "📍 External Slot (VT)" if is_en else "📍 Зовнішній слот (VT)"))],
+            [KeyboardButton(text=t("btn_back", lang))],
         ]
     else:
         keyboard = [
-            [KeyboardButton(text=mark("255", "📍 Зовнішній котушкотримач (VT)"))],
-            [KeyboardButton(text="⬅️ Назад")],
+            [KeyboardButton(text=mark("255", "📍 External Spool (VT)" if is_en else "📍 Зовнішній котушкотримач (VT)"))],
+            [KeyboardButton(text=t("btn_back", lang))],
         ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 

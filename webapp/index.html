@@ -44,13 +44,13 @@
             <!-- TAB 1: PRINTERS DASHBOARD -->
             <section id="tab-printers" class="tab-page active">
                 <div class="section-header">
-                    <h2><i class="fa-solid fa-print"></i> Стан ферми</h2>
+                    <h2><i class="fa-solid fa-print"></i> <span data-i18n="farm_status_title">Стан ферми</span></h2>
                     <div class="d-flex gap-2 align-items-center">
                         <button id="add-printer-btn" class="btn btn-primary btn-sm">
-                            <i class="fa-solid fa-plus"></i> Додати принтер
+                            <i class="fa-solid fa-plus"></i> <span data-i18n="add_printer_btn">Додати принтер</span>
                         </button>
                         <span id="active-badge" class="badge badge-active">
-                            <i class="fa-solid fa-circle-dot"></i> <span id="active-count">0/0</span> активні
+                            <i class="fa-solid fa-circle-dot"></i> <span id="active-count">0/0</span> <span data-i18n="active_label">активні</span>
                         </span>
                     </div>
                 </div>
@@ -61,17 +61,17 @@
                         <button id="clear-search-btn" class="search-clear-btn" style="display: none;" title="Очистити"><i class="fa-solid fa-circle-xmark"></i></button>
                     </div>
                     <div class="filter-pills mt-2">
-                        <button class="pill-btn active" data-filter="all">Всі <span id="count-filter-all" class="pill-badge">0</span></button>
-                        <button class="pill-btn" data-filter="RUNNING">Друк 🟢 <span id="count-filter-running" class="pill-badge">0</span></button>
-                        <button class="pill-btn" data-filter="IDLE">Готовий ⚪ <span id="count-filter-idle" class="pill-badge">0</span></button>
-                        <button class="pill-btn" data-filter="OFFLINE">Офлайн 🔴 <span id="count-filter-offline" class="pill-badge">0</span></button>
+                        <button class="pill-btn active" data-filter="all"><span data-i18n="filter_all">Всі</span> <span id="count-filter-all" class="pill-badge">0</span></button>
+                        <button class="pill-btn" data-filter="RUNNING"><span data-i18n="filter_running">Друк 🟢</span> <span id="count-filter-running" class="pill-badge">0</span></button>
+                        <button class="pill-btn" data-filter="IDLE"><span data-i18n="filter_idle">Готовий ⚪</span> <span id="count-filter-idle" class="pill-badge">0</span></button>
+                        <button class="pill-btn" data-filter="OFFLINE"><span data-i18n="filter_offline">Офлайн 🔴</span> <span id="count-filter-offline" class="pill-badge">0</span></button>
                     </div>
                 </div>
                 <div id="printers-grid" class="printers-grid">
                     <!-- Dynamic Printer Cards inserted here -->
                     <div class="loading-spinner">
                         <i class="fa-solid fa-circle-notch fa-spin"></i>
-                        <p>Завантаження принтерів...</p>
+                        <p data-i18n="loading_printers">Завантаження принтерів...</p>
                     </div>
                 </div>
             </section>
@@ -79,29 +79,29 @@
             <!-- TAB 2: COMMERCIAL PRICING CALCULATOR -->
             <section id="tab-commercial" class="tab-page">
                 <div class="section-header">
-                    <h2><i class="fa-solid fa-calculator"></i> Комерція & Калькулятор</h2>
+                    <h2><i class="fa-solid fa-calculator"></i> <span data-i18n="commercial_title">Комерція & Калькулятор</span></h2>
                     <button id="add-preset-btn" class="btn btn-primary btn-sm">
-                        <i class="fa-solid fa-plus"></i> Новий пресет
+                        <i class="fa-solid fa-plus"></i> <span data-i18n="new_preset_btn">Новий пресет</span>
                     </button>
                 </div>
 
                 <!-- Calculator Card -->
                 <div class="glass-card mb-4">
-                    <h3><i class="fa-solid fa-coins color-orange"></i> Розрахунок вартості друку</h3>
+                    <h3><i class="fa-solid fa-coins color-orange"></i> <span data-i18n="calc_cost_title">Розрахунок вартості друку</span></h3>
                     <form id="comm-calc-form">
                         <div class="form-group">
-                            <label>Пресет ціноутворення</label>
+                            <label data-i18n="pricing_preset_label">Пресет ціноутворення</label>
                             <select id="calc-preset-select" class="form-control">
-                                <option value="">Завантаження пресетів...</option>
+                                <option value="" data-i18n="loading_presets">Завантаження пресетів...</option>
                             </select>
                         </div>
                         <div class="form-row">
                             <div class="form-group col">
-                                <label>Вага нитки (г)</label>
+                                <label data-i18n="filament_weight_g_label">Вага нитки (г)</label>
                                 <input type="number" id="calc-weight-g" class="form-control" value="100" min="1" step="1">
                             </div>
                             <div class="form-group col">
-                                <label>Час друку (хв)</label>
+                                <label data-i18n="print_time_mins_label">Час друку (хв)</label>
                                 <input type="number" id="calc-time-mins" class="form-control" value="120" min="1" step="5">
                             </div>
                         </div>
@@ -110,32 +110,32 @@
                     <!-- Breakdown Output Box -->
                     <div id="calc-result-box" class="calc-result-box mt-3">
                         <div class="result-header">
-                            <span>Підсумкова комерційна ціна:</span>
+                            <span data-i18n="total_commercial_price_label">Підсумкова комерційна ціна:</span>
                             <strong id="res-total-price" class="total-price-badge">0.00 ₴</strong>
                         </div>
                         <div class="result-details-grid mt-2">
                             <div class="res-item">
-                                <small>Пластик</small>
+                                <small data-i18n="item_filament">Пластик</small>
                                 <strong id="res-filament-cost">0.00 ₴</strong>
                             </div>
                             <div class="res-item">
-                                <small>Електроенергія</small>
+                                <small data-i18n="item_electricity">Електроенергія</small>
                                 <strong id="res-elec-cost">0.00 ₴</strong>
                             </div>
                             <div class="res-item">
-                                <small>Амортизація</small>
+                                <small data-i18n="item_depreciation">Амортизація</small>
                                 <strong id="res-depr-cost">0.00 ₴</strong>
                             </div>
                             <div class="res-item">
-                                <small>Витратні матеріали</small>
+                                <small data-i18n="item_consumables">Витратні матеріали</small>
                                 <strong id="res-cons-cost">0.00 ₴</strong>
                             </div>
                             <div class="res-item highlight">
-                                <small>Собівартість</small>
+                                <small data-i18n="item_prime_cost">Собівартість</small>
                                 <strong id="res-direct-cost">0.00 ₴</strong>
                             </div>
                             <div class="res-item highlight">
-                                <small>Прибуток (Маржа)</small>
+                                <small data-i18n="item_margin">Прибуток (Маржа)</small>
                                 <strong id="res-profit-cost">0.00 ₴</strong>
                             </div>
                         </div>
@@ -144,7 +144,7 @@
 
                 <!-- Presets Management Card -->
                 <div class="glass-card">
-                    <h3><i class="fa-solid fa-list-check"></i> Наявні пресети ціноутворення</h3>
+                    <h3><i class="fa-solid fa-list-check"></i> <span data-i18n="existing_presets_title">Наявні пресети ціноутворення</span></h3>
                     <div id="presets-list" class="spools-list">
                         <!-- Dynamic Presets -->
                     </div>
@@ -154,15 +154,15 @@
             <!-- TAB 3: SPOOLS WAREHOUSE -->
             <section id="tab-materials" class="tab-page">
                 <div class="section-header">
-                    <h2><i class="fa-solid fa-boxes-packing"></i> Склад пластику</h2>
+                    <h2><i class="fa-solid fa-boxes-packing"></i> <span data-i18n="materials_stock_title">Склад пластику</span></h2>
                     <button id="add-spool-btn" class="btn btn-primary btn-sm">
-                        <i class="fa-solid fa-plus"></i> Нова котушка
+                        <i class="fa-solid fa-plus"></i> <span data-i18n="new_spool_btn">Нова котушка</span>
                     </button>
                 </div>
 
                 <!-- Spool Inventory -->
                 <div class="glass-card">
-                    <h3><i class="fa-solid fa-cubes-stacked"></i> Склад котушок</h3>
+                    <h3><i class="fa-solid fa-cubes-stacked"></i> <span data-i18n="spools_warehouse_title">Склад котушок</span></h3>
                     <div id="spools-list" class="spools-list">
                         <!-- Dynamic Spools -->
                     </div>
@@ -172,16 +172,16 @@
             <!-- TAB 4: HISTORY & ANALYTICS -->
             <section id="tab-history" class="tab-page">
                 <div class="section-header">
-                    <h2><i class="fa-solid fa-chart-pie"></i> Аналітика & Історія</h2>
+                    <h2><i class="fa-solid fa-chart-pie"></i> <span data-i18n="history_title">Аналітика & Історія</span></h2>
                     <div class="d-flex gap-2">
                         <button id="btn-refresh-history" class="btn btn-outline btn-sm">
-                            <i class="fa-solid fa-rotate"></i> Оновити
+                            <i class="fa-solid fa-rotate"></i> <span data-i18n="refresh_btn">Оновити</span>
                         </button>
                         <button id="btn-clear-history" class="btn btn-outline-danger btn-sm">
-                            <i class="fa-solid fa-trash"></i> Очистити
+                            <i class="fa-solid fa-trash"></i> <span data-i18n="clear_btn">Очистити</span>
                         </button>
                         <a href="/api/history/export" id="btn-export-history" class="btn btn-primary btn-sm" download>
-                            <i class="fa-solid fa-file-csv"></i> Звіт (CSV)
+                            <i class="fa-solid fa-file-csv"></i> <span data-i18n="export_csv_btn">Звіт (CSV)</span>
                         </a>
                     </div>
                 </div>
@@ -191,14 +191,14 @@
                     <div class="stat-card">
                         <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
                         <div class="stat-info">
-                            <span class="stat-label">Всього друків</span>
+                            <span class="stat-label" data-i18n="total_jobs_label">Всього друків</span>
                             <span id="stat-total-jobs" class="stat-value">0</span>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon"><i class="fa-solid fa-weight-hanging"></i></div>
                         <div class="stat-info">
-                            <span class="stat-label">Витрачено нитки</span>
+                            <span class="stat-label" data-i18n="total_filament_label">Витрачено нитки</span>
                             <span id="stat-total-weight" class="stat-value">0 kg</span>
                         </div>
                     </div>
@@ -206,20 +206,20 @@
 
                 <!-- History Table -->
                 <div class="glass-card mt-4">
-                    <h3>Журнал виконаних робіт</h3>
+                    <h3><span data-i18n="completed_jobs_log">Журнал виконаних робіт</span></h3>
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>Дата</th>
-                                    <th>Принтер</th>
-                                    <th>Модель</th>
-                                    <th>Вага (г)</th>
+                                    <th data-i18n="th_date">Дата</th>
+                                    <th data-i18n="th_printer">Принтер</th>
+                                    <th data-i18n="th_model">Модель</th>
+                                    <th data-i18n="th_weight_g">Вага (г)</th>
                                     <th style="width: 40px;"></th>
                                 </tr>
                             </thead>
                             <tbody id="history-table-body">
-                                <tr><td colspan="5" class="text-center">Немає записів історії</td></tr>
+                                <tr><td colspan="5" class="text-center" data-i18n="no_history_records">Немає записів історії</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -229,35 +229,35 @@
             <!-- TAB 5: SETTINGS & SYSTEM -->
             <section id="tab-settings" class="tab-page">
                 <div class="section-header">
-                    <h2><i class="fa-solid fa-sliders"></i> Налаштування та сповіщення</h2>
+                    <h2><i class="fa-solid fa-sliders"></i> <span data-i18n="settings_title">Налаштування та сповіщення</span></h2>
                 </div>
 
                 <!-- 1. Notification Settings Card -->
                 <div class="glass-card mb-4">
-                    <h3><i class="fa-solid fa-bell color-orange"></i> Повноцінні налаштування сповіщень</h3>
+                    <h3><i class="fa-solid fa-bell color-orange"></i> <span data-i18n="notification_settings_card">Повноцінні налаштування сповіщень</span></h3>
                     <div class="settings-group">
                         <label class="switch-row">
-                            <span><i class="fa-solid fa-play color-green"></i> Сповіщення про початок друку</span>
+                            <span><i class="fa-solid fa-play color-green"></i> <span data-i18n="notify_start_label">Сповіщення про початок друку</span></span>
                             <input type="checkbox" id="setting-notify-start" checked>
                             <span class="slider"></span>
                         </label>
                         <label class="switch-row">
-                            <span><i class="fa-solid fa-flag-checkered color-blue"></i> Сповіщення про завершення друку</span>
+                            <span><i class="fa-solid fa-flag-checkered color-blue"></i> <span data-i18n="notify_finish_label">Сповіщення про завершення друку</span></span>
                             <input type="checkbox" id="setting-notify-finish" checked>
                             <span class="slider"></span>
                         </label>
                         <label class="switch-row">
-                            <span><i class="fa-solid fa-pause color-amber"></i> Сповіщення про паузу друку</span>
+                            <span><i class="fa-solid fa-pause color-amber"></i> <span data-i18n="notify_pause_label">Сповіщення про паузу друку</span></span>
                             <input type="checkbox" id="setting-notify-pause" checked>
                             <span class="slider"></span>
                         </label>
                         <label class="switch-row">
-                            <span><i class="fa-solid fa-triangle-exclamation color-red"></i> HMS Помилки та тривоги</span>
+                            <span><i class="fa-solid fa-triangle-exclamation color-red"></i> <span data-i18n="notify_hms_label">HMS Помилки та тривоги</span></span>
                             <input type="checkbox" id="setting-notify-hms" checked>
                             <span class="slider"></span>
                         </label>
                         <label class="switch-row">
-                            <span><i class="fa-solid fa-hand-holding-hand color-purple"></i> Нагадування зняти деталь з підкладки</span>
+                            <span><i class="fa-solid fa-hand-holding-hand color-purple"></i> <span data-i18n="notify_remind_clear_label">Нагадування зняти деталь з підкладки</span></span>
                             <input type="checkbox" id="setting-notify-remind-clear" checked>
                             <span class="slider"></span>
                         </label>
@@ -265,21 +265,21 @@
 
                     <div class="form-row mt-3">
                         <div class="form-group col">
-                            <label><i class="fa-solid fa-hourglass-half"></i> Сповіщення за N хв до кінця</label>
+                            <label><i class="fa-solid fa-hourglass-half"></i> <span data-i18n="notify_before_end_label">Сповіщення за N хв до кінця</span></label>
                             <select id="setting-notify-min-time" class="form-control">
-                                <option value="0">❌ Вимкнути таймер</option>
-                                <option value="5">⏳ 5 хвилин до кінця</option>
-                                <option value="10">⏳ 10 хвилин до кінця</option>
-                                <option value="15">⏳ 15 хвилин до кінця</option>
+                                <option value="0" data-i18n="opt_timer_off">❌ Вимкнути таймер</option>
+                                <option value="5" data-i18n="opt_timer_5">⏳ 5 хвилин до кінця</option>
+                                <option value="10" data-i18n="opt_timer_10">⏳ 10 хвилин до кінця</option>
+                                <option value="15" data-i18n="opt_timer_15">⏳ 15 хвилин до кінця</option>
                             </select>
                         </div>
                         <div class="form-group col">
                             <label><i class="fa-solid fa-weight-hanging"></i> <span data-i18n="notify_filament_threshold">Поріг залишку нитки</span></label>
                             <select id="setting-notify-min-filament" class="form-control">
-                                <option value="0">❌ Вимкнути ліміт</option>
-                                <option value="50">📦 Менше 50г</option>
-                                <option value="100">📦 Менше 100г</option>
-                                <option value="200">📦 Менше 200г</option>
+                                <option value="0" data-i18n="opt_limit_off">❌ Вимкнути ліміт</option>
+                                <option value="50" data-i18n="opt_limit_50">📦 Менше 50г</option>
+                                <option value="100" data-i18n="opt_limit_100">📦 Менше 100г</option>
+                                <option value="200" data-i18n="opt_limit_200">📦 Менше 200г</option>
                             </select>
                         </div>
                         <div class="form-group col">
@@ -298,20 +298,20 @@
 
                 <!-- 2. Admin User Access Control Card -->
                 <div id="admin-users-card" class="glass-card mb-4">
-                    <h3><i class="fa-solid fa-users-gear color-blue"></i> Управління доступом користувачів (Адмінка)</h3>
+                    <h3><i class="fa-solid fa-users-gear color-blue"></i> <span data-i18n="user_access_control_title">Управління доступом користувачів (Адмінка)</span></h3>
                     <div class="table-responsive mt-2">
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>Користувач</th>
+                                    <th data-i18n="th_user">Користувач</th>
                                     <th>ID</th>
-                                    <th>Роль</th>
-                                    <th>Статус доступу</th>
-                                    <th>Дії</th>
+                                    <th data-i18n="th_role">Роль</th>
+                                    <th data-i18n="th_access_status">Статус доступу</th>
+                                    <th data-i18n="th_actions">Дії</th>
                                 </tr>
                             </thead>
                             <tbody id="users-table-body">
-                                <tr><td colspan="5" class="text-center">Завантаження користувачів...</td></tr>
+                                <tr><td colspan="5" class="text-center" data-i18n="loading_users">Завантаження користувачів...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -319,19 +319,19 @@
 
                 <!-- 3. System Status Card -->
                 <div class="glass-card">
-                    <h3><i class="fa-solid fa-server"></i> Стан сервера та ферми</h3>
+                    <h3><i class="fa-solid fa-server"></i> <span data-i18n="server_farm_status_title">Стан сервера та ферми</span></h3>
                     <div class="info-list">
                         <div class="info-item">
-                            <span>Час безвідмовної роботи:</span>
+                            <span data-i18n="sys_uptime_label">Час безвідмовної роботи:</span>
                             <strong id="sys-uptime">-</strong>
                         </div>
                         <div class="info-item">
-                            <span>Підключені принтери:</span>
+                            <span data-i18n="connected_printers_label">Підключені принтери:</span>
                             <strong id="sys-printers-count">0</strong>
                         </div>
                         <div class="info-item">
-                            <span>REST API Статус:</span>
-                            <span class="badge badge-success"><i class="fa-solid fa-check"></i> Активний</span>
+                            <span data-i18n="rest_api_status_label">REST API Статус:</span>
+                            <span class="badge badge-success"><i class="fa-solid fa-check"></i> <span data-i18n="status_active">Активний</span></span>
                         </div>
                     </div>
                 </div>
@@ -696,23 +696,23 @@
         <nav class="app-nav">
             <button class="nav-btn active" data-tab="tab-printers">
                 <i class="fa-solid fa-print"></i>
-                <span>Принтери</span>
+                <span data-i18n="nav_printers">Принтери</span>
             </button>
             <button class="nav-btn" data-tab="tab-commercial">
                 <i class="fa-solid fa-calculator"></i>
-                <span>Комерція</span>
+                <span data-i18n="nav_commercial">Комерція</span>
             </button>
             <button class="nav-btn" data-tab="tab-materials">
                 <i class="fa-solid fa-boxes-packing"></i>
-                <span>Склад</span>
+                <span data-i18n="nav_materials">Склад</span>
             </button>
             <button class="nav-btn" data-tab="tab-history">
                 <i class="fa-solid fa-chart-pie"></i>
-                <span>Історія</span>
+                <span data-i18n="nav_history">Історія</span>
             </button>
             <button class="nav-btn" data-tab="tab-settings">
                 <i class="fa-solid fa-sliders"></i>
-                <span>Налаштування</span>
+                <span data-i18n="nav_settings">Налаштування</span>
             </button>
         </nav>
     </div>

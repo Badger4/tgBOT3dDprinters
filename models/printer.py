@@ -105,6 +105,7 @@ class BambuPrinter:
         self._history_recorded = False
         self._current_job_grams = 0.0
         self._job_deducted = False
+        self._is_calibrating = False
         self.last_job_grams = 0.0
         self._ftps_fetching = False
         self._ftps_attempted = False
@@ -418,6 +419,37 @@ class BambuPrinter:
             if filament:
                 self.filament_type = filament
 
+            # Subtask change & calibration tracking
+            curr_subtask = str(self.subtask_name or "").strip()
+            is_calib_name = any(k in curr_subtask.lower() for k in ["calib", "g32", "calibration"])
+            if is_calib_name:
+                self._is_calibrating = True
+
+            if getattr(self, "_is_calibrating", False):
+                self._job_deducted = True
+                self._current_job_grams = 0.0
+
+            if curr_subtask and curr_subtask != getattr(self, "_last_subtask_name", ""):
+                if getattr(self, "_last_subtask_name", "") != "":
+                    if not getattr(self, "_is_calibrating", False):
+                        logger.info(
+                            f"🔄 Subtask changed for [{self.name}]: '{getattr(self, '_last_subtask_name', '')}' -> '{curr_subtask}'. Resetting job weight."
+                        )
+                        self._current_job_grams = 0.0
+                        self._job_deducted = False
+                self._last_subtask_name = curr_subtask
+
+            if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]:
+                if not self._is_printing:
+                    self._is_printing = True
+                    if not getattr(self, "_job_started_from_app", False) and not getattr(self, "_is_calibrating", False):
+                        self._current_job_grams = 0.0
+                        self._job_deducted = False
+                self._was_running = True
+                self._history_recorded = False
+                if getattr(self, "job_start_time", 0.0) == 0.0:
+                    self.job_start_time = time.time()
+
             # Always sync active slot weight to printer's main filament_grams property
             self.filament_grams = self.get_slot_grams()
 
@@ -466,27 +498,8 @@ class BambuPrinter:
                     self._last_ftps_time = now_ts
                     self._try_ftps_fetch()
 
-            # Subtask change tracking
-            curr_subtask = str(self.subtask_name or "").strip()
-            if curr_subtask and curr_subtask != getattr(self, "_last_subtask_name", ""):
-                if getattr(self, "_last_subtask_name", "") != "":
-                    logger.info(f"🔄 Subtask changed for [{self.name}]: '{getattr(self, '_last_subtask_name', '')}' -> '{curr_subtask}'. Resetting job weight.")
-                    self._current_job_grams = 0.0
-                    self._job_deducted = False
-                self._last_subtask_name = curr_subtask
-
             if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]:
-                if not self._is_printing:
-                    self._is_printing = True
-                    if not getattr(self, "_job_started_from_app", False):
-                        self._current_job_grams = 0.0
-                        self._job_deducted = False
-                self._was_running = True
-                self._history_recorded = False
-                if getattr(self, "job_start_time", 0.0) == 0.0:
-                    self.job_start_time = time.time()
-
-                if self._current_job_grams > 0 and not self._job_deducted:
+                if not getattr(self, "_is_calibrating", False) and self._current_job_grams > 0 and not self._job_deducted:
                     active_key = self.get_active_slot_key()
                     old_w = self.get_slot_grams(active_key)
                     new_w = max(0.0, round(old_w - self._current_job_grams, 2))
@@ -499,6 +512,10 @@ class BambuPrinter:
                     self._trigger_save()
 
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
+                if getattr(self, "_is_calibrating", False):
+                    self._job_deducted = True
+                    self._current_job_grams = 0.0
+                    self._is_calibrating = False
                 was_active = (
                     self._is_printing
                     or getattr(self, "_was_running", False)
@@ -691,6 +708,10 @@ class BambuPrinter:
         """
         if not self._client or not self._client.is_connected():
             return False
+
+        self._is_calibrating = True
+        self._job_deducted = True
+        self._current_job_grams = 0.0
 
         # 1. Native Bambu Lab calibration command (Option 63 = Full Calibration)
         payload_cal = json.dumps(

@@ -100,6 +100,66 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "uk": "🗑️ Видалити принтер",
         "en": "🗑️ Delete Printer",
     },
+    "btn_add_printer": {
+        "uk": "➕ Додати принтер",
+        "en": "➕ Add Printer",
+    },
+    "btn_main_menu": {
+        "uk": "Головне меню",
+        "en": "Main Menu",
+    },
+    "btn_back_to_printers": {
+        "uk": "🖨️ Назад до принтерів",
+        "en": "🖨️ Back to Printers",
+    },
+    "btn_speed": {
+        "uk": "⚡ Швидкість",
+        "en": "⚡ Speed",
+    },
+    "btn_light": {
+        "uk": "💡 Підсвітка",
+        "en": "💡 Light",
+    },
+    "btn_stop_print": {
+        "uk": "⏹️ Зупинити друк",
+        "en": "⏹️ Stop Print",
+    },
+    "btn_pause_print": {
+        "uk": "⏸️ Пауза",
+        "en": "⏸️ Pause",
+    },
+    "btn_resume_print": {
+        "uk": "▶️ Відновити друк",
+        "en": "▶️ Resume Print",
+    },
+    "btn_users": {
+        "uk": "👥 Користувачі",
+        "en": "👥 Users",
+    },
+    "btn_new_users": {
+        "uk": "🆕 Нові користувачі",
+        "en": "🆕 New Users",
+    },
+    "btn_quick_calc": {
+        "uk": "🧮 Швидкий розрахунок ціни",
+        "en": "🧮 Quick Price Calculation",
+    },
+    "btn_create_preset": {
+        "uk": "➕ Створити пресет",
+        "en": "➕ Create Preset",
+    },
+    "btn_copy_preset": {
+        "uk": "📋 Копіювати пресет",
+        "en": "📋 Copy Preset",
+    },
+    "btn_edit_preset": {
+        "uk": "✏️ Редагувати пресет",
+        "en": "✏️ Edit Preset",
+    },
+    "btn_delete_preset": {
+        "uk": "🗑️ Видалити пресет",
+        "en": "🗑️ Delete Preset",
+    },
     "btn_language": {
         "uk": "🌐 Мова / Language",
         "en": "🌐 Language / Мова",

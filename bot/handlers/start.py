@@ -33,13 +33,14 @@ async def cmd_start(message: Message, app):
         return
 
     is_adm = await app.is_user_admin(chat_id)
+    u_lang = user.get("language", "uk")
     await message.answer(
-        "🤖 *Головне меню 3D Ферми*\nХ-хмпф! Обирай розділ або відкривай WebApp! 😤💅",
+        "🤖 *Головне меню 3D Ферми*\nОбирай розділ або відкривай WebApp! 🚀" if u_lang != "en" else "🤖 *3D Farm Main Menu*\nSelect a section or open WebApp! 🚀",
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=get_main_keyboard(is_adm),
+        reply_markup=get_main_keyboard(is_adm, lang=u_lang),
     )
     await message.answer(
-        "📱 **Інтерактивний WebApp Дашборд:**", parse_mode=ParseMode.MARKDOWN, reply_markup=get_webapp_inline_keyboard()
+        "📱 **Інтерактивний WebApp Дашборд:**" if u_lang != "en" else "📱 **Interactive WebApp Dashboard:**", parse_mode=ParseMode.MARKDOWN, reply_markup=get_webapp_inline_keyboard()
     )
 
 
