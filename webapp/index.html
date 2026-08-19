@@ -57,7 +57,8 @@
                 <div class="fleet-controls mb-3">
                     <div class="search-box">
                         <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        <input type="text" id="printer-search-input" class="form-control search-input" placeholder="Пошук принтера за назвою або моделлю...">
+                        <input type="search" id="printer-search-input" class="form-control search-input" placeholder="Пошук принтера за назвою, IP або файлом..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="search" enterkeyhint="search">
+                        <button id="clear-search-btn" class="search-clear-btn" style="display: none;" title="Очистити"><i class="fa-solid fa-circle-xmark"></i></button>
                     </div>
                     <div class="filter-pills mt-2">
                         <button class="pill-btn active" data-filter="all">Всі <span id="count-filter-all" class="pill-badge">0</span></button>
@@ -236,35 +237,89 @@
             <!-- TAB 5: SETTINGS & SYSTEM -->
             <section id="tab-settings" class="tab-page">
                 <div class="section-header">
-                    <h2><i class="fa-solid fa-sliders"></i> Налаштування</h2>
+                    <h2><i class="fa-solid fa-sliders"></i> Налаштування та сповіщення</h2>
                 </div>
 
+                <!-- 1. Notification Settings Card -->
                 <div class="glass-card mb-4">
-                    <h3><i class="fa-solid fa-bell"></i> Глобальні сповіщення</h3>
+                    <h3><i class="fa-solid fa-bell color-orange"></i> Повноцінні налаштування сповіщень</h3>
                     <div class="settings-group">
                         <label class="switch-row">
-                            <span><i class="fa-solid fa-play"></i> Сповіщення про початок друку</span>
+                            <span><i class="fa-solid fa-play color-green"></i> Сповіщення про початок друку</span>
                             <input type="checkbox" id="setting-notify-start" checked>
                             <span class="slider"></span>
                         </label>
                         <label class="switch-row">
-                            <span><i class="fa-solid fa-flag-checkered"></i> Сповіщення про завершення</span>
+                            <span><i class="fa-solid fa-flag-checkered color-blue"></i> Сповіщення про завершення друку</span>
                             <input type="checkbox" id="setting-notify-finish" checked>
                             <span class="slider"></span>
                         </label>
                         <label class="switch-row">
-                            <span><i class="fa-solid fa-pause"></i> Сповіщення про паузу / помилки</span>
+                            <span><i class="fa-solid fa-pause color-amber"></i> Сповіщення про паузу друку</span>
                             <input type="checkbox" id="setting-notify-pause" checked>
                             <span class="slider"></span>
                         </label>
+                        <label class="switch-row">
+                            <span><i class="fa-solid fa-triangle-exclamation color-red"></i> HMS Помилки та тривоги</span>
+                            <input type="checkbox" id="setting-notify-hms" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <label class="switch-row">
+                            <span><i class="fa-solid fa-hand-holding-hand color-purple"></i> Нагадування зняти деталь з підкладки</span>
+                            <input type="checkbox" id="setting-notify-remind-clear" checked>
+                            <span class="slider"></span>
+                        </label>
                     </div>
-                    <button id="save-settings-btn" class="btn btn-primary mt-3">
-                        <i class="fa-solid fa-floppy-disk"></i> Зберегти налаштування
+
+                    <div class="form-row mt-3">
+                        <div class="form-group col">
+                            <label><i class="fa-solid fa-hourglass-half"></i> Сповіщення за N хв до кінця</label>
+                            <select id="setting-notify-min-time" class="form-control">
+                                <option value="0">❌ Вимкнути таймер</option>
+                                <option value="5">⏳ 5 хвилин до кінця</option>
+                                <option value="10">⏳ 10 хвилин до кінця</option>
+                                <option value="15">⏳ 15 хвилин до кінця</option>
+                            </select>
+                        </div>
+                        <div class="form-group col">
+                            <label><i class="fa-solid fa-weight-hanging"></i> Поріг залишку нитки</label>
+                            <select id="setting-notify-min-filament" class="form-control">
+                                <option value="0">❌ Вимкнути ліміт</option>
+                                <option value="50">📦 Менше 50г</option>
+                                <option value="100">📦 Менше 100г</option>
+                                <option value="200">📦 Менше 200г</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button id="save-settings-btn" class="btn btn-primary mt-3 w-100">
+                        <i class="fa-solid fa-floppy-disk"></i> Зберегти налаштування сповіщень
                     </button>
                 </div>
 
+                <!-- 2. Admin User Access Control Card -->
+                <div id="admin-users-card" class="glass-card mb-4">
+                    <h3><i class="fa-solid fa-users-gear color-blue"></i> Управління доступом користувачів (Адмінка)</h3>
+                    <div class="table-responsive mt-2">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID Користувача</th>
+                                    <th>Роль</th>
+                                    <th>Статус доступу</th>
+                                    <th>Дії</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body">
+                                <tr><td colspan="4" class="text-center">Завантаження користувачів...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 3. System Status Card -->
                 <div class="glass-card">
-                    <h3><i class="fa-solid fa-server"></i> Стан сервера</h3>
+                    <h3><i class="fa-solid fa-server"></i> Стан сервера та ферми</h3>
                     <div class="info-list">
                         <div class="info-item">
                             <span>Час безвідмовної роботи:</span>

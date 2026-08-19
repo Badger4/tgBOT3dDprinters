@@ -419,7 +419,7 @@ async def handle_printer_states(message: Message, app):
         new_p_data["notify"] = True
 
         p_obj = BambuPrinter(new_p_data, app.storage, save_callback=app.save_printers_config)
-        p_obj.init_mqtt()
+        p_obj.init_mqtt(asyncio.get_running_loop())
         app.printers[p_obj.id] = p_obj
         await app.save_printers_config()
 

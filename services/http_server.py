@@ -30,10 +30,14 @@ from services.http.routes_settings import (
     handle_get_history,
     handle_get_presets,
     handle_get_settings,
+    handle_get_user_settings,
+    handle_get_users,
     handle_health,
     handle_save_preset,
     handle_serve_index,
     handle_update_settings,
+    handle_update_user_access,
+    handle_update_user_settings,
     load_commercial_presets,
 )
 from services.http.routes_spools import handle_delete_spool, handle_get_spools, handle_save_spool
@@ -97,6 +101,10 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_get("/api/history/export", handle_export_history_csv)
     web_app.router.add_get("/api/settings", handle_get_settings)
     web_app.router.add_post("/api/settings", handle_update_settings)
+    web_app.router.add_get("/api/user/settings", handle_get_user_settings)
+    web_app.router.add_post("/api/user/settings", handle_update_user_settings)
+    web_app.router.add_get("/api/users", handle_get_users)
+    web_app.router.add_post("/api/users/access", handle_update_user_access)
 
     return web_app
 

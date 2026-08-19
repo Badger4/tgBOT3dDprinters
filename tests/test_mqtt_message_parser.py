@@ -23,6 +23,25 @@ class TestMQTTMessageParser(unittest.TestCase):
                     "subtask_name": "gear_150g.gcode",
                     "spd_lvl": "2",
                     "spd_mag": "100",
+                    "nozzle_target_temper": "220.0",
+                    "bed_target_temper": "60.0",
+                    "chamber_temper": "35.0",
+                    "wifi_signal": "-48dBm",
+                    "xcam": {
+                        "spaghetti_detector": True,
+                        "first_layer_inspector": True,
+                        "printing_monitor": True,
+                        "print_halt": True
+                    },
+                    "upgrade_state": {
+                        "new_version_state": 1,
+                        "ota_new_version_number": "01.08.00.00",
+                        "force_upgrade": False
+                    },
+                    "upload": {
+                        "status": "running",
+                        "progress": 85
+                    },
                     "lights_report": [{"node": "chamber_light", "mode": "on"}],
                     "hms": [{"code": 1001, "attr": 1}],
                     "ams": {
@@ -39,6 +58,7 @@ class TestMQTTMessageParser(unittest.TestCase):
                                         "tray_color": "FF0000FF",
                                         "tray_type": "PLA",
                                         "remain": 80,
+                                        "tag_uid": "ABC123XYZ",
                                     }
                                 ],
                             }
@@ -53,7 +73,14 @@ class TestMQTTMessageParser(unittest.TestCase):
         assert parsed is not None
         self.assertEqual(parsed["gcode_state"], "RUNNING")
         self.assertEqual(parsed["nozzle_temper"], 215)
+        self.assertEqual(parsed["nozzle_target_temper"], 220)
         self.assertEqual(parsed["bed_temper"], 60)
+        self.assertEqual(parsed["bed_target_temper"], 60)
+        self.assertEqual(parsed["chamber_temper"], 35)
+        self.assertEqual(parsed["wifi_signal"], "-48dBm")
+        self.assertTrue(parsed["xcam_info"]["spaghetti_detector"])
+        self.assertEqual(parsed["upgrade_state"]["ota_new_version_number"], "01.08.00.00")
+        self.assertEqual(parsed["upload_info"]["progress"], 85)
         self.assertEqual(parsed["mc_percent"], 45)
         self.assertEqual(parsed["mc_remaining_time"], 120)
         self.assertEqual(parsed["layer_num"], 12)
@@ -63,6 +90,7 @@ class TestMQTTMessageParser(unittest.TestCase):
         self.assertEqual(parsed["hms_errors"], [{"code": 1001, "attr": 1}])
         self.assertEqual(parsed["ams_trays_info"]["1"]["color"], "#FF0000")
         self.assertEqual(parsed["ams_trays_info"]["1"]["type"], "PLA")
+        self.assertEqual(parsed["ams_trays_info"]["1"]["tag_uid"], "ABC123XYZ")
 
     def test_parse_mqtt_payload_invalid_inputs(self) -> None:
         self.assertIsNone(parse_mqtt_payload(b"invalid json"))

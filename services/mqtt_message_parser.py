@@ -79,8 +79,62 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
         except (ValueError, TypeError):
             pass
 
-    if "subtask_name" in print_data and print_data["subtask_name"] is not None:
-        result["subtask_name"] = str(print_data["subtask_name"])
+    raw_subtask = str(print_data.get("subtask_name") or "").strip()
+    gcode_file = str(print_data.get("gcode_file") or print_data.get("gcode_file_prepare") or print_data.get("title") or "").strip()
+    if (not raw_subtask or raw_subtask.lower() in ["untitled", "none", "null", "3d_model.3mf", "model.gcode"]) and gcode_file:
+        raw_subtask = gcode_file
+
+    if raw_subtask:
+        clean_name = raw_subtask.replace("\\", "/").split("/")[-1]
+        result["subtask_name"] = clean_name
+
+    if "nozzle_target_temper" in print_data and print_data["nozzle_target_temper"] is not None:
+        try:
+            result["nozzle_target_temper"] = round(float(print_data["nozzle_target_temper"]))
+        except (ValueError, TypeError):
+            pass
+
+    if "bed_target_temper" in print_data and print_data["bed_target_temper"] is not None:
+        try:
+            result["bed_target_temper"] = round(float(print_data["bed_target_temper"]))
+        except (ValueError, TypeError):
+            pass
+
+    if "chamber_temper" in print_data and print_data["chamber_temper"] is not None:
+        try:
+            result["chamber_temper"] = round(float(print_data["chamber_temper"]))
+        except (ValueError, TypeError):
+            pass
+
+    if "wifi_signal" in print_data and print_data["wifi_signal"] is not None:
+        result["wifi_signal"] = str(print_data["wifi_signal"]).strip()
+
+    if "gcode_start_time" in print_data and print_data["gcode_start_time"] is not None:
+        try:
+            result["gcode_start_time"] = int(print_data["gcode_start_time"])
+        except (ValueError, TypeError):
+            pass
+
+    if "print_error" in print_data and print_data["print_error"] is not None:
+        try:
+            result["print_error"] = int(print_data["print_error"])
+        except (ValueError, TypeError):
+            pass
+
+    if "mc_print_error_code" in print_data and print_data["mc_print_error_code"]:
+        result["mc_print_error_code"] = str(print_data["mc_print_error_code"])
+
+    if "fail_reason" in print_data and print_data["fail_reason"]:
+        result["fail_reason"] = str(print_data["fail_reason"])
+
+    if "hw_switch_state" in print_data and print_data["hw_switch_state"] is not None:
+        try:
+            result["hw_switch_state"] = int(print_data["hw_switch_state"])
+        except (ValueError, TypeError):
+            pass
+
+    if "nozzle_diameter" in print_data and print_data["nozzle_diameter"] is not None:
+        result["nozzle_diameter"] = str(print_data["nozzle_diameter"]).strip()
 
     if "spd_lvl" in print_data and print_data["spd_lvl"] is not None:
         try:
@@ -106,6 +160,13 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
         ams_info = print_data["ams"]
         if "ams_exist_bits" in ams_info:
             result["ams_exist_bits"] = str(ams_info["ams_exist_bits"])
+        if "tray_exist_bits" in ams_info:
+            result["tray_exist_bits"] = str(ams_info["tray_exist_bits"])
+        if "ams_status" in ams_info and ams_info["ams_status"] is not None:
+            try:
+                result["ams_status"] = int(ams_info["ams_status"])
+            except (ValueError, TypeError):
+                pass
         if "tray_now" in ams_info:
             try:
                 result["active_ams_tray"] = int(ams_info["tray_now"])
@@ -131,6 +192,13 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
                                     "sub_brands": str(tray.get("tray_sub_brands") or ""),
                                     "color": hex_color,
                                     "remain": int(tray.get("remain", -1)),
+                                    "tag_uid": str(tray.get("tag_uid") or ""),
+                                    "tray_uuid": str(tray.get("tray_uuid") or ""),
+                                    "tray_id_name": str(tray.get("tray_id_name") or ""),
+                                    "drying_temp": tray.get("drying_temp"),
+                                    "drying_time": tray.get("drying_time"),
+                                    "nozzle_temp_min": tray.get("nozzle_temp_min"),
+                                    "nozzle_temp_max": tray.get("nozzle_temp_max"),
                                 }
             if trays_dict:
                 result["ams_trays_info"] = trays_dict
@@ -161,6 +229,33 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
             "sub_brands": str(vt.get("tray_sub_brands") or ""),
             "color": vt_hex,
             "remain": int(vt.get("remain", -1)),
+            "tag_uid": str(vt.get("tag_uid") or ""),
+            "tray_uuid": str(vt.get("tray_uuid") or ""),
+            "tray_id_name": str(vt.get("tray_id_name") or ""),
+        }
+
+    if "xcam" in print_data and isinstance(print_data["xcam"], dict):
+        xc = print_data["xcam"]
+        result["xcam_info"] = {
+            "spaghetti_detector": bool(xc.get("spaghetti_detector", False)),
+            "first_layer_inspector": bool(xc.get("first_layer_inspector", False)),
+            "printing_monitor": bool(xc.get("printing_monitor", False)),
+            "print_halt": bool(xc.get("print_halt", False)),
+        }
+
+    if "upgrade_state" in print_data and isinstance(print_data["upgrade_state"], dict):
+        upg = print_data["upgrade_state"]
+        result["upgrade_state"] = {
+            "new_version_state": upg.get("new_version_state", 0),
+            "ota_new_version_number": str(upg.get("ota_new_version_number") or ""),
+            "force_upgrade": bool(upg.get("force_upgrade", False)),
+        }
+
+    if "upload" in print_data and isinstance(print_data["upload"], dict):
+        upl = print_data["upload"]
+        result["upload_info"] = {
+            "status": str(upl.get("status") or ""),
+            "progress": int(upl.get("progress", 0)) if upl.get("progress") is not None else 0,
         }
 
     return result
@@ -179,3 +274,4 @@ def extract_subtask_weight(subtask_name: str) -> float:
         except ValueError:
             pass
     return 0.0
+

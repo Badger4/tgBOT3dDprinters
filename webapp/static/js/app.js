@@ -148,9 +148,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Fleet search and filter pill listeners
     const searchInputEl = document.getElementById("printer-search-input");
+    const clearSearchBtn = document.getElementById("clear-search-btn");
+
     if (searchInputEl) {
         searchInputEl.addEventListener("input", () => {
+            if (clearSearchBtn) {
+                clearSearchBtn.style.display = searchInputEl.value ? "flex" : "none";
+            }
             applyPrinterFilters();
+        });
+
+        searchInputEl.addEventListener("focus", () => {
+            if (tg?.expand) tg.expand();
+        });
+    }
+
+    if (clearSearchBtn) {
+        clearSearchBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (searchInputEl) {
+                searchInputEl.value = "";
+                clearSearchBtn.style.display = "none";
+                searchInputEl.focus();
+                applyPrinterFilters();
+            }
         });
     }
 
@@ -299,9 +320,11 @@ document.addEventListener("DOMContentLoaded", () => {
         document.querySelectorAll(".printer-card").forEach(card => {
             const name = (card.getAttribute("data-name") || "").toLowerCase();
             const model = (card.getAttribute("data-model") || "").toLowerCase();
+            const ip = (card.getAttribute("data-ip") || "").toLowerCase();
+            const sn = (card.getAttribute("data-sn") || "").toLowerCase();
             const state = (card.getAttribute("data-state") || "OFFLINE").toUpperCase();
 
-            const matchesQuery = !query || name.includes(query) || model.includes(query);
+            const matchesQuery = !query || name.includes(query) || model.includes(query) || ip.includes(query) || sn.includes(query);
             let matchesFilter = true;
             if (filterState === "RUNNING") {
                 matchesFilter = activeStates.includes(state);
@@ -394,7 +417,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             return `
-                <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-state="${st}">
+                <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(p.serialNumber || '')}" data-state="${st}">
                     <div class="printer-card-header">
                         <div class="printer-name-group">
                             <h3>${escapeHtml(p.name)}</h3>
@@ -1684,43 +1707,127 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // 10. Tab 5: Settings
+    // 10. Tab 5: Settings & User Notifications Management
     async function loadSettings() {
         try {
-            const [settingsRes, healthRes] = await Promise.all([
+            const [userSettingsRes, globalSettingsRes, healthRes] = await Promise.all([
+                fetch("/api/user/settings"),
                 fetch("/api/settings"),
                 fetch("/health")
             ]);
-            const settings = await settingsRes.json();
-            const health = await healthRes.json();
 
-            document.getElementById("setting-notify-start").checked = settings.notify_start !== false;
-            document.getElementById("setting-notify-finish").checked = settings.notify_finish !== false;
-            document.getElementById("setting-notify-pause").checked = settings.notify_pause !== false;
+            const userSettingsData = userSettingsRes.ok ? await userSettingsRes.json() : {};
+            const globalSettings = globalSettingsRes.ok ? await globalSettingsRes.json() : {};
+            const health = healthRes.ok ? await healthRes.json() : {};
+
+            const notify = userSettingsData.notify || {};
+
+            const chkStart = document.getElementById("setting-notify-start");
+            const chkFinish = document.getElementById("setting-notify-finish");
+            const chkPause = document.getElementById("setting-notify-pause");
+            const chkHms = document.getElementById("setting-notify-hms");
+            const chkRemindClear = document.getElementById("setting-notify-remind-clear");
+
+            if (chkStart) chkStart.checked = notify.start !== false;
+            if (chkFinish) chkFinish.checked = notify.finish !== false;
+            if (chkPause) chkPause.checked = notify.pause !== false;
+            if (chkHms) chkHms.checked = notify.hms !== false;
+            if (chkRemindClear) chkRemindClear.checked = notify.remind_clear !== false;
+
+            const selMinTime = document.getElementById("setting-notify-min-time");
+            if (selMinTime) selMinTime.value = String(notify.min_time_to_end || 0);
+
+            const selMinFilament = document.getElementById("setting-notify-min-filament");
+            if (selMinFilament) selMinFilament.value = String(notify.min_filament || 0);
 
             const uptimeMins = Math.floor((health.uptime_seconds || 0) / 60);
             document.getElementById("sys-uptime").textContent = `${uptimeMins} хв`;
             document.getElementById("sys-printers-count").textContent = health.total_printers || 0;
+
+            loadUsersTable();
         } catch (e) {
             console.error("Failed loading settings:", e);
         }
     }
 
-    document.getElementById("save-settings-btn")?.addEventListener("click", async () => {
-        triggerHaptic("medium");
-        const notify_start = document.getElementById("setting-notify-start").checked;
-        const notify_finish = document.getElementById("setting-notify-finish").checked;
-        const notify_pause = document.getElementById("setting-notify-pause").checked;
+    async function loadUsersTable() {
+        const usersTableBody = document.getElementById("users-table-body");
+        if (!usersTableBody) return;
 
         try {
-            await fetch("/api/settings", {
+            const res = await fetch("/api/users");
+            if (!res.ok) {
+                usersTableBody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">Потрібні права адміністратора</td></tr>`;
+                return;
+            }
+            const data = await res.json();
+            const users = data.users || [];
+
+            if (users.length === 0) {
+                usersTableBody.innerHTML = `<tr><td colspan="4" class="text-center">Немає зареєстрованих користувачів</td></tr>`;
+                return;
+            }
+
+            usersTableBody.innerHTML = users.map(u => {
+                const isAdmin = u.role === "ADMIN";
+                const isApproved = Boolean(u.approved);
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(u.user_id)}</strong></td>
+                        <td><span class="badge ${isAdmin ? 'badge-primary' : 'badge-secondary'}">${u.role}</span></td>
+                        <td><span class="badge ${isApproved ? 'badge-success' : 'badge-danger'}">${isApproved ? 'Схвалено ✅' : 'Заблоковано ⛔'}</span></td>
+                        <td>
+                            <button class="btn btn-xs ${isApproved ? 'btn-danger' : 'btn-primary'} toggle-user-access-btn" data-id="${u.user_id}" data-approved="${isApproved ? 'false' : 'true'}">
+                                ${isApproved ? 'Скасувати' : 'Схвалити'}
+                            </button>
+                        </td>
+                    </tr>`;
+            }).join("");
+
+            usersTableBody.querySelectorAll(".toggle-user-access-btn").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const uid = btn.getAttribute("data-id");
+                    const nextApproved = btn.getAttribute("data-approved") === "true";
+                    try {
+                        await fetch("/api/users/access", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ user_id: uid, approved: nextApproved })
+                        });
+                        loadUsersTable();
+                    } catch (err) {
+                        alert("Помилка оновлення доступу: " + err);
+                    }
+                });
+            });
+
+        } catch (e) {
+            console.error("Failed loading users table:", e);
+        }
+    }
+
+    document.getElementById("save-settings-btn")?.addEventListener("click", async () => {
+        triggerHaptic("medium");
+        const notify = {
+            start: document.getElementById("setting-notify-start")?.checked ?? true,
+            finish: document.getElementById("setting-notify-finish")?.checked ?? true,
+            pause: document.getElementById("setting-notify-pause")?.checked ?? true,
+            hms: document.getElementById("setting-notify-hms")?.checked ?? true,
+            remind_clear: document.getElementById("setting-notify-remind-clear")?.checked ?? true,
+            min_time_to_end: parseInt(document.getElementById("setting-notify-min-time")?.value || 0),
+            min_filament: parseInt(document.getElementById("setting-notify-min-filament")?.value || 0),
+        };
+
+        try {
+            await fetch("/api/user/settings", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ notify_start, notify_finish, notify_pause })
+                body: JSON.stringify({ notify })
             });
-            alert("Налаштування успішно збережено!");
+            alert("✅ Повноцінні налаштування сповіщень успішно збережено!");
         } catch (e) {
             console.error("Failed saving settings:", e);
+            alert("⚠️ Помилка збереження налаштувань: " + e);
         }
     });
 

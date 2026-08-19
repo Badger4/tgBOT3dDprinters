@@ -399,8 +399,8 @@ class TestCrashScenariosAndIsolation:
 
         empty_res = parse_3mf_file(empty_zip_bytes, "empty.3mf")
         assert empty_res["valid"] is True
-        assert empty_res["weight_g"] == 50.0
-        assert empty_res["time_mins"] == 60
+        assert empty_res["weight_g"] == 0.0
+        assert empty_res["time_mins"] == 0
 
         # 3. Zip with Metadata/plate_1.gcode containing gcode weight and prediction time
         buf_meta = io.BytesIO()

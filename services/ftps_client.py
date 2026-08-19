@@ -174,9 +174,9 @@ def parse_weight_from_3mf_bytes(data_bytes: bytes) -> float:
                 if name.endswith("slice_info.config"):
                     try:
                         content = zf.read(name).decode("utf-8", errors="ignore")
-                        m = re.search(r"(?:filament\s+used\s*\[g\]|weight)[^\d\.]*([\d\.]+)", content, re.IGNORECASE)
+                        m = re.search(r"(?:filament\s+used\s*\[g\]|used_g|filament_weight|weight)[^\d\.,]*([\d\.,]+)", content, re.IGNORECASE)
                         if m:
-                            val = float(m.group(1))
+                            val = float(m.group(1).replace(",", "."))
                             if 0 < val < 5000:
                                 return val
                     except Exception:

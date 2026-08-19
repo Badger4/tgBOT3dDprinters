@@ -35,9 +35,11 @@ class PrinterBotApp:
     async def initialize(self):
         printers_data = await self.storage.load_json(self.storage.printers_file, [])
         logger.info(f"Loaded {len(printers_data)} printers from {self.storage.printers_file}")
+        running_loop = asyncio.get_running_loop()
         for p_config in printers_data:
             p_obj = BambuPrinter(p_config, self.storage, save_callback=self.save_printers_config)
-            asyncio.create_task(asyncio.to_thread(p_obj.init_mqtt))
+            p_obj._main_loop = running_loop
+            asyncio.create_task(asyncio.to_thread(p_obj.init_mqtt, running_loop))
             self.printers[p_obj.id] = p_obj
 
         self.global_settings = await self.storage.load_json(self.storage.settings_file, self.global_settings)

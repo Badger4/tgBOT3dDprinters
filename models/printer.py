@@ -124,7 +124,22 @@ class BambuPrinter:
         # Live telemetry
         self.gcode_state = config.get("gcode_state", "IDLE")
         self.nozzle_temper = int(config.get("nozzle_temper", 0))
+        self.nozzle_target_temper = int(config.get("nozzle_target_temper", 0))
         self.bed_temper = int(config.get("bed_temper", 0))
+        self.bed_target_temper = int(config.get("bed_target_temper", 0))
+        self.chamber_temper = int(config.get("chamber_temper", 0))
+        self.wifi_signal = str(config.get("wifi_signal", ""))
+        self.gcode_start_time = int(config.get("gcode_start_time", 0))
+        self.print_error = int(config.get("print_error", 0))
+        self.mc_print_error_code = str(config.get("mc_print_error_code", ""))
+        self.fail_reason = str(config.get("fail_reason", ""))
+        self.hw_switch_state = int(config.get("hw_switch_state", 0))
+        self.nozzle_diameter = str(config.get("nozzle_diameter", "0.4"))
+        self.ams_status = int(config.get("ams_status", 0))
+        self.tray_exist_bits = str(config.get("tray_exist_bits", ""))
+        self.xcam_info: dict = config.get("xcam_info", {})
+        self.upgrade_state: dict = config.get("upgrade_state", {})
+        self.upload_info: dict = config.get("upload_info", {})
         self.mc_percent = int(config.get("mc_percent", 0))
         self.mc_remaining_time = int(config.get("mc_remaining_time", 0))
         self.layer_num = int(config.get("layer_num", 0))
@@ -136,8 +151,10 @@ class BambuPrinter:
         self.chamber_light_state = "off"
         self.hms_errors: list = []
         self.finish_timestamp: float = 0.0
+        self.job_start_time: float = 0.0
         self.ams_units: list = []
         self.ams_humidity_idx: int = 1
+        self.ams_temp: float = 0.0
         self.active_ams_tray: int = 255
         self.ams_exist_bits: str = str(config.get("ams_exist_bits", "0"))
         raw_ams_enabled = config.get("ams_enabled")
@@ -187,15 +204,37 @@ class BambuPrinter:
         if s_key == self.get_active_slot_key():
             self.filament_grams = g_val
 
-    def init_mqtt(self) -> None:
+    def _get_active_event_loop(self) -> asyncio.AbstractEventLoop | None:
+        if self._main_loop and self._main_loop.is_running():
+            return self._main_loop
+        try:
+            loop = asyncio.get_running_loop()
+            if loop and loop.is_running():
+                self._main_loop = loop
+                return loop
+        except RuntimeError:
+            pass
+        try:
+            loop = asyncio.get_event_loop()
+            if loop and loop.is_running():
+                self._main_loop = loop
+                return loop
+        except Exception:
+            pass
+        return None
+
+    def init_mqtt(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
         if not self.ip or not self.serial_number:
             logger.warning(f"[{self.name}] Missing IP or Serial, MQTT disabled.")
             return
 
-        try:
-            self._main_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._main_loop = None
+        if loop is not None:
+            self._main_loop = loop
+        elif self._main_loop is None:
+            try:
+                self._main_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
 
         client_uid = f"t_{self.id}"
         try:
@@ -257,11 +296,12 @@ class BambuPrinter:
     def _trigger_save(self) -> None:
         if self.save_callback:
             try:
-                if self._main_loop and self._main_loop.is_running():
+                loop_to_use = self._get_active_event_loop()
+                if loop_to_use:
                     if asyncio.iscoroutinefunction(self.save_callback):
-                        asyncio.run_coroutine_threadsafe(self.save_callback(), self._main_loop)
+                        asyncio.run_coroutine_threadsafe(self.save_callback(), loop_to_use)
                     else:
-                        self._main_loop.call_soon_threadsafe(self.save_callback)
+                        loop_to_use.call_soon_threadsafe(self.save_callback)
             except Exception as e:
                 logger.warning(f"Failed triggering save callback for [{self.name}]: {e}")
 
@@ -293,8 +333,9 @@ class BambuPrinter:
             finally:
                 self._ftps_fetching = False
 
-        if self._main_loop and self._main_loop.is_running():
-            asyncio.run_coroutine_threadsafe(asyncio.to_thread(_worker), self._main_loop)
+        loop_to_use = self._get_active_event_loop()
+        if loop_to_use:
+            asyncio.run_coroutine_threadsafe(asyncio.to_thread(_worker), loop_to_use)
 
     def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
         try:
@@ -309,8 +350,38 @@ class BambuPrinter:
                 self.gcode_state = parsed["gcode_state"]
             if "nozzle_temper" in parsed:
                 self.nozzle_temper = parsed["nozzle_temper"]
+            if "nozzle_target_temper" in parsed:
+                self.nozzle_target_temper = parsed["nozzle_target_temper"]
             if "bed_temper" in parsed:
                 self.bed_temper = parsed["bed_temper"]
+            if "bed_target_temper" in parsed:
+                self.bed_target_temper = parsed["bed_target_temper"]
+            if "chamber_temper" in parsed:
+                self.chamber_temper = parsed["chamber_temper"]
+            if "wifi_signal" in parsed:
+                self.wifi_signal = parsed["wifi_signal"]
+            if "gcode_start_time" in parsed:
+                self.gcode_start_time = parsed["gcode_start_time"]
+            if "print_error" in parsed:
+                self.print_error = parsed["print_error"]
+            if "mc_print_error_code" in parsed:
+                self.mc_print_error_code = parsed["mc_print_error_code"]
+            if "fail_reason" in parsed:
+                self.fail_reason = parsed["fail_reason"]
+            if "hw_switch_state" in parsed:
+                self.hw_switch_state = parsed["hw_switch_state"]
+            if "nozzle_diameter" in parsed:
+                self.nozzle_diameter = parsed["nozzle_diameter"]
+            if "ams_status" in parsed:
+                self.ams_status = parsed["ams_status"]
+            if "tray_exist_bits" in parsed:
+                self.tray_exist_bits = parsed["tray_exist_bits"]
+            if "xcam_info" in parsed:
+                self.xcam_info = parsed["xcam_info"]
+            if "upgrade_state" in parsed:
+                self.upgrade_state = parsed["upgrade_state"]
+            if "upload_info" in parsed:
+                self.upload_info = parsed["upload_info"]
             if "mc_percent" in parsed:
                 self.mc_percent = parsed["mc_percent"]
             if "mc_remaining_time" in parsed:
@@ -364,16 +435,24 @@ class BambuPrinter:
             if w_val > 0 and self._current_job_grams == 0.0:
                 self._current_job_grams = w_val
 
-            # Check OrcaSlicer cache file if weight is still 0.0
+            # Check OrcaSlicer cache file if weight is still 0.0 (strictly verify filename match or recent slice timestamp)
             if self._current_job_grams == 0.0:
                 cache_file = STORAGE_DIR / "last_sliced_weight.json"
                 if cache_file.exists():
                     try:
                         c_data = json.loads(cache_file.read_text(encoding="utf-8"))
                         c_w = float(c_data.get("weight", 0.0))
-                        if c_w > 0:
+                        c_ts = float(c_data.get("timestamp", 0.0))
+                        c_fname = str(c_data.get("filename") or c_data.get("path") or "").strip().lower()
+                        s_name = str(self.subtask_name or "").strip().lower()
+                        clean_c = re.sub(r"\.(gcode|3mf)$", "", c_fname).replace("\\", "/").split("/")[-1]
+                        clean_s = re.sub(r"\.(gcode|3mf)$", "", s_name).replace("\\", "/").split("/")[-1]
+
+                        fname_match = bool(clean_c and clean_s and clean_s != "untitled" and (clean_c in clean_s or clean_s in clean_c))
+                        recent_slice = bool(c_ts > 0 and (time.time() - c_ts < 300) and (not clean_s or clean_s == "untitled"))
+                        if c_w > 0 and (fname_match or recent_slice):
                             self._current_job_grams = c_w
-                            logger.info(f"💡 Loaded OrcaSlicer cached weight {c_w}g for [{self.name}]")
+                            logger.info(f"💡 Loaded OrcaSlicer cached weight {c_w}g for [{self.name}] (matched '{clean_c}')")
                     except Exception as e:
                         logger.warning(f"Error reading OrcaSlicer weight cache: {e}")
 
@@ -400,6 +479,8 @@ class BambuPrinter:
                 if not self._is_printing:
                     self._is_printing = True
                 self._history_recorded = False
+                if getattr(self, "job_start_time", 0.0) == 0.0:
+                    self.job_start_time = time.time()
 
                 if self._current_job_grams > 0 and not self._job_deducted:
                     active_key = self.get_active_slot_key()
@@ -427,10 +508,13 @@ class BambuPrinter:
                                     c_data = json.loads(cache_file.read_text(encoding="utf-8"))
                                     c_w = float(c_data.get("weight", 0.0))
                                     c_ts = float(c_data.get("timestamp", 0.0))
-                                    c_fname = str(c_data.get("filename") or c_data.get("path") or "").lower()
-                                    s_name = str(self.subtask_name or "").lower()
-                                    fname_match = bool(c_fname and s_name and (c_fname in s_name or s_name in c_fname))
-                                    recent_slice = bool(c_ts > 0 and (time.time() - c_ts < 900))
+                                    c_fname = str(c_data.get("filename") or c_data.get("path") or "").strip().lower()
+                                    s_name = str(self.subtask_name or "").strip().lower()
+                                    clean_c = re.sub(r"\.(gcode|3mf)$", "", c_fname).replace("\\", "/").split("/")[-1]
+                                    clean_s = re.sub(r"\.(gcode|3mf)$", "", s_name).replace("\\", "/").split("/")[-1]
+
+                                    fname_match = bool(clean_c and clean_s and clean_s != "untitled" and (clean_c in clean_s or clean_s in clean_c))
+                                    recent_slice = bool(c_ts > 0 and (time.time() - c_ts < 300) and (not clean_s or clean_s == "untitled"))
                                     if c_w > 0 and (fname_match or recent_slice):
                                         self._current_job_grams = c_w
                                 except Exception:
@@ -469,19 +553,33 @@ class BambuPrinter:
                         final_weight = self.last_job_grams or self._current_job_grams or 0.0
                         if final_weight == 0.0 and self.subtask_name:
                             final_weight = extract_subtask_weight(self.subtask_name)
-                        cost_info = self.calculate_job_cost(final_weight)
+
+                        duration_mins = 0
+                        if getattr(self, "job_start_time", 0.0) > 0.0:
+                            duration_mins = max(1, int((time.time() - self.job_start_time) / 60.0))
+
+                        cost_info = self.calculate_job_cost(final_weight, print_mins=duration_mins)
                         note_text = "Успішно виконано" if self.gcode_state == "FINISH" else "Завершено"
+
+                        clean_subtask = str(self.subtask_name or "").strip()
+                        if not clean_subtask or clean_subtask.lower() in ["untitled", "none", "null"]:
+                            clean_subtask = "Модель 3D"
+
                         entry = {
                             "timestamp": time.time(),
                             "printer_name": self.name,
-                            "subtask_name": self.subtask_name or "Модель",
+                            "subtask_name": clean_subtask,
                             "weight_g": round(float(final_weight), 1),
                             "filament_type": self.filament_type,
                             "cost_uah": round(float(cost_info["total_cost"]), 2),
                             "note": note_text,
                         }
-                        if self._main_loop and self._main_loop.is_running():
-                            asyncio.run_coroutine_threadsafe(self.storage.add_history_entry(entry), self._main_loop)
+                        if self.storage:
+                            loop_to_use = self._get_active_event_loop()
+                            if loop_to_use:
+                                asyncio.run_coroutine_threadsafe(self.storage.add_history_entry(entry), loop_to_use)
+                            else:
+                                logger.warning(f"⚠️ Event loop unresolvable for history entry on [{self.name}]")
                         self._history_recorded = True
 
                     self._is_printing = False
@@ -489,6 +587,7 @@ class BambuPrinter:
                 if self.gcode_state in ["IDLE", "FAILED"]:
                     # Reset state counters for next job
                     self.finish_timestamp = 0.0
+                    self.job_start_time = 0.0
                     self._is_printing = False
                     self._job_deducted = False
                     self._ftps_attempted = False
@@ -775,7 +874,22 @@ class BambuPrinter:
             "maintenance_items": self.maintenance_items,
             "gcode_state": self.gcode_state,
             "nozzle_temper": self.nozzle_temper,
+            "nozzle_target_temper": self.nozzle_target_temper,
             "bed_temper": self.bed_temper,
+            "bed_target_temper": self.bed_target_temper,
+            "chamber_temper": self.chamber_temper,
+            "wifi_signal": self.wifi_signal,
+            "gcode_start_time": self.gcode_start_time,
+            "print_error": self.print_error,
+            "mc_print_error_code": self.mc_print_error_code,
+            "fail_reason": self.fail_reason,
+            "hw_switch_state": self.hw_switch_state,
+            "nozzle_diameter": self.nozzle_diameter,
+            "ams_status": self.ams_status,
+            "tray_exist_bits": self.tray_exist_bits,
+            "xcam_info": self.xcam_info,
+            "upgrade_state": self.upgrade_state,
+            "upload_info": self.upload_info,
             "mc_percent": self.mc_percent,
             "mc_remaining_time": self.mc_remaining_time,
             "layer_num": self.layer_num,
@@ -785,6 +899,10 @@ class BambuPrinter:
             "spd_lvl": self.spd_lvl,
             "spd_mag": self.spd_mag,
             "ams_slots": self.ams_slots,
+            "ams_humidity_idx": self.ams_humidity_idx,
+            "ams_temp": self.ams_temp,
+            "ams_trays_info": self.ams_trays_info,
+            "hms_errors": self.hms_errors,
         }
 
     def to_storage_dict(self) -> dict[str, Any]:

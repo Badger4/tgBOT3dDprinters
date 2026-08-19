@@ -68,10 +68,9 @@ def run_daemon():
                     print(f"✨ Cloudflare HTTPS Tunnel Active: {public_url}")
                     update_env_webapp_url(public_url)
 
-                    # Monitor process lifetime
-                    proc_obj = getattr(cluster, "process", None)
-                    if proc_obj and hasattr(proc_obj, "wait"):
-                        proc_obj.wait()
+                    # Keep daemon process alive for try_cloudflare
+                    while True:
+                        time.sleep(1)
                 except ImportError:
                     # Fallback to direct subprocess cloudflared invocation if pycloudflared unavailable
                     proc = subprocess.Popen(

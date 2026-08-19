@@ -2,6 +2,7 @@
 Printer REST API routes, telemetry, snapshots, and credential management.
 """
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -96,7 +97,7 @@ async def handle_create_printer(request: web.Request) -> web.Response:
         }
 
         p_obj = BambuPrinter(p_data, app_obj.storage, save_callback=app_obj.save_printers_config)
-        p_obj.init_mqtt()
+        p_obj.init_mqtt(asyncio.get_running_loop())
         app_obj.printers[p_obj.id] = p_obj
         await app_obj.save_printers_config()
 
@@ -178,7 +179,7 @@ async def handle_update_access_code(request: web.Request) -> web.Response:
             p.serial_number = new_sn
 
         p.destroy()
-        p.init_mqtt()
+        p.init_mqtt(asyncio.get_running_loop())
         await app_obj.save_printers_config()
         logger.info(f"🔑 Updated credentials & reconnected MQTT for [{p.name}] via REST API")
         return web.json_response({"status": "ok"})

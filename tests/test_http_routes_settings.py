@@ -227,6 +227,29 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         resp = await self.client.post("/api/settings", data="invalid json")
         assert resp.status == 400
 
+    async def test_user_settings_api(self):
+        resp = await self.client.get("/api/user/settings")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "notify" in data
+        assert data["notify"]["start"] is True
+
+        post_resp = await self.client.post("/api/user/settings", json={"notify": {"start": False, "hms": True}})
+        assert post_resp.status == 200
+        post_data = await post_resp.json()
+        assert post_data["notify"]["start"] is False
+
+    async def test_users_admin_api(self):
+        get_resp = await self.client.get("/api/users")
+        assert get_resp.status == 200
+        data = await get_resp.json()
+        assert "users" in data
+
+        access_resp = await self.client.post("/api/users/access", json={"user_id": "12345", "approved": True, "role": "ADMIN"})
+        assert access_resp.status == 200
+        access_data = await access_resp.json()
+        assert access_data["status"] == "ok"
+
     async def test_auth_rejection(self):
         resp = await self.client.get("/api/settings", headers={"X-Forwarded-For": "1.2.3.4"})
         assert resp.status == 401

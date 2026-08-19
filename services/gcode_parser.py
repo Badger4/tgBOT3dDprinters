@@ -249,15 +249,20 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                             elif "TPU" in f_val.upper():
                                 result["filament_type"] = "TPU"
 
-                        # Weight regex
+                        # Weight regex (supports both '=' and ':', and both '.' and ',' decimals)
                         if result["weight_g"] == 0.0:
                             w_match = re.search(
-                                r";\s*(?:filament_used_g|filament used \[g\]|total filament used \[g\]|filament_weight|used_g)\s*=\s*([\d\.]+)",
+                                r";\s*(?:filament_used_g|filament used \[g\]|total filament used \[g\]|total filament weight \[g\]|filament_weight|used_g|filament_used|filament used)\s*[:=]\s*([\d\.,]+)",
                                 gcode_text,
                                 re.IGNORECASE,
                             )
                             if w_match:
-                                result["weight_g"] = float(w_match.group(1))
+                                try:
+                                    val_w = float(w_match.group(1).replace(",", "."))
+                                    if 0.0 < val_w < 5000.0:
+                                        result["weight_g"] = val_w
+                                except ValueError:
+                                    pass
 
                         # Time regex (seconds)
                         if result["time_mins"] == 0:
@@ -279,8 +284,18 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                     except Exception as e:
                         logger.warning(f"Error parsing embedded gcode {gf}: {e}")
 
-        # Fallback 4: Filename parsing for Printer Model & Time if still Unknown/0
+        # Fallback 4: Filename parsing for Weight, Printer Model & Time
         fname_lower = filename.lower()
+        if result["weight_g"] == 0.0 and filename:
+            w_fn = re.search(r"(?:_|\b)(\d+(?:[\.,]\d+)?)\s*(?:g|г|gram|grams)\b", filename, re.IGNORECASE)
+            if w_fn:
+                try:
+                    val_fn = float(w_fn.group(1).replace(",", "."))
+                    if 0.0 < val_fn < 5000.0:
+                        result["weight_g"] = val_fn
+                except ValueError:
+                    pass
+
         if result["printer_model"] == "Unknown":
             res_m = resolve_model_name(filename)
             if res_m != "Unknown":
@@ -294,14 +309,6 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             result["filament_type"] = "ABS"
         elif "petg" in fname_lower:
             result["filament_type"] = "PETG"
-        w_raw = result.get("weight_g")
-        t_raw = result.get("time_mins")
-        w_val = float(str(w_raw)) if w_raw is not None else 0.0
-        t_val = int(str(t_raw)) if t_raw is not None else 0
-        if w_val <= 0.0 and zipfile.is_zipfile(io.BytesIO(file_bytes)):
-            result["weight_g"] = 50.0
-        if t_val <= 0 and zipfile.is_zipfile(io.BytesIO(file_bytes)):
-            result["time_mins"] = 60
 
         result["valid"] = True
 
