@@ -600,21 +600,27 @@ async def handle_printer_states(message: Message, app):
             return True
 
     if state == "edit_p_name" and target_printer:
-        target_printer.name = text
+        clean_text = text.strip()
+        target_printer.name = clean_text
         await app.save_printers_config()
         user["state"] = "printer_menu"
         await app.storage.save_user(user)
         await message.answer(
-            f"✅ <b>Назву принтера успішно змінено на: {html.escape(text)}</b>"
+            f"✅ <b>Назву принтера успішно змінено на: {html.escape(clean_text)}</b>"
             if u_lang != "en"
-            else f"✅ <b>Printer name updated to: {html.escape(text)}</b>",
+            else f"✅ <b>Printer name updated to: {html.escape(clean_text)}</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
         )
         return True
 
     if state == "edit_p_ip" and target_printer:
-        target_printer.ip = text
+        clean_text = text.strip()
+        target_printer.ip = clean_text
+        try:
+            target_printer.destroy()
+        except Exception:
+            pass
         try:
             target_printer.init_mqtt(asyncio.get_running_loop())
         except Exception:
@@ -623,16 +629,21 @@ async def handle_printer_states(message: Message, app):
         user["state"] = "printer_menu"
         await app.storage.save_user(user)
         await message.answer(
-            f"✅ <b>IP адресу принтера успішно змінено на: {html.escape(text)}</b>"
+            f"✅ <b>IP адресу принтера успішно змінено на: {html.escape(clean_text)}</b>"
             if u_lang != "en"
-            else f"✅ <b>Printer IP updated to: {html.escape(text)}</b>",
+            else f"✅ <b>Printer IP updated to: {html.escape(clean_text)}</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
         )
         return True
 
     if state == "edit_p_sn" and target_printer:
-        target_printer.serial_number = text
+        clean_text = text.strip()
+        target_printer.serial_number = clean_text
+        try:
+            target_printer.destroy()
+        except Exception:
+            pass
         try:
             target_printer.init_mqtt(asyncio.get_running_loop())
         except Exception:
@@ -641,16 +652,21 @@ async def handle_printer_states(message: Message, app):
         user["state"] = "printer_menu"
         await app.storage.save_user(user)
         await message.answer(
-            f"✅ <b>Серійний номер принтера успішно змінено на: {html.escape(text)}</b>"
+            f"✅ <b>Серійний номер принтера успішно змінено на: {html.escape(clean_text)}</b>"
             if u_lang != "en"
-            else f"✅ <b>Printer Serial Number updated to: {html.escape(text)}</b>",
+            else f"✅ <b>Printer Serial Number updated to: {html.escape(clean_text)}</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
         )
         return True
 
     if state == "edit_p_code" and target_printer:
-        target_printer.access_code = text
+        clean_text = text.strip()
+        target_printer.access_code = clean_text
+        try:
+            target_printer.destroy()
+        except Exception:
+            pass
         try:
             target_printer.init_mqtt(asyncio.get_running_loop())
         except Exception:
@@ -659,9 +675,9 @@ async def handle_printer_states(message: Message, app):
         user["state"] = "printer_menu"
         await app.storage.save_user(user)
         await message.answer(
-            f"✅ <b>Access Code принтера успішно змінено на: {html.escape(text)}</b>"
+            f"✅ <b>Access Code принтера успішно змінено на: {html.escape(clean_text)}</b>"
             if u_lang != "en"
-            else f"✅ <b>Printer Access Code updated to: {html.escape(text)}</b>",
+            else f"✅ <b>Printer Access Code updated to: {html.escape(clean_text)}</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
         )
