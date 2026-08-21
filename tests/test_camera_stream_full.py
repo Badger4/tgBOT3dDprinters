@@ -152,29 +152,24 @@ async def test_capture_real_camera_photo_empty_code():
 
 
 @pytest.mark.asyncio
-@patch("services.camera_stream.check_tcp_port_open", new_callable=AsyncMock)
 @patch("services.camera_stream._fetch_bambu_port6000_jpeg")
-async def test_capture_real_camera_photo_port6000_success_first(mock_fetch, mock_check):
-    mock_check.return_value = True
+async def test_capture_real_camera_photo_port6000_success_first(mock_fetch):
     mock_fetch.return_value = b"jpeg"
 
     result = await capture_real_camera_photo("1.2.3.4", "code")
     assert result == b"jpeg"
-    mock_check.assert_awaited_once_with("1.2.3.4", 6000, timeout=1.0)
     mock_fetch.assert_called_once_with("1.2.3.4", "code")
 
 
 @pytest.mark.asyncio
-@patch("services.camera_stream.check_tcp_port_open", new_callable=AsyncMock)
 @patch("services.camera_stream._fetch_bambu_port6000_jpeg")
-async def test_capture_real_camera_photo_port6000_success_retry(mock_fetch, mock_check):
-    mock_check.side_effect = [False, True]
-    mock_fetch.return_value = b"jpeg"
+async def test_capture_real_camera_photo_port6000_success_retry(mock_fetch):
+    mock_fetch.side_effect = [None, b"jpeg"]
 
     result = await capture_real_camera_photo("1.2.3.4", "code")
     assert result == b"jpeg"
-    assert mock_check.call_count == 2
-    mock_fetch.assert_called_once_with("1.2.3.4", "code")
+    assert mock_fetch.call_count == 2
+    mock_fetch.assert_called_with("1.2.3.4", "code")
 
 
 @pytest.mark.asyncio
@@ -182,11 +177,11 @@ async def test_capture_real_camera_photo_port6000_success_retry(mock_fetch, mock
 @patch("services.camera_stream._fetch_bambu_port6000_jpeg")
 async def test_capture_real_camera_photo_all_fail(mock_fetch, mock_check):
     mock_check.return_value = False
-    mock_fetch.return_value = b"jpeg"
+    mock_fetch.return_value = None
 
     result = await capture_real_camera_photo("1.2.3.4", "code")
     assert result is None
-    assert mock_check.call_count == 3
+    mock_check.assert_awaited_once_with("1.2.3.4", 80, timeout=0.8)
 
 
 @pytest.mark.asyncio

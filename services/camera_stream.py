@@ -28,20 +28,22 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
     """
     raw_socket = None
     ssl_sock = None
+    clean_ip = str(ip or "").strip()
+    clean_code = str(access_code or "").strip()
     try:
         raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        raw_socket.settimeout(3.5)
+        raw_socket.settimeout(4.0)
 
         context = ssl.create_default_context()
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
 
         ssl_sock = context.wrap_socket(raw_socket)
-        ssl_sock.connect((ip, 6000))
+        ssl_sock.connect((clean_ip, 6000))
 
         # Build 64-byte binary authentication packet
         username = b"bblp"
-        password = str(access_code or "").encode("utf-8")[:32]
+        password = clean_code.encode("utf-8")[:32]
 
         auth_packet = struct.pack("<I", 0x40)  # Payload size (64)
         auth_packet += struct.pack("<I", 0x3000)  # Packet type
@@ -61,8 +63,8 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
                 buf.extend(chunk)
             return bytes(buf)
 
-        # Read up to 5 stream packets until JPEG frame is received
-        for _ in range(5):
+        # Read up to 15 stream packets until JPEG frame is received
+        for _ in range(15):
             hdr = recv_exact(16)
             if len(hdr) < 16:
                 break
@@ -75,11 +77,11 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
                 end_idx = img.rfind(b"\xff\xd9")
                 if end_idx > start_idx:
                     jpeg_bytes = img[start_idx : end_idx + 2]
-                    logger.info(f"✅ Captured {len(jpeg_bytes)} bytes JPEG frame from {ip}:6000")
+                    logger.info(f"✅ Captured {len(jpeg_bytes)} bytes JPEG frame from {clean_ip}:6000")
                     return jpeg_bytes
 
     except Exception as e:
-        logger.warning(f"Port 6000 TLS stream fetch error for {ip}: {e}")
+        logger.warning(f"Port 6000 TLS stream fetch error for {clean_ip}: {e}")
     finally:
         if ssl_sock:
             try:
@@ -100,22 +102,23 @@ async def capture_real_camera_photo(ip: str, access_code: str) -> bytes | None:
     if not ip or not access_code:
         return None
 
-    # Try up to 2 attempts with short 0.3s delay for stability
-    for attempt in range(1, 3):
-        is_6000_open = await check_tcp_port_open(ip, 6000, timeout=1.0)
-        if is_6000_open:
-            logger.info(f"📷 Attempt {attempt}: Port 6000 open on {ip}. Fetching JPEG...")
-            frame = await asyncio.to_thread(_fetch_bambu_port6000_jpeg, ip, access_code)
-            if frame:
-                return frame
-        await asyncio.sleep(0.3)
+    clean_ip = str(ip).strip()
+    clean_code = str(access_code).strip()
 
-    # HTTP Fallback
-    is_80_open = await check_tcp_port_open(ip, 80, timeout=0.8)
+    # Try up to 2 attempts directly attempting Port 6000 TLS frame fetch
+    for attempt in range(1, 3):
+        logger.info(f"📷 Attempt {attempt}: Fetching JPEG from {clean_ip}:6000...")
+        frame = await asyncio.to_thread(_fetch_bambu_port6000_jpeg, clean_ip, clean_code)
+        if frame:
+            return frame
+        await asyncio.sleep(0.4)
+
+    # HTTP Fallback if Port 6000 TLS stream did not return a valid frame
+    is_80_open = await check_tcp_port_open(clean_ip, 80, timeout=0.8)
     if is_80_open:
         import aiohttp
 
-        http_urls = [f"http://{ip}/cam.jpg", f"https://{ip}/cam.jpg", f"http://{ip}:8080/cam.jpg"]
+        http_urls = [f"http://{clean_ip}/cam.jpg", f"https://{clean_ip}/cam.jpg", f"http://{clean_ip}:8080/cam.jpg"]
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
