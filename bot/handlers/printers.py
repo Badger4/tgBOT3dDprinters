@@ -11,6 +11,7 @@ from aiogram.enums import ParseMode
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from bot.keyboards import (
+    get_edit_printer_keyboard,
     get_printer_control_keyboard,
     get_printer_menu_keyboard,
     get_printers_keyboard,
@@ -443,7 +444,50 @@ async def handle_select_printer_by_name(message: Message, app):
         )
 
 
-PRINTER_STATES = {"add_p_name", "add_p_ip", "add_p_code", "add_p_sn", "confirm_delete_printer"}
+@router.message(F.text.lower().in_(["✏️ редагувати принтер", "редагувати принтер", "✏️ edit printer", "edit printer"]))
+async def handle_edit_printer_start(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+
+    if not target_printer:
+        return
+
+    u_lang = user.get("language", "uk")
+    user["state"] = "edit_printer_menu"
+    await app.storage.save_user(user)
+
+    msg_txt = (
+        f"<b>✏️ Редагування даних принтера: {html.escape(target_printer.name)}</b>\n\n"
+        f"📌 <b>Назва:</b> <code>{html.escape(target_printer.name)}</code>\n"
+        f"🌐 <b>IP адреса:</b> <code>{html.escape(target_printer.ip)}</code>\n"
+        f"🔢 <b>Серійний номер (SN):</b> <code>{html.escape(target_printer.serial_number)}</code>\n"
+        f"🔑 <b>Access Code:</b> <code>{html.escape(target_printer.access_code or '••••••••')}</code>\n\n"
+        f"Оберіть параметр для зміни:"
+    ) if u_lang != "en" else (
+        f"<b>✏️ Edit Printer Details: {html.escape(target_printer.name)}</b>\n\n"
+        f"📌 <b>Name:</b> <code>{html.escape(target_printer.name)}</code>\n"
+        f"🌐 <b>IP Address:</b> <code>{html.escape(target_printer.ip)}</code>\n"
+        f"🔢 <b>Serial Number:</b> <code>{html.escape(target_printer.serial_number)}</code>\n"
+        f"🔑 <b>Access Code:</b> <code>{html.escape(target_printer.access_code or '••••••••')}</code>\n\n"
+        f"Select parameter to edit:"
+    )
+    await message.answer(msg_txt, parse_mode=ParseMode.HTML, reply_markup=get_edit_printer_keyboard(lang=u_lang))
+
+
+PRINTER_STATES = {
+    "add_p_name",
+    "add_p_ip",
+    "add_p_code",
+    "add_p_sn",
+    "confirm_delete_printer",
+    "edit_printer_menu",
+    "edit_p_name",
+    "edit_p_ip",
+    "edit_p_sn",
+    "edit_p_code",
+}
 
 
 async def printer_state_filter(message: Message, app) -> bool:
@@ -483,11 +527,11 @@ async def handle_printer_states(message: Message, app):
                 reply_markup=get_printers_keyboard(app.printers, lang=u_lang),
             )
             return True
-        elif state == "confirm_delete_printer":
+        elif state in ["confirm_delete_printer", "edit_printer_menu", "edit_p_name", "edit_p_ip", "edit_p_sn", "edit_p_code"]:
             user["state"] = "printer_menu" if target_printer else "idle"
             await app.storage.save_user(user)
             kb = get_printer_menu_keyboard(target_printer, lang=u_lang) if target_printer else get_printers_keyboard(app.printers, lang=u_lang)
-            await message.answer("Видалення скасовано." if u_lang != "en" else "Deletion cancelled.", reply_markup=kb)
+            await message.answer("Скасовано." if u_lang != "en" else "Cancelled.", reply_markup=kb)
             return True
 
     # Check printer selection first if text matches a printer
@@ -503,6 +547,125 @@ async def handle_printer_states(message: Message, app):
                 reply_markup=get_printer_menu_keyboard(printer, lang=u_lang),
             )
             return True
+
+    if state == "edit_printer_menu" and target_printer:
+        t_low = text.lower()
+        back_kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")]],
+            resize_keyboard=True,
+        )
+        if t_low in ["✏️ назва принтера", "назва принтера", "назва", "✏️ printer name", "printer name", "name"]:
+            user["state"] = "edit_p_name"
+            await app.storage.save_user(user)
+            await message.answer(
+                f"Поточна назва: <b>{html.escape(target_printer.name)}</b>\n\nВведіть нову назву принтера:"
+                if u_lang != "en"
+                else f"Current name: <b>{html.escape(target_printer.name)}</b>\n\nEnter new printer name:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=back_kb,
+            )
+            return True
+        elif t_low in ["🌐 ip адреса", "ip адреса", "ip", "🌐 ip address", "ip address"]:
+            user["state"] = "edit_p_ip"
+            await app.storage.save_user(user)
+            await message.answer(
+                f"Поточна IP адреса: <b>{html.escape(target_printer.ip)}</b>\n\nВведіть нову IP адресу принтера (наприклад 192.168.1.50):"
+                if u_lang != "en"
+                else f"Current IP: <b>{html.escape(target_printer.ip)}</b>\n\nEnter new printer IP address:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=back_kb,
+            )
+            return True
+        elif t_low in ["🔢 серійний номер", "серійний номер", "sn", "🔢 serial number", "serial number"]:
+            user["state"] = "edit_p_sn"
+            await app.storage.save_user(user)
+            await message.answer(
+                f"Поточний серійний номер: <b>{html.escape(target_printer.serial_number)}</b>\n\nВведіть новий серійний номер (SN):"
+                if u_lang != "en"
+                else f"Current Serial Number: <b>{html.escape(target_printer.serial_number)}</b>\n\nEnter new Serial Number (SN):",
+                parse_mode=ParseMode.HTML,
+                reply_markup=back_kb,
+            )
+            return True
+        elif t_low in ["🔑 access code", "access code", "код доступу"]:
+            user["state"] = "edit_p_code"
+            await app.storage.save_user(user)
+            await message.answer(
+                f"Поточний Access Code: <b>{html.escape(target_printer.access_code)}</b>\n\nВведіть новий Access Code / Код доступу:"
+                if u_lang != "en"
+                else f"Current Access Code: <b>{html.escape(target_printer.access_code)}</b>\n\nEnter new Access Code:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=back_kb,
+            )
+            return True
+
+    if state == "edit_p_name" and target_printer:
+        target_printer.name = text
+        await app.save_printers_config()
+        user["state"] = "printer_menu"
+        await app.storage.save_user(user)
+        await message.answer(
+            f"✅ <b>Назву принтера успішно змінено на: {html.escape(text)}</b>"
+            if u_lang != "en"
+            else f"✅ <b>Printer name updated to: {html.escape(text)}</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
+        )
+        return True
+
+    if state == "edit_p_ip" and target_printer:
+        target_printer.ip = text
+        try:
+            target_printer.init_mqtt(asyncio.get_running_loop())
+        except Exception:
+            pass
+        await app.save_printers_config()
+        user["state"] = "printer_menu"
+        await app.storage.save_user(user)
+        await message.answer(
+            f"✅ <b>IP адресу принтера успішно змінено на: {html.escape(text)}</b>"
+            if u_lang != "en"
+            else f"✅ <b>Printer IP updated to: {html.escape(text)}</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
+        )
+        return True
+
+    if state == "edit_p_sn" and target_printer:
+        target_printer.serial_number = text
+        try:
+            target_printer.init_mqtt(asyncio.get_running_loop())
+        except Exception:
+            pass
+        await app.save_printers_config()
+        user["state"] = "printer_menu"
+        await app.storage.save_user(user)
+        await message.answer(
+            f"✅ <b>Серійний номер принтера успішно змінено на: {html.escape(text)}</b>"
+            if u_lang != "en"
+            else f"✅ <b>Printer Serial Number updated to: {html.escape(text)}</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
+        )
+        return True
+
+    if state == "edit_p_code" and target_printer:
+        target_printer.access_code = text
+        try:
+            target_printer.init_mqtt(asyncio.get_running_loop())
+        except Exception:
+            pass
+        await app.save_printers_config()
+        user["state"] = "printer_menu"
+        await app.storage.save_user(user)
+        await message.answer(
+            f"✅ <b>Access Code принтера успішно змінено на: {html.escape(text)}</b>"
+            if u_lang != "en"
+            else f"✅ <b>Printer Access Code updated to: {html.escape(text)}</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
+        )
+        return True
 
     if state == "confirm_delete_printer" and target_printer:
         if text.lower() in ["так, видалити принтер", "yes, delete printer"]:

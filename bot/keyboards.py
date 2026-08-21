@@ -58,8 +58,17 @@ def get_printer_menu_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyK
         [KeyboardButton(text=t("btn_status", lang)), KeyboardButton(text=t("btn_camera", lang))],
         [KeyboardButton(text=t("btn_control", lang)), KeyboardButton(text=t("btn_filament", lang))],
         [KeyboardButton(text=t("btn_calibrate", lang)), KeyboardButton(text=notify_str)],
-        [KeyboardButton(text=t("btn_reset_maint", lang)), KeyboardButton(text=t("btn_delete_printer", lang))],
-        [KeyboardButton(text=t("btn_back_to_printers", lang))],
+        [KeyboardButton(text=t("btn_edit_printer", lang)), KeyboardButton(text=t("btn_reset_maint", lang))],
+        [KeyboardButton(text=t("btn_delete_printer", lang)), KeyboardButton(text=t("btn_back_to_printers", lang))],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_edit_printer_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton(text=t("btn_edit_p_name", lang)), KeyboardButton(text=t("btn_edit_p_ip", lang))],
+        [KeyboardButton(text=t("btn_edit_p_sn", lang)), KeyboardButton(text=t("btn_edit_p_code", lang))],
+        [KeyboardButton(text=t("btn_back", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 

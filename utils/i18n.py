@@ -96,6 +96,26 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "uk": "🧹 Скинути лічильник ТО",
         "en": "🧹 Reset Maintenance",
     },
+    "btn_edit_printer": {
+        "uk": "✏️ Редагувати принтер",
+        "en": "✏️ Edit Printer",
+    },
+    "btn_edit_p_name": {
+        "uk": "✏️ Назва принтера",
+        "en": "✏️ Printer Name",
+    },
+    "btn_edit_p_ip": {
+        "uk": "🌐 IP адреса",
+        "en": "🌐 IP Address",
+    },
+    "btn_edit_p_sn": {
+        "uk": "🔢 Серійний номер",
+        "en": "🔢 Serial Number",
+    },
+    "btn_edit_p_code": {
+        "uk": "🔑 Access Code",
+        "en": "🔑 Access Code",
+    },
     "btn_delete_printer": {
         "uk": "🗑️ Видалити принтер",
         "en": "🗑️ Delete Printer",
