@@ -22,6 +22,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "uk": "📦 Склад",
         "en": "📦 Warehouse",
     },
+    "btn_parts_warehouse": {
+        "uk": "🧩 Склад деталей",
+        "en": "🧩 Parts Stock",
+    },
     "btn_commercial": {
         "uk": "💰 Комерція",
         "en": "💰 Commercial",

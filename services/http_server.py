@@ -11,7 +11,7 @@ from config import HTTP_PORT, logger
 from services.http.auth import check_auth, verify_telegram_init_data
 from services.http.middleware import security_and_ratelimit_middleware
 from services.http.routes_control import handle_printer_control
-from services.http.routes_files import handle_file_upload, handle_start_print_job
+from services.http.routes_files import handle_file_upload, handle_image_upload, handle_start_print_job
 from services.http.routes_printers import (
     build_printer_telemetry,
     handle_create_printer,
@@ -42,7 +42,13 @@ from services.http.routes_settings import (
     handle_update_user_settings,
     load_commercial_presets,
 )
-from services.http.routes_spools import handle_delete_spool, handle_get_spools, handle_save_spool
+from services.http.routes_parts import handle_delete_part, handle_get_parts, handle_print_part, handle_save_part
+from services.http.routes_spools import (
+    handle_delete_spool,
+    handle_export_warehouse_csv,
+    handle_get_spools,
+    handle_save_spool,
+)
 from services.http.routes_sse import handle_sse_stream
 
 __all__ = [
@@ -71,6 +77,11 @@ def create_http_app(app_obj: Any) -> web.Application:
     static_dir.mkdir(parents=True, exist_ok=True)
     web_app.router.add_static("/static/", path=str(static_dir), name="static")
 
+    import config
+    uploads_dir = config.STORAGE_DIR / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    web_app.router.add_static("/uploads/", path=str(uploads_dir), name="uploads")
+
     # API Endpoints
     web_app.router.add_get("/health", handle_health)
     web_app.router.add_get("/api/printers", handle_get_printers)
@@ -84,12 +95,20 @@ def create_http_app(app_obj: Any) -> web.Application:
 
     # File Upload & Print Job API
     web_app.router.add_post("/api/files/upload", handle_file_upload)
+    web_app.router.add_post("/api/files/upload_image", handle_image_upload)
     web_app.router.add_post("/api/printers/{id}/print_file", handle_start_print_job)
 
-    # Spools API
+    # Spools API & Warehouse Export
     web_app.router.add_get("/api/spools", handle_get_spools)
     web_app.router.add_post("/api/spools", handle_save_spool)
     web_app.router.add_delete("/api/spools/{id}", handle_delete_spool)
+    web_app.router.add_get("/api/warehouse/export_csv", handle_export_warehouse_csv)
+
+    # Parts Warehouse API
+    web_app.router.add_get("/api/parts", handle_get_parts)
+    web_app.router.add_post("/api/parts", handle_save_part)
+    web_app.router.add_delete("/api/parts/{id}", handle_delete_part)
+    web_app.router.add_post("/api/parts/{part_id}/print/{printer_id}", handle_print_part)
 
     # Commercial Pricing API
     web_app.router.add_get("/api/commercial/presets", handle_get_presets)

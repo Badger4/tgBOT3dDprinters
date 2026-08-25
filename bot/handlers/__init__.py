@@ -13,6 +13,7 @@ from bot.handlers.dashboard import router as dashboard_router
 from bot.handlers.filament import router as filament_router
 from bot.handlers.files import router as files_router
 from bot.handlers.notifications import router as notifications_router
+from bot.handlers.parts import router as parts_router
 from bot.handlers.printers import router as printers_router
 from bot.handlers.start import router as start_router
 
@@ -26,6 +27,7 @@ def setup_routers() -> Router:
         printers_router,
         control_router,
         filament_router,
+        parts_router,
         notifications_router,
         admin_router,
         files_router,

@@ -19,8 +19,8 @@ def get_main_keyboard(is_admin: bool, lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard.extend(
         [
             [KeyboardButton(text=t("btn_printers", lang)), KeyboardButton(text=t("btn_farm_status", lang))],
-            [KeyboardButton(text=t("btn_warehouse", lang)), KeyboardButton(text=t("btn_commercial", lang))],
-            [KeyboardButton(text=t("btn_notify_settings", lang))],
+            [KeyboardButton(text=t("btn_warehouse", lang)), KeyboardButton(text=t("btn_parts_warehouse", lang))],
+            [KeyboardButton(text=t("btn_commercial", lang)), KeyboardButton(text=t("btn_notify_settings", lang))],
         ]
     )
     if is_admin:
@@ -239,3 +239,92 @@ def get_notify_keyboard(u_notify: dict, lang: str = "uk") -> ReplyKeyboardMarkup
         ],
         resize_keyboard=True,
     )
+
+
+def get_parts_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    keyboard = [
+        [
+            KeyboardButton(text="🔍 Пошук" if not is_en else "🔍 Search"),
+            KeyboardButton(text="➕ Добавити" if not is_en else "➕ Add"),
+            KeyboardButton(text="📊 Звіт CSV" if not is_en else "📊 CSV Report"),
+        ],
+        [
+            KeyboardButton(text="🚀 Кинути на друк" if not is_en else "🚀 Send to Print"),
+            KeyboardButton(text="✏️ Редагувати" if not is_en else "✏️ Edit"),
+        ],
+        [
+            KeyboardButton(text="🗑️ Видалити" if not is_en else "🗑️ Delete"),
+            KeyboardButton(text=t("btn_main_menu", lang)),
+        ],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_parts_inline_keyboard(parts: dict[str, dict[str, Any]]) -> InlineKeyboardMarkup:
+    buttons = []
+    for p_id, p in parts.items():
+        name = p.get("name", "Деталь")
+        count = p.get("count", p.get("quantity", 0))
+        buttons.append([InlineKeyboardButton(text=f"{name} x{count}", callback_data=f"part_view_{p_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def construct_part_info_keyboard(part: dict[str, Any], lang: str = "uk") -> InlineKeyboardMarkup:
+    p_id = part.get("id", "")
+    name = part.get("name", "")
+    count = part.get("count", part.get("quantity", 0))
+
+    buttons = [
+        [InlineKeyboardButton(text="🚀 Кинути на друк 🖨️", callback_data=f"part_print_select_{p_id}")],
+        [InlineKeyboardButton(text=f"✏️ Ім'я: {name}", callback_data="part_prop_name")],
+        [InlineKeyboardButton(text="✏️ Фото", callback_data="part_prop_image")],
+        [InlineKeyboardButton(text=f"✏️ Кількість: x{count}", callback_data="part_prop_count")],
+        [InlineKeyboardButton(text="✏️ .3mf файл", callback_data="part_prop_three_mf")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_printer_select_inline_keyboard(part_id: str, printers: dict[str, Any], part: dict[str, Any] | None = None, lang: str = "uk", spools_map: dict | None = None) -> InlineKeyboardMarkup:
+    from services.gcode_parser import check_compatibility, get_printer_active_filament
+    buttons = []
+    printer_model = part.get("printer_model", "") if part else ""
+    filament_type = part.get("filament_type", "") if part else ""
+
+    for p_id, p in printers.items():
+        state_str = f" ({getattr(p, 'gcode_state', 'IDLE')})"
+        active_fil = get_printer_active_filament(p, spools_map)
+        comp = check_compatibility(printer_model, filament_type, p.name, active_fil) if printer_model else {"compatible": True}
+        icon = "✅" if comp.get("compatible", True) else ("🛑" if comp.get("reason_type") == "FILAMENT" else "⚠️")
+        buttons.append([InlineKeyboardButton(text=f"{icon} 🖨️ {p.name}{state_str}", callback_data=f"part_exec_print:{part_id}:{p_id}")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Скасувати" if lang != "en" else "⬅️ Cancel", callback_data=f"part_view_{part_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_part_action_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    keyboard = [
+        [
+            KeyboardButton(text="🚀 Кинути на друк" if not is_en else "🚀 Send to Print"),
+            KeyboardButton(text="✏️ Редагувати" if not is_en else "✏️ Edit"),
+        ],
+        [
+            KeyboardButton(text="🗑️ Видалити" if not is_en else "🗑️ Delete"),
+            KeyboardButton(text=t("btn_main_menu", lang)),
+        ],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_part_editing_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    keyboard = [
+        [
+            KeyboardButton(text="💾 Зберегти" if not is_en else "💾 Save"),
+            KeyboardButton(text="❌ Скасувати редагування" if not is_en else "❌ Cancel Edit"),
+        ]
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+

@@ -20,14 +20,14 @@ class TestWebappFleetFilteringUI(unittest.TestCase):
         self.assertIn('class="filter-pills', content)
         self.assertIn('data-filter="all"', content)
         self.assertIn('data-filter="RUNNING"', content)
+        self.assertIn('data-filter="PAUSE"', content)
         self.assertIn('data-filter="IDLE"', content)
-        self.assertIn('data-filter="OFFLINE"', content)
 
         # Check count badges
         self.assertIn('id="count-filter-all"', content)
         self.assertIn('id="count-filter-running"', content)
+        self.assertIn('id="count-filter-pause"', content)
         self.assertIn('id="count-filter-idle"', content)
-        self.assertIn('id="count-filter-offline"', content)
 
 
 if __name__ == "__main__":

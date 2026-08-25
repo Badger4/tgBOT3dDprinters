@@ -1,0 +1,155 @@
+"""
+Parts warehouse management REST API endpoints supporting reference bot fields.
+"""
+
+import time
+from aiohttp import web
+
+from services.http.auth import check_auth
+
+
+async def handle_get_parts(request: web.Request) -> web.Response:
+    """GET /api/parts - List 3D printed parts inventory."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+    return web.json_response(parts)
+
+
+async def handle_save_part(request: web.Request) -> web.Response:
+    """POST /api/parts - Add or update a part in warehouse."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    try:
+        data = await request.json()
+        part_id = data.get("id") or f"part_{int(time.time() * 1000)}"
+        parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+
+        existing = parts.get(part_id, {})
+        new_three_mf = str(data.get("three_mf", existing.get("three_mf", ""))).strip()
+        old_three_mf = existing.get("old_three_mf", "")
+
+        if new_three_mf and existing.get("three_mf") and new_three_mf != existing.get("three_mf"):
+            old_three_mf = existing.get("three_mf")
+
+        cnt = max(0, int(data.get("count", data.get("quantity", existing.get("count", 1)))))
+
+        printer_model = existing.get("printer_model", "Unknown")
+        filament_type = existing.get("filament_type", "PLA")
+
+        if new_three_mf:
+            import config
+            from services.gcode_parser import parse_3mf_file
+            save_path = config.STORAGE_DIR / "uploads" / new_three_mf
+            if not save_path.exists():
+                save_path = config.STORAGE_DIR / "parts_files" / new_three_mf
+            if save_path.exists():
+                meta = parse_3mf_file(save_path.read_bytes(), save_path.name)
+                if meta.get("printer_model") and meta.get("printer_model") != "Unknown":
+                    printer_model = meta["printer_model"]
+                if meta.get("filament_type"):
+                    filament_type = meta["filament_type"]
+
+        parts[part_id] = {
+            "id": part_id,
+            "name": str(data.get("name", existing.get("name", "Деталь"))).strip(),
+            "image": str(data.get("image", existing.get("image", ""))).strip(),
+            "count": cnt,
+            "quantity": cnt,
+            "three_mf": new_three_mf,
+            "printer_model": printer_model,
+            "filament_type": filament_type,
+            "updated_at": time.time(),
+        }
+
+        await app_obj.storage.save_json(app_obj.storage.parts_file, parts)
+        return web.json_response({"status": "ok", "part": parts[part_id]})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def handle_delete_part(request: web.Request) -> web.Response:
+    """DELETE /api/parts/{id} - Remove a part from warehouse."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    part_id = request.match_info.get("id", "")
+    parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+    if part_id in parts:
+        del parts[part_id]
+        await app_obj.storage.save_json(app_obj.storage.parts_file, parts)
+        return web.json_response({"status": "ok"})
+    return web.json_response({"error": "Part not found"}, status=404)
+
+
+async def handle_print_part(request: web.Request) -> web.Response:
+    """POST /api/parts/{part_id}/print/{printer_id} - Sends a part model to a printer and starts print."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    part_id = request.match_info.get("part_id", "")
+    printer_id = request.match_info.get("printer_id", "")
+
+    parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+    part = parts.get(part_id)
+    if not part:
+        return web.json_response({"error": "Part not found"}, status=404)
+
+    printer = app_obj.printers.get(printer_id)
+    if not printer:
+        return web.json_response({"error": "Printer not found"}, status=404)
+
+    three_mf_id = part.get("three_mf")
+    if not three_mf_id:
+        return web.json_response({"error": "Для цієї деталі немає збереженого .3mf файлу"}, status=400)
+
+    try:
+        import config
+        from pathlib import Path
+        clean_name = three_mf_id.replace("\\", "/").split("/")[-1]
+        clean_rel = three_mf_id.lstrip("/").lstrip("\\")
+
+        possible_paths = [
+            config.STORAGE_DIR / "uploads" / clean_name,
+            config.STORAGE_DIR / "parts_files" / clean_name,
+            config.STORAGE_DIR / clean_name,
+            config.STORAGE_DIR / clean_rel,
+            Path(three_mf_id),
+        ]
+
+        file_bytes = None
+        for p in possible_paths:
+            try:
+                if p.exists() and p.is_file():
+                    file_bytes = p.read_bytes()
+                    break
+            except Exception:
+                pass
+
+        if not file_bytes and getattr(app_obj, "bot", None) and not three_mf_id.startswith(("/", "\\", "http")):
+            file_info = await app_obj.bot.get_file(three_mf_id)
+            file_bytes_io = await app_obj.bot.download_file(file_info.file_path)
+            file_bytes = file_bytes_io.read()
+
+        if not file_bytes:
+            return web.json_response({"error": "Файл .3mf недоступний на сервері"}, status=404)
+
+        filename = part.get("three_mf_name") or f"{part.get('name', 'model')}.3mf"
+        part_title = part.get("name") or filename
+        ok, msg = await printer.start_print_job_async(file_bytes, filename, part_name=part_title)
+        if ok:
+            printer._is_printing = True
+            printer._was_running = True
+            printer._job_started_from_app = True
+            return web.json_response({"status": "ok", "message": msg})
+        else:
+            return web.json_response({"error": msg}, status=500)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+

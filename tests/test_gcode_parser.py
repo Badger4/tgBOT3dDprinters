@@ -39,11 +39,11 @@ class TestGcodeParser(unittest.TestCase):
         self.assertFalse(res2["compatible"])
         self.assertEqual(res2["level"], "BLOCK")
 
-        # A1 mini gcode on A1 printer -> incompatible in strict mode
-        res3 = check_compatibility("Bambu Lab A1 mini", "ABS", "Bambu Lab A1")
-        self.assertFalse(res3["compatible"])
-        self.assertEqual(res3["level"], "BLOCK")
-
+        # Material mismatch test (TPU 3MF vs ABS active spool)
+        res4 = check_compatibility("Bambu Lab A1", "TPU", "Bambu Lab A1", "Bambu ABS")
+        self.assertFalse(res4["compatible"])
+        self.assertEqual(res4["reason_type"], "FILAMENT")
+        self.assertIn("Філамент несумісний з файлом", res4["reason"])
 
 if __name__ == "__main__":
     unittest.main()

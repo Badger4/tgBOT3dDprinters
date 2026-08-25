@@ -28,6 +28,7 @@ class StorageManager:
         self.printers_file = self.base_dir / "printers.json"
         self.settings_file = self.base_dir / "global_settings.json"
         self.spools_file = self.base_dir / "spools.json"
+        self.parts_file = self.base_dir / "parts.json"
         self.history_file = self.base_dir / "history.json"
         self._file_locks: dict[Path, asyncio.Lock] = {}
 

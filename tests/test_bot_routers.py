@@ -13,8 +13,8 @@ class TestBotRouters(unittest.TestCase):
     def test_setup_routers(self):
         router = setup_routers()
         self.assertIsInstance(router, Router)
-        # Check subrouters count (11 subrouters registered)
-        self.assertEqual(len(router.sub_routers), 11)
+        # Check subrouters count (12 subrouters registered including parts_router)
+        self.assertEqual(len(router.sub_routers), 12)
 
 
 if __name__ == "__main__":

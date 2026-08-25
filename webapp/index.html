@@ -13,7 +13,7 @@
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- WebApp CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=1006">
+    <link rel="stylesheet" href="/static/css/style.css?v=1024">
 </head>
 <body>
     <div id="app" class="app-container">
@@ -62,9 +62,9 @@
                     </div>
                     <div class="filter-pills mt-2">
                         <button class="pill-btn active" data-filter="all"><span data-i18n="filter_all">Всі</span> <span id="count-filter-all" class="pill-badge">0</span></button>
-                        <button class="pill-btn" data-filter="RUNNING"><span data-i18n="filter_running">Друк 🟢</span> <span id="count-filter-running" class="pill-badge">0</span></button>
+                        <button class="pill-btn" data-filter="RUNNING"><span data-i18n="filter_running">Друкує 🟢</span> <span id="count-filter-running" class="pill-badge">0</span></button>
+                        <button class="pill-btn" data-filter="PAUSE"><span data-i18n="filter_pause">Пауза ⏸️</span> <span id="count-filter-pause" class="pill-badge">0</span></button>
                         <button class="pill-btn" data-filter="IDLE"><span data-i18n="filter_idle">Готовий ⚪</span> <span id="count-filter-idle" class="pill-badge">0</span></button>
-                        <button class="pill-btn" data-filter="OFFLINE"><span data-i18n="filter_offline">Офлайн 🔴</span> <span id="count-filter-offline" class="pill-badge">0</span></button>
                     </div>
                 </div>
                 <div id="printers-grid" class="printers-grid">
@@ -155,9 +155,14 @@
             <section id="tab-materials" class="tab-page">
                 <div class="section-header">
                     <h2><i class="fa-solid fa-boxes-packing"></i> <span data-i18n="materials_stock_title">Склад пластику</span></h2>
-                    <button id="add-spool-btn" class="btn btn-primary btn-sm">
-                        <i class="fa-solid fa-plus"></i> <span data-i18n="new_spool_btn">Нова котушка</span>
-                    </button>
+                    <div class="d-flex gap-2">
+                        <a href="/api/warehouse/export_csv" download="warehouse_report.csv" class="btn btn-outline-success btn-sm" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none;">
+                            <i class="fa-solid fa-file-csv"></i> Звіт CSV
+                        </a>
+                        <button id="add-spool-btn" class="btn btn-primary btn-sm">
+                            <i class="fa-solid fa-plus"></i> <span data-i18n="new_spool_btn">Нова котушка</span>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Spool Inventory -->
@@ -165,6 +170,40 @@
                     <h3><i class="fa-solid fa-cubes-stacked"></i> <span data-i18n="spools_warehouse_title">Склад котушок</span></h3>
                     <div id="spools-list" class="spools-list">
                         <!-- Dynamic Spools -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3.5: PARTS WAREHOUSE -->
+            <section id="tab-parts" class="tab-page">
+                <div class="section-header">
+                    <h2><i class="fa-solid fa-puzzle-piece"></i> <span data-i18n="parts_stock_title">Склад готових деталей</span></h2>
+                    <div class="d-flex gap-2">
+                        <a href="/api/warehouse/export_csv" download="warehouse_report.csv" class="btn btn-outline-success btn-sm" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none;">
+                            <i class="fa-solid fa-file-csv"></i> Звіт CSV
+                        </a>
+                        <button id="add-part-btn" class="btn btn-primary btn-sm" onclick="window.openAddPartModal()">
+                            <i class="fa-solid fa-plus"></i> <span data-i18n="new_part_btn">Нова деталь</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Parts Inventory -->
+                <div class="glass-card">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h3><i class="fa-solid fa-cubes"></i> <span data-i18n="parts_warehouse_subtitle">Інвентар деталей</span></h3>
+                        <span id="parts-summary-badge" class="badge badge-active">0 шт.</span>
+                    </div>
+
+                    <!-- Search Input Bar -->
+                    <div class="search-box mb-3">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" id="part-search-input" class="search-input" placeholder="🔍 Пошук деталі за назвою або моделлю..." autocomplete="off">
+                        <button id="part-search-clear-btn" class="search-clear-btn" style="display:none;"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+
+                    <div id="parts-list" class="spools-list">
+                        <!-- Dynamic Parts Cards -->
                     </div>
                 </div>
             </section>
@@ -297,7 +336,7 @@
                 </div>
 
                 <!-- 2. Admin User Access Control Card -->
-                <div id="admin-users-card" class="glass-card mb-4">
+                <div id="admin-users-card" class="glass-card mb-4" style="display: none;">
                     <h3><i class="fa-solid fa-users-gear color-blue"></i> <span data-i18n="user_access_control_title">Управління доступом користувачів (Адмінка)</span></h3>
                     <div class="table-responsive mt-2">
                         <table class="data-table">
@@ -480,11 +519,11 @@
                     </div>
 
                     <div class="control-section">
-                        <div class="d-flex align-items-center justify-content-between mb-2">
-                            <h4 style="margin:0;"><i class="fa-solid fa-boxes-packing color-purple"></i> Філамент & Слоти</h4>
-                            <label class="d-flex align-items-center gap-1 cursor-pointer" style="font-size:12px; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:6px;">
+                        <div class="d-flex align-items-center justify-content-between mb-2 gap-2" style="flex-wrap: nowrap;">
+                            <h4 style="margin:0; white-space:nowrap; font-size:14px;"><i class="fa-solid fa-boxes-packing color-purple"></i> Філамент & Слоти</h4>
+                            <label class="d-flex align-items-center gap-1 cursor-pointer" style="font-size:12px; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:6px; white-space:nowrap; flex-shrink:0;">
                                 <input type="checkbox" id="modal-ams-toggle" style="cursor:pointer;">
-                                <span><i class="fa-solid fa-layer-group color-blue"></i> Модуль AMS</span>
+                                <span style="white-space:nowrap;"><i class="fa-solid fa-layer-group color-blue"></i> Модуль AMS</span>
                             </label>
                         </div>
                         <div id="modal-ams-slots-container" class="ams-slots-grid">
@@ -535,24 +574,24 @@
                     <button id="close-add-printer-modal" class="icon-btn-close" onclick="document.getElementById('add-printer-modal').classList.remove('active')"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body">
-                    <form id="add-printer-form" onsubmit="return false;">
+                    <form id="add-printer-form">
                         <div class="form-group">
                             <label>Назва принтера</label>
-                            <input type="text" id="new-p-name" class="form-control" placeholder="Bambu Lab A1 mini 3" required>
+                            <input type="text" id="new-p-name" class="form-control" placeholder="Bambu Lab A1 mini 3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required>
                         </div>
                         <div class="form-group">
                             <label>IP адреса</label>
-                            <input type="text" id="new-p-ip" class="form-control" placeholder="192.168.1.50" required>
+                            <input type="text" id="new-p-ip" class="form-control" placeholder="192.168.1.50" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="decimal" required>
                         </div>
                         <div class="form-group">
                             <label>Access Code (Код доступу)</label>
-                            <input type="text" id="new-p-code" class="form-control" placeholder="12345678" required>
+                            <input type="text" id="new-p-code" class="form-control" placeholder="12345678" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required>
                         </div>
                         <div class="form-group">
                             <label>Серійний номер (SN)</label>
-                            <input type="text" id="new-p-sn" class="form-control" placeholder="0309DA561100751" required>
+                            <input type="text" id="new-p-sn" class="form-control" placeholder="0309DA561100751" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required>
                         </div>
-                        <button id="save-printer-submit" class="btn btn-primary w-100 mt-2">Зберегти принтер</button>
+                        <button type="submit" id="save-printer-submit" class="btn btn-primary w-100 mt-2">Зберегти принтер</button>
                     </form>
                 </div>
             </div>
@@ -651,42 +690,42 @@
                     <button id="close-preset-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body">
-                    <form id="preset-form" onsubmit="return false;">
+                    <form id="preset-form">
                         <div class="form-group">
                             <label>Назва пресета</label>
-                            <input type="text" id="preset-name" class="form-control" placeholder="Стандарт PLA (850 грн/кг, +100%)" required>
+                            <input type="text" id="preset-name" class="form-control" placeholder="Стандарт PLA (850 грн/кг, +100%)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required>
                         </div>
-                        <div class="form-row">
+                        <div class="form-row mb-3">
                             <div class="form-group col">
                                 <label>Ціна пластику (грн/г)</label>
-                                <input type="number" id="preset-price-g" class="form-control" value="0.85" step="0.01">
+                                <input type="text" id="preset-price-g" class="form-control" value="0.85" inputmode="decimal" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                             </div>
                             <div class="form-group col">
                                 <label>Тариф за світло (грн/кВт·год)</label>
-                                <input type="number" id="preset-elec-rate" class="form-control" value="4.32" step="0.01">
+                                <input type="text" id="preset-elec-rate" class="form-control" value="4.32" inputmode="decimal" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                             </div>
                         </div>
-                        <div class="form-row">
+                        <div class="form-row mb-3">
                             <div class="form-group col">
-                                <label>Потужність принтера (Вт)</label>
-                                <input type="number" id="preset-power" class="form-control" value="120" step="10">
+                                <label>Середня потужність принтера (Вт)</label>
+                                <input type="text" id="preset-power" class="form-control" value="120" inputmode="numeric" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                             </div>
                             <div class="form-group col">
                                 <label>Амортизація (грн/год або %)</label>
-                                <input type="text" id="preset-depreciation" class="form-control" value="10" placeholder="10 або 10%">
+                                <input type="text" id="preset-depreciation" class="form-control" value="10" placeholder="10 або 10%" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                             </div>
                         </div>
-                        <div class="form-row">
+                        <div class="form-row mb-3">
                             <div class="form-group col">
                                 <label>Витратні (грн/год або %)</label>
-                                <input type="text" id="preset-consumables" class="form-control" value="5" placeholder="5 або 5%">
+                                <input type="text" id="preset-consumables" class="form-control" value="5" placeholder="5 або 5%" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                             </div>
                             <div class="form-group col">
                                 <label>Націнка / Маржа</label>
-                                <input type="text" id="preset-profit" class="form-control" value="100%" placeholder="100% або 50 грн">
+                                <input type="text" id="preset-profit" class="form-control" value="100%" placeholder="100% або 50 грн" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                             </div>
                         </div>
-                        <button id="save-preset-submit" class="btn btn-primary w-100 mt-2">Зберегти пресет</button>
+                        <button type="submit" id="save-preset-submit" class="btn btn-primary w-100 mt-2">Зберегти пресет</button>
                     </form>
                 </div>
             </div>
@@ -704,7 +743,11 @@
             </button>
             <button class="nav-btn" data-tab="tab-materials">
                 <i class="fa-solid fa-boxes-packing"></i>
-                <span data-i18n="nav_materials">Склад</span>
+                <span data-i18n="nav_materials">Склад нитки</span>
+            </button>
+            <button class="nav-btn" data-tab="tab-parts">
+                <i class="fa-solid fa-puzzle-piece"></i>
+                <span data-i18n="nav_parts">Деталі</span>
             </button>
             <button class="nav-btn" data-tab="tab-history">
                 <i class="fa-solid fa-chart-pie"></i>
@@ -739,6 +782,8 @@
                 </div>
             </div>
         </div>
+    </div>
+
     <!-- PRINTER MODAL (ADD / EDIT PRINTER) -->
     <div id="add-printer-modal" class="modal-backdrop">
         <div class="modal-window">
@@ -772,7 +817,48 @@
         </div>
     </div>
 
+    <!-- PART MODAL (ADD / EDIT PART) -->
+    <div id="add-part-modal" class="modal-backdrop">
+        <div class="modal-window">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-puzzle-piece"></i> 🧩 <span id="part-modal-title">Нова деталь</span></h3>
+                <button id="close-add-part-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="add-part-form" onsubmit="return false;">
+                    <input type="hidden" id="edit-part-id" value="">
+                    <div class="form-group">
+                        <label>Назва деталі</label>
+                        <input type="text" id="part-name-input" class="form-control" placeholder="Кронштейн P1S / Шестерня A1" autocomplete="off" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Завантажити фото деталі (із пристрою/галереї)</label>
+                        <input type="file" id="part-image-file-input" class="form-control mb-1" accept="image/*">
+                        <input type="text" id="part-image-input" class="form-control" placeholder="Або вкажіть URL / file_id..." autocomplete="off">
+                        <div id="part-image-preview-wrap" class="mt-2" style="display:none;">
+                            <img id="part-image-preview" src="" style="max-height: 100px; border-radius: 8px; object-fit: cover;">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Кількість (шт)</label>
+                        <input type="number" id="part-count-input" class="form-control" value="1" min="0" step="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Завантажити файл .3mf (із пристрою)</label>
+                        <input type="file" id="part-3mf-file-input" class="form-control" accept=".3mf">
+                        <input type="hidden" id="part-3mf-input" value="">
+                        <small id="part-detected-model" class="text-info mt-1 d-block" style="display:none;"></small>
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                        <button id="cancel-part-submit" type="button" class="btn btn-outline col">❌ Скасувати</button>
+                        <button id="save-part-submit" type="button" class="btn btn-primary col">💾 Зберегти деталь</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1006"></script>
+    <script src="/static/js/app.js?v=1038"></script>
 </body>
 </html>

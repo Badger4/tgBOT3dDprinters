@@ -18,7 +18,7 @@ import paho.mqtt.client as mqtt
 
 from config import STORAGE_DIR, logger
 from models.enums import AMSSlot
-from services.ftps_client import extract_model_weight, fetch_bambu_ftps_weight, upload_3mf_to_bambu
+from services.ftps_client import extract_model_weight, fetch_bambu_ftps_weight, upload_3mf_to_bambu, verify_bambu_file_size
 from services.gcode_parser import parse_3mf_file
 from services.hms_resolver import format_hms_errors
 from services.mqtt_message_parser import extract_subtask_weight, parse_mqtt_payload
@@ -431,7 +431,7 @@ class BambuPrinter:
 
             if curr_subtask and curr_subtask != getattr(self, "_last_subtask_name", ""):
                 if getattr(self, "_last_subtask_name", "") != "":
-                    if not getattr(self, "_is_calibrating", False):
+                    if not getattr(self, "_is_calibrating", False) and not getattr(self, "_job_started_from_app", False):
                         logger.info(
                             f"🔄 Subtask changed for [{self.name}]: '{getattr(self, '_last_subtask_name', '')}' -> '{curr_subtask}'. Resetting job weight."
                         )
@@ -574,7 +574,7 @@ class BambuPrinter:
 
                     if should_record_history:
                         logger.info(f"🎉 Print finished/completed on [{self.name}] (state: {self.gcode_state})!")
-                        final_weight = self._current_job_grams or 0.0
+                        final_weight = self._current_job_grams or getattr(self, "last_job_grams", 0.0) or 0.0
                         if final_weight == 0.0 and self.subtask_name:
                             final_weight = extract_subtask_weight(self.subtask_name)
 
@@ -591,9 +591,16 @@ class BambuPrinter:
 
                         note_text = "Успішно виконано" if self.gcode_state == "FINISH" else "Завершено"
 
-                        clean_subtask = str(self.subtask_name or "").strip()
-                        if not clean_subtask or clean_subtask.lower() in ["untitled", "none", "null"]:
-                            clean_subtask = "Модель 3D"
+                        raw_title = getattr(self, "_custom_job_name", None) or str(self.subtask_name or "").strip()
+                        raw_title = raw_title.replace("Metadata/", "").replace("metadata/", "").strip()
+                        if "." in raw_title and not raw_title.endswith((".3mf", ".gcode")):
+                            raw_title = raw_title.rsplit(".", 1)[0]
+                        elif raw_title.endswith((".3mf", ".gcode")):
+                            raw_title = raw_title.rsplit(".", 1)[0]
+
+                        clean_subtask = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", raw_title).strip()
+                        if not clean_subtask or clean_subtask.lower() in ["untitled", "none", "null"] or re.match(r"^[_ -]+$", clean_subtask):
+                            clean_subtask = "Деталь 3D"
 
                         entry = {
                             "timestamp": time.time(),
@@ -728,7 +735,7 @@ class BambuPrinter:
         return True
 
     async def start_print_job_async(
-        self, file_bytes: bytes, filename: str, plate_name: str = "plate_1.gcode", use_ams: bool = True
+        self, file_bytes: bytes, filename: str, plate_name: str = "plate_1.gcode", use_ams: bool = True, part_name: str | None = None
     ) -> tuple[bool, str]:
         """
         Uploads 3MF file via FTPS to printer SD card and publishes MQTT project_file command to start printing.
@@ -744,8 +751,11 @@ class BambuPrinter:
         if not remote_path:
             return False, f"⚠️ Не вдалося завантажити файл по FTPS на {self.name} (перевірте IP {self.ip} та SD-карту)."
 
-        # Wait 2.0s for printer firmware to finalize MicroSD FAT32 flush
-        await asyncio.sleep(2.0)
+        # Verify file size on printer MicroSD card via FTPS SIZE command instead of blind sleep
+        expected_size = len(file_bytes)
+        verified = await asyncio.to_thread(verify_bambu_file_size, self.ip, self.access_code, remote_path, expected_size)
+        if not verified:
+            logger.warning(f"⚠️ SD card size verification unconfirmed for {remote_path} on [{self.name}]. Proceeding with job dispatch...")
 
         # 2. Prepare MQTT project_file command with correct file:///sdcard/ URL path and MD5 hash
         clean_file = remote_path.split("/")[-1]
@@ -759,15 +769,19 @@ class BambuPrinter:
             url_path = f"file:///sdcard/{remote_path}"
 
         # Dynamically verify sub_path inside 3MF container
-        sub_path = "Metadata/slice_info.config"
+        sub_path = "Metadata/plate_1.gcode"
         if zipfile.is_zipfile(io.BytesIO(file_bytes)):
             try:
                 with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
                     names = zf.namelist()
                     if plate_name and f"Metadata/{plate_name}" in names:
                         sub_path = f"Metadata/{plate_name}"
-                    elif plate_name and plate_name in names:
+                    elif plate_name and plate_name.startswith("Metadata/") and plate_name in names:
                         sub_path = plate_name
+                    elif plate_name and plate_name in names:
+                        sub_path = f"Metadata/{plate_name}" if not plate_name.startswith("Metadata/") else plate_name
+                    elif "Metadata/plate_1.gcode" in names:
+                        sub_path = "Metadata/plate_1.gcode"
                     elif "Metadata/slice_info.config" in names:
                         sub_path = "Metadata/slice_info.config"
                     else:
@@ -777,8 +791,23 @@ class BambuPrinter:
             except Exception as e_zip:
                 logger.warning(f"Failed zip sub_path scan for {filename}: {e_zip}")
 
+        # Always guarantee Metadata/ prefix for Bambu Lab firmware path resolution
+        if not sub_path.startswith("Metadata/"):
+            sub_path = f"Metadata/{sub_path}"
+
         md5_str = hashlib.md5(file_bytes).hexdigest()
-        clean_subtask = re.sub(r"[^a-zA-Z0-9_]", "_", filename.rsplit(".", 1)[0])
+
+        # Preserve human-readable Unicode/Cyrillic part name or filename
+        display_title = part_name or filename
+        if "." in display_title:
+            display_title = display_title.rsplit(".", 1)[0]
+
+        clean_subtask = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", display_title).strip()
+        if not clean_subtask or re.match(r"^[_ -]+$", clean_subtask):
+            clean_subtask = "Деталь 3D"
+
+        self.subtask_name = clean_subtask
+        self._custom_job_name = clean_subtask
 
         # Pre-calculate filament weight from uploaded 3MF file
         try:
@@ -803,18 +832,45 @@ class BambuPrinter:
         except Exception as e_w:
             logger.warning(f"Could not parse 3MF weight in start_print_job_async: {e_w}")
 
+        timestamp_id = str(int(time.time()))
+        has_ams_hardware = bool(getattr(self, "has_ams", False))
+        active_slot = str(self.get_active_slot_key())
+
+        use_ams_bool = bool(use_ams and has_ams_hardware)
+        ams_mapping_list: list[int] = []
+
+        if use_ams_bool:
+            if active_slot.isdigit():
+                ams_mapping_list = [int(active_slot)]
+            elif active_slot == "255":
+                ams_mapping_list = [255]
+            else:
+                ams_mapping_list = [0]
+        else:
+            use_ams_bool = False
+            ams_mapping_list = []
+
         payload = {
             "print": {
-                "sequence_id": str(int(time.time())),
+                "sequence_id": timestamp_id,
                 "command": "project_file",
                 "param": sub_path,
+                "project_id": timestamp_id,
+                "profile_id": timestamp_id,
+                "task_id": timestamp_id,
+                "subtask_id": timestamp_id,
                 "subtask_name": clean_subtask,
                 "url": url_path,
                 "file": remote_path,
                 "md5": md5_str,
-                "timelapse": True,
+                "timelapse": False,
                 "bed_type": "auto",
-                "use_ams": use_ams,
+                "bed_levelling": True,
+                "flow_cali": True,
+                "vibration_cali": True,
+                "layer_inspect": True,
+                "use_ams": use_ams_bool,
+                "ams_mapping": ams_mapping_list,
             }
         }
 
@@ -890,6 +946,16 @@ class BambuPrinter:
         logger.info(f"⚙️ Maintenance interval for [{self.name}] ({item_key}) set to {val}h")
         self._trigger_save()
 
+    @property
+    def mapped_state(self) -> str:
+        """Maps internal gcode_state into 3 canonical user-facing states: RUNNING, PAUSE, IDLE."""
+        st = str(self.gcode_state or "IDLE").upper()
+        if st in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PRINTING", "SLICING", "BUSY", "CHANGING_FILAMENT", "MAM_CLEANING"]:
+            return "RUNNING"
+        if st in ["PAUSE", "PAUSED"]:
+            return "PAUSE"
+        return "IDLE"
+
     def to_dict(self, for_storage: bool = False) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -910,7 +976,8 @@ class BambuPrinter:
             "maintenance_interval_hours": self.maintenance_interval_hours,
             "last_maintenance_timestamp": self.last_maintenance_timestamp,
             "maintenance_items": self.maintenance_items,
-            "gcode_state": self.gcode_state,
+            "gcode_state": self.gcode_state if for_storage else self.mapped_state,
+            "raw_gcode_state": self.gcode_state,
             "nozzle_temper": self.nozzle_temper,
             "nozzle_target_temper": self.nozzle_target_temper,
             "bed_temper": self.bed_temper,
@@ -942,6 +1009,7 @@ class BambuPrinter:
             "ams_trays_info": self.ams_trays_info,
             "hms_errors": self.hms_errors,
             "hms_resolved": self.hms_resolved,
+            "chamber_light_state": self.chamber_light_state,
         }
 
     def to_storage_dict(self) -> dict[str, Any]:

@@ -244,14 +244,7 @@ class PrinterBotApp:
                                 finish_txt += f"⚖️ **Списано:** `{used_w}g`\n"
                             finish_txt += f"📦 **Залишок на бабіні:** *{p.get_slot_grams()}g*\nІди й негайно зніми деталь зі столу, скільки можна чекати?! 😤🧹"
 
-                            reply_kb = None
-                            if used_w == 0.0:
-                                from bot.keyboards import get_deduct_weight_inline_keyboard
-
-                                reply_kb = get_deduct_weight_inline_keyboard(p.id)
-                                finish_txt += "\n\n❓ *Вагу файлу не вдалося визначити автоматично.* Оберіть скільки грам списати:"
-
-                            await self.send_notification("finish", finish_txt, reply_markup=reply_kb)
+                            await self.send_notification("finish", finish_txt)
                             st["notifiedFinish"] = True
                             st["notifiedStart"] = False
                             st["notifiedPause"] = False

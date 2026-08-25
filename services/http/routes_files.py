@@ -12,7 +12,7 @@ from aiohttp import web
 
 import config
 from config import logger
-from services.gcode_parser import check_compatibility, parse_3mf_file
+from services.gcode_parser import check_compatibility, get_printer_active_filament, parse_3mf_file
 from services.http.auth import check_auth
 
 
@@ -81,15 +81,18 @@ async def handle_file_upload(request: web.Request) -> web.Response:
             save_path.unlink(missing_ok=True)
             return web.json_response({"error": meta.get("error", "Недійсний файл .3mf")}, status=400)
 
+        spools_map = await app_obj.storage.load_spools()
         printers_info = []
         for p_id, p in app_obj.printers.items():
-            comp = check_compatibility(meta["printer_model"], meta["filament_type"], p.name)
+            active_fil = get_printer_active_filament(p, spools_map)
+            comp = check_compatibility(meta["printer_model"], meta["filament_type"], p.name, active_fil)
             printers_info.append(
                 {
                     "id": p.id,
                     "name": p.name,
                     "state": p.gcode_state,
                     "compatible": comp["compatible"],
+                    "reason_type": comp.get("reason_type", "OK"),
                     "reason": comp.get("reason", ""),
                 }
             )
@@ -108,6 +111,59 @@ async def handle_file_upload(request: web.Request) -> web.Response:
         )
     except Exception as e:
         logger.error(f"Error handling WebApp file upload: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_image_upload(request: web.Request) -> web.Response:
+    """POST /api/files/upload_image - Accepts image file upload from WebApp with auto-compression."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15MB DoS limit
+
+    if request.content_length and request.content_length > MAX_UPLOAD_BYTES:
+        return web.json_response({"error": "Файл занадто великий"}, status=413)
+
+    try:
+        reader = await request.multipart()
+        field: Any = await reader.next()
+        if not field or not getattr(field, "filename", None):
+            return web.json_response({"error": "No file provided"}, status=400)
+
+        raw_name = Path(field.filename).name
+        ext = Path(raw_name).suffix.lower()
+        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+            return web.json_response({"error": "Підтримуються лише зображення (.jpg, .png, .webp, .gif)"}, status=400)
+
+        raw_bytes = bytearray()
+        while True:
+            chunk = await field.read_chunk(size=256 * 1024)
+            if not chunk:
+                break
+            raw_bytes.extend(chunk)
+            if len(raw_bytes) > MAX_UPLOAD_BYTES:
+                return web.json_response({"error": "Файл занадто великий"}, status=413)
+
+        from utils.image_utils import compress_part_photo
+        try:
+            compressed = compress_part_photo(bytes(raw_bytes))
+        except Exception as img_err:
+            logger.warning(f"Failed compressing image: {img_err}")
+            return web.json_response({"error": "Не вдалося обробити зображення"}, status=400)
+
+        clean_base = re.sub(r"[^a-zA-Z0-9_]", "_", raw_name.rsplit(".", 1)[0])
+        file_token = f"img_{int(time.time())}_{clean_base}.jpg"
+
+        upload_dir = config.STORAGE_DIR / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        save_path = upload_dir / file_token
+
+        save_path.write_bytes(compressed)
+
+        image_url = f"/uploads/{file_token}"
+        return web.json_response({"status": "ok", "image_url": image_url, "file_token": file_token})
+    except Exception as e:
+        logger.error(f"Error handling image upload: {e}")
         return web.json_response({"error": str(e)}, status=500)
 
 
@@ -132,11 +188,12 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
         file_bytes = save_path.read_bytes()
         filename = data.get("filename") or file_token.split("_", 1)[-1]
 
-        # Parse 3MF / Gcode metadata for current job weight
+        # Parse 3MF / Gcode metadata for current job weight & plate_name
         meta = parse_3mf_file(file_bytes, filename)
         job_w = float(meta.get("weight_g", 0.0))
+        plate_name = meta.get("plate_name", "plate_1.gcode")
 
-        ok, msg = await p.start_print_job_async(file_bytes, filename)
+        ok, msg = await p.start_print_job_async(file_bytes, filename, plate_name=plate_name)
         if ok:
             p._is_printing = True
             p._was_running = True

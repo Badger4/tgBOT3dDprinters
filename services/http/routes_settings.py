@@ -376,13 +376,20 @@ async def handle_get_user_settings(request: web.Request) -> web.Response:
     user_info = {"id": u_id or "", "role": "USER", "approved": True}
     user_lang = "uk"
 
+    is_admin = False
     if u_id and hasattr(app_obj, "storage"):
         user = await app_obj.storage.load_user(u_id)
         if user:
             user_notify.update(user.get("notify", {}))
-            user_info["role"] = user.get("role", "USER")
+            is_admin = (str(u_id) == str(ADMIN_CHAT_ID)) or bool(user.get("admin", {}).get("access_admin")) or user.get("role") == "ADMIN"
+            user_info["role"] = "ADMIN" if is_admin else "USER"
+            user_info["is_admin"] = is_admin
             user_info["approved"] = user.get("approved", True)
             user_lang = user.get("language", "uk")
+    else:
+        is_admin = True
+        user_info["role"] = "ADMIN"
+        user_info["is_admin"] = True
 
     return web.json_response({"notify": user_notify, "user": user_info, "language": user_lang})
 
@@ -419,6 +426,14 @@ async def handle_get_users(request: web.Request) -> web.Response:
     """GET /api/users - Admin list of registered Telegram users."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    u_id = get_authenticated_user_id(request)
+    if u_id and hasattr(app_obj, "storage"):
+        u_data = await app_obj.storage.load_user(u_id)
+        is_caller_admin = (str(u_id) == str(ADMIN_CHAT_ID)) or bool(u_data.get("admin", {}).get("access_admin")) or u_data.get("role") == "ADMIN"
+        if not is_caller_admin:
+            return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     users = {}

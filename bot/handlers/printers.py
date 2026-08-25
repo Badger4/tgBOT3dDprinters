@@ -52,13 +52,17 @@ async def handle_printer_status(message: Message, app):
     if not target_printer:
         return
 
-    state_emoji = (
-        "🖨️"
-        if target_printer.gcode_state == "RUNNING"
-        else (
-            "⏸️" if target_printer.gcode_state == "PAUSE" else ("🎉" if target_printer.gcode_state == "FINISH" else "💤")
-        )
-    )
+    st_code = getattr(target_printer, "gcode_state", "IDLE")
+    if st_code == "RUNNING":
+        state_emoji = "🟢"
+        state_label = "🟢 Друкує" if not is_en else "🟢 Printing"
+    elif st_code == "PAUSE":
+        state_emoji = "⏸️"
+        state_label = "⏸️ Пауза" if not is_en else "⏸️ Paused"
+    else:
+        state_emoji = "⚪"
+        state_label = "⚪ Готовий" if not is_en else "⚪ Ready"
+
     nozzle_target = getattr(target_printer, "nozzle_target_temper", 0)
     bed_target = getattr(target_printer, "bed_target_temper", 0)
     chamber_t = getattr(target_printer, "chamber_temper", 0)
@@ -76,7 +80,7 @@ async def handle_printer_status(message: Message, app):
     if is_en:
         status_txt = (
             f"<b>📊 Printer Status: {target_printer.name}</b>\n\n"
-            f"{state_emoji} <b>State:</b> <code>{target_printer.gcode_state}</code>{wifi_str}\n"
+            f"{state_emoji} <b>State:</b> <code>{state_label}</code>{wifi_str}\n"
             f"🔥 <b>Nozzle:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> | 🛏️ <b>Bed:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
             f"🧵 <b>Filament Type:</b> <b>{target_printer.filament_type}</b>\n"
             f"📦 <b>Spool Remaining:</b> <b>{target_printer.filament_grams}g</b>\n"
@@ -84,7 +88,7 @@ async def handle_printer_status(message: Message, app):
     else:
         status_txt = (
             f"<b>📊 Стан принтера: {target_printer.name}</b>\n\n"
-            f"{state_emoji} <b>Стан:</b> <code>{target_printer.gcode_state}</code>{wifi_str}\n"
+            f"{state_emoji} <b>Стан:</b> <code>{state_label}</code>{wifi_str}\n"
             f"🔥 <b>Сопло:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> | 🛏️ <b>Стіл:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
             f"🧵 <b>Тип пластику:</b> <b>{target_printer.filament_type}</b>\n"
             f"📦 <b>Залишок на бабіні:</b> <b>{target_printer.filament_grams}g</b>\n"

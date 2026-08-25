@@ -30,3 +30,22 @@ class SpoolManagementStates(StatesGroup):
     edit_price = State()
     select_spool_to_delete = State()
     confirm_delete_spool = State()
+
+
+class PartCreatingStates(StatesGroup):
+    name = State()
+    image = State()
+    count = State()
+    three_mf = State()
+
+
+class PartEditingStates(StatesGroup):
+    in_parts_list = State()
+    in_part_info = State()
+    property_edit = State()
+    select_part_for_print = State()
+    select_part_for_edit = State()
+    select_part_for_delete = State()
+    search_query = State()
+
+

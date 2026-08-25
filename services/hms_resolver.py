@@ -88,49 +88,89 @@ HMS_CODE_MAP: dict[str, str] = {
 def decode_hms_entry(entry: dict[str, Any] | int | str) -> str:
     """
     Decodes a single HMS error entry into a formatted string with description.
-    Supports raw integer masks, string codes (e.g. 0300-0100-0001-0003), or dicts.
-    Uses a 3-tier fallback: Exact Match -> Sub-Category (3-parts) -> Main Category (2-parts).
+    Supports raw integer masks, 16-hex string codes (e.g. HMS0002000212FF2000), dash codes (e.g. 0300-0100), or dicts.
+    Uses multi-pattern candidate matching with category translation (0002 -> 0200, 0003 -> 0300).
     """
+    import re
+
+    raw_display = ""
+    hex16 = ""
+
     if isinstance(entry, dict):
         raw_code = entry.get("code")
         raw_attr = entry.get("attr")
         if isinstance(raw_code, int) and isinstance(raw_attr, int):
             code_hex = f"{raw_code:08X}"
             attr_hex = f"{raw_attr:08X}"
-            code_str = f"HMS_{code_hex[:4]}_{code_hex[4:]}_{attr_hex[:4]}_{attr_hex[4:]}"
+            hex16 = code_hex + attr_hex
+            raw_display = f"HMS_{code_hex[:4]}_{code_hex[4:]}_{attr_hex[:4]}_{attr_hex[4:]}"
         else:
-            code_str = str(entry.get("code") or entry)
+            raw_display = str(entry.get("code") or entry)
     elif isinstance(entry, int):
         code_hex = f"{entry:08X}"
-        code_str = f"HMS_{code_hex[:4]}_{code_hex[4:]}_0001_0001"
+        hex16 = f"{code_hex}00010001"
+        raw_display = f"HMS_{code_hex[:4]}_{code_hex[4:]}_0001_0001"
     else:
-        code_str = str(entry)
+        raw_display = str(entry).strip()
 
-    # Normalize 0300-0100-0001-0003 -> HMS_0300_0100_0001_0003
-    norm = code_str.replace("-", "_").upper()
-    if not norm.startswith("HMS_"):
+    if not hex16:
+        clean_hex = re.sub(r"[^0-9A-Fa-f]", "", raw_display)
+        if len(clean_hex) == 16:
+            hex16 = clean_hex.upper()
+
+    candidates: list[str] = []
+
+    if len(hex16) == 16:
+        c1, c2, c3, c4 = hex16[0:4], hex16[4:8], hex16[8:12], hex16[12:16]
+
+        cat_map = {
+            "0001": "0100", "0002": "0200", "0003": "0300",
+            "0005": "0500", "0007": "0700", "0012": "1200",
+        }
+        sub_map = {
+            "0001": "0100", "0002": "0200", "0003": "0300", "0004": "0400",
+            "0005": "0500", "0006": "0600", "0007": "0700", "0008": "0800",
+            "0009": "0900", "000A": "0A00", "000B": "0B00", "000C": "0C00",
+            "000D": "0D00",
+        }
+
+        m_c1 = cat_map.get(c1, c1)
+        m_c2 = sub_map.get(c2, c2)
+
+        candidates.extend([
+            f"HMS_{c1}_{c2}_{c3}_{c4}",
+            f"HMS_{m_c1}_{m_c2}_{c3}_{c4}",
+            f"HMS_{c1}_{c2}",
+            f"HMS_{m_c1}_{m_c2}",
+            f"HMS_{m_c1}_{c2}",
+            f"HMS_{c1}_{m_c2}",
+            f"HMS_{c1}",
+            f"HMS_{m_c1}",
+        ])
+
+    norm = raw_display.replace("-", "_").upper()
+    if not norm.startswith("HMS_") and not norm.startswith("HMS"):
         norm = f"HMS_{norm}"
+    elif norm.startswith("HMS") and not norm.startswith("HMS_"):
+        norm = f"HMS_{norm[3:]}"
 
-    # Tier 1: Exact Code Match
-    desc = HMS_CODE_MAP.get(norm)
+    candidates.append(norm)
+    parts = norm.split("_")
+    if len(parts) >= 3:
+        candidates.append(f"{parts[0]}_{parts[1]}_{parts[2]}")
+    if len(parts) >= 2:
+        candidates.append(f"{parts[0]}_{parts[1]}")
 
-    # Tier 2: Sub-category Match (e.g. HMS_0300_0100)
-    if not desc:
-        parts = norm.split("_")
-        if len(parts) >= 3:
-            sub_prefix = f"{parts[0]}_{parts[1]}_{parts[2]}"
-            desc = HMS_CODE_MAP.get(sub_prefix)
-
-    # Tier 3: Main category Match (e.g. HMS_0300)
-    if not desc:
-        parts = norm.split("_")
-        if len(parts) >= 2:
-            main_prefix = f"{parts[0]}_{parts[1]}"
-            desc = HMS_CODE_MAP.get(main_prefix)
+    desc: str | None = None
+    for cand in candidates:
+        if cand in HMS_CODE_MAP:
+            desc = HMS_CODE_MAP[cand]
+            break
 
     if desc:
-        return f"{norm}: {desc}"
-    return code_str
+        disp = norm if (raw_display and not raw_display.startswith("HMS")) else raw_display
+        return f"{disp}: {desc}"
+    return raw_display
 
 
 def format_hms_errors(hms_list: list[Any]) -> list[str]:

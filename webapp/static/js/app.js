@@ -20,6 +20,75 @@ window.fetch = function(url, options = {}) {
     return originalFetch(url, options);
 };
 
+window.openAddPartModal = function(part = null) {
+    const modal = document.getElementById("add-part-modal");
+    const titleEl = document.getElementById("part-modal-title");
+    const editIdInput = document.getElementById("edit-part-id");
+    const nameInput = document.getElementById("part-name-input");
+    const imageInput = document.getElementById("part-image-input");
+    const countInput = document.getElementById("part-count-input");
+    const threeMfInput = document.getElementById("part-3mf-input");
+    const threeMfFileInput = document.getElementById("part-3mf-file-input");
+    const detectedModelEl = document.getElementById("part-detected-model");
+
+    const partImageFileInput = document.getElementById("part-image-file-input");
+    const previewWrap = document.getElementById("part-image-preview-wrap");
+    const previewImg = document.getElementById("part-image-preview");
+
+    if (!modal) return;
+
+    if (threeMfFileInput) threeMfFileInput.value = "";
+    if (partImageFileInput) partImageFileInput.value = "";
+
+    if (part && typeof part === "object") {
+        if (titleEl) titleEl.textContent = "✏️ Редагувати деталь";
+        if (editIdInput) editIdInput.value = part.id || "";
+        if (nameInput) nameInput.value = part.name || "";
+        if (imageInput) imageInput.value = part.image || "";
+        if (countInput) countInput.value = part.count || part.quantity || 1;
+        if (threeMfInput) threeMfInput.value = part.three_mf || "";
+
+        if (part.image && previewWrap && previewImg) {
+            previewImg.src = part.image;
+            previewWrap.style.display = "block";
+        } else if (previewWrap) {
+            previewWrap.style.display = "none";
+        }
+
+        if (detectedModelEl) {
+            if (part.printer_model && part.printer_model !== 'Unknown') {
+                detectedModelEl.textContent = `🖨️ Визначена модель принтера: ${part.printer_model}`;
+                detectedModelEl.style.display = "block";
+            } else {
+                detectedModelEl.style.display = "none";
+            }
+        }
+    } else {
+        if (titleEl) titleEl.textContent = "➕ Нова деталь";
+        if (editIdInput) editIdInput.value = "";
+        if (nameInput) nameInput.value = "";
+        if (imageInput) imageInput.value = "";
+        if (countInput) countInput.value = 1;
+        if (threeMfInput) threeMfInput.value = "";
+        if (previewWrap) previewWrap.style.display = "none";
+        if (detectedModelEl) detectedModelEl.style.display = "none";
+    }
+
+    if (window.Telegram?.WebApp?.HapticFeedback) {
+        try { window.Telegram.WebApp.HapticFeedback.impactOccurred("light"); } catch(e){}
+    }
+    modal.classList.add("active");
+};
+
+window.editPartModal = function(id) {
+    const cache = window._partsCache || {};
+    if (cache && cache[id]) {
+        window.openAddPartModal(cache[id]);
+    } else {
+        window.openAddPartModal();
+    }
+};
+
 function safeMathEval(expr) {
     if (!expr) return 0;
     const clean = String(expr).replace(/[^0-9\+\-\*\/\.\(\)\s]/g, '').trim();
@@ -77,10 +146,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function triggerHaptic(type = "medium") {
-        if (tg?.HapticFeedback) {
-            tg.HapticFeedback.impactOccurred(type);
+        if (window.Telegram?.WebApp?.HapticFeedback) {
+            try { window.Telegram.WebApp.HapticFeedback.impactOccurred(type); } catch(e){}
         }
     }
+    window.triggerHaptic = triggerHaptic;
 
     function escapeHtml(str) {
         if (!str) return "";
@@ -139,12 +209,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const closeSpoolModalBtn = document.getElementById("close-spool-modal");
     const saveSpoolSubmitBtn = document.getElementById("save-spool-submit");
 
-    if (addPrinterBtn) {
-        addPrinterBtn.addEventListener("click", () => {
-            triggerHaptic("light");
-            if (addPrinterModal) addPrinterModal.classList.add("active");
-        });
-    }
+
 
     // Fleet search and filter pill listeners
     const searchInputEl = document.getElementById("printer-search-input");
@@ -199,6 +264,7 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById(targetTab).classList.add("active");
 
             if (targetTab === "tab-materials") loadMaterials();
+            if (targetTab === "tab-parts") loadParts();
             if (targetTab === "tab-history") loadHistory();
             if (targetTab === "tab-settings") loadSettings();
         });
@@ -291,23 +357,40 @@ document.addEventListener("DOMContentLoaded", () => {
         return clean || (isPrinting ? "Друк..." : "Вільний");
     }
 
+    function getPrinterStatusInfo(rawState) {
+        const st = String(rawState || "IDLE").toUpperCase();
+        if (st === "RUNNING" || st === "PREPARE" || st === "PRINTING" || st === "CHANGING_FILAMENT" || st === "SLICING" || st === "BUILDING" || st === "BUSY") {
+            return { code: "RUNNING", label: "🟢 Друкує", badgeClass: "status-RUNNING" };
+        }
+        if (st === "PAUSE" || st === "PAUSED") {
+            return { code: "PAUSE", label: "⏸️ Пауза", badgeClass: "status-PAUSE" };
+        }
+        return { code: "IDLE", label: "⚪ Готовий", badgeClass: "status-IDLE" };
+    }
+
     function updateFilterBadges(printers) {
         if (!printers) return;
-        const activeStates = ["RUNNING", "PREPARE", "PAUSE", "PAUSED", "PRINTING", "SLICING", "CHANGING_FILAMENT", "MAM_CLEANING"];
         const total = printers.length;
-        const running = printers.filter(p => activeStates.includes(String(p.state || "").toUpperCase())).length;
-        const idle = printers.filter(p => ["IDLE", "FINISH"].includes(String(p.state || "").toUpperCase())).length;
-        const offline = printers.filter(p => ["OFFLINE", "OFF"].includes(String(p.state || "").toUpperCase())).length;
+        let running = 0;
+        let pause = 0;
+        let idle = 0;
+
+        printers.forEach(p => {
+            const info = getPrinterStatusInfo(p.state);
+            if (info.code === "RUNNING") running++;
+            else if (info.code === "PAUSE") pause++;
+            else idle++;
+        });
 
         const cAll = document.getElementById("count-filter-all");
         const cRun = document.getElementById("count-filter-running");
+        const cPause = document.getElementById("count-filter-pause");
         const cIdle = document.getElementById("count-filter-idle");
-        const cOff = document.getElementById("count-filter-offline");
 
         if (cAll) cAll.textContent = total;
         if (cRun) cRun.textContent = running;
+        if (cPause) cPause.textContent = pause;
         if (cIdle) cIdle.textContent = idle;
-        if (cOff) cOff.textContent = offline;
     }
 
     function applyPrinterFilters() {
@@ -315,23 +398,23 @@ document.addEventListener("DOMContentLoaded", () => {
         const query = (searchInput?.value || "").toLowerCase().trim();
         const activeBtn = document.querySelector(".filter-pills .pill-btn.active");
         const filterState = activeBtn?.dataset.filter || "all";
-        const activeStates = ["RUNNING", "PREPARE", "PAUSE", "PAUSED", "PRINTING", "SLICING", "CHANGING_FILAMENT", "MAM_CLEANING"];
 
         document.querySelectorAll(".printer-card").forEach(card => {
             const name = (card.getAttribute("data-name") || "").toLowerCase();
             const model = (card.getAttribute("data-model") || "").toLowerCase();
             const ip = (card.getAttribute("data-ip") || "").toLowerCase();
             const sn = (card.getAttribute("data-sn") || "").toLowerCase();
-            const state = (card.getAttribute("data-state") || "OFFLINE").toUpperCase();
+            const state = (card.getAttribute("data-state") || "IDLE").toUpperCase();
+            const statusInfo = getPrinterStatusInfo(state);
 
             const matchesQuery = !query || name.includes(query) || model.includes(query) || ip.includes(query) || sn.includes(query);
             let matchesFilter = true;
             if (filterState === "RUNNING") {
-                matchesFilter = activeStates.includes(state);
+                matchesFilter = statusInfo.code === "RUNNING";
+            } else if (filterState === "PAUSE") {
+                matchesFilter = statusInfo.code === "PAUSE";
             } else if (filterState === "IDLE") {
-                matchesFilter = ["IDLE", "FINISH"].includes(state);
-            } else if (filterState === "OFFLINE") {
-                matchesFilter = ["OFFLINE", "OFF"].includes(state);
+                matchesFilter = statusInfo.code === "IDLE";
             }
 
             card.style.display = (matchesQuery && matchesFilter) ? "" : "none";
@@ -351,27 +434,30 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        const onlinePrinters = printers.filter(p => p.state !== "OFFLINE" && p.state !== "OFF").length;
-        const activeStates = ["RUNNING", "PREPARE", "PAUSE", "PAUSED", "PRINTING", "SLICING", "CHANGING_FILAMENT", "MAM_CLEANING"];
-        const printingCount = printers.filter(p => activeStates.includes(String(p.state || "").toUpperCase())).length;
+        const runningCount = printers.filter(p => getPrinterStatusInfo(p.state).code === "RUNNING").length;
+        const pauseCount = printers.filter(p => getPrinterStatusInfo(p.state).code === "PAUSE").length;
 
-        activeCountEl.textContent = `${onlinePrinters}/${printers.length}${printingCount > 0 ? ` (друк: ${printingCount})` : ''}`;
+        let subDetail = [];
+        if (runningCount > 0) subDetail.push(`друк: ${runningCount}`);
+        if (pauseCount > 0) subDetail.push(`пауза: ${pauseCount}`);
+        const subStr = subDetail.length > 0 ? ` (${subDetail.join(', ')})` : '';
+
+        activeCountEl.textContent = `${printers.length}/${printers.length}${subStr}`;
 
         printersGrid.innerHTML = printers.map(p => {
-            const st = String(p.state || "IDLE").toUpperCase();
-            const isPrinting = ["RUNNING", "PREPARE", "PRINTING", "CHANGING_FILAMENT"].includes(st);
+            const rawSt = String(p.state || "IDLE").toUpperCase();
+            const st = rawSt;
+            const statusInfo = getPrinterStatusInfo(rawSt);
+            const isPrinting = statusInfo.code === "RUNNING";
             let progress = p.progress_pct !== undefined ? p.progress_pct : 0;
-            if (st === "FINISH") progress = 100;
-            if (st === "OFFLINE" || st === "OFF") progress = 0;
 
             const modelName = cleanSubtaskName(p.subtask_name, isPrinting);
             let timeStr = formatRemainingTime(p.remaining_mins);
-            if (st === "FINISH") timeStr = "Завершено";
-            else if (st === "FAILED") timeStr = "Збій";
-            else if (st === "IDLE") timeStr = "Вільний";
+            if (statusInfo.code === "PAUSE") timeStr = "Пауза";
+            else if (statusInfo.code === "IDLE") timeStr = "Вільний";
             else if (!timeStr && isPrinting) timeStr = "Підготовка...";
 
-            const layerStr = (st === "IDLE" && p.current_layer === 0) ? "—" : `${p.current_layer}/${p.total_layers}`;
+            const layerStr = (statusInfo.code === "IDLE" && p.current_layer === 0) ? "—" : `${p.current_layer}/${p.total_layers}`;
 
             const spoolsList = Object.values(window.latestSpools || {});
             const assignedSpools = spoolsList.filter(s => s.assigned_printer_id === p.id);
@@ -417,13 +503,13 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             return `
-                <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(p.serialNumber || '')}" data-state="${st}">
+                <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(p.serialNumber || '')}" data-state="${statusInfo.code}">
                     <div class="printer-card-header">
                         <div class="printer-name-group">
                             <h3>${escapeHtml(p.name)}</h3>
                             <div class="printer-model-sub"><i class="fa-solid fa-file-code"></i> ${escapeHtml(modelName)}</div>
                         </div>
-                        <span class="status-pill status-${st}">${st}</span>
+                        <span class="status-pill ${statusInfo.badgeClass}">${statusInfo.label}</span>
                     </div>
 
                     <div class="progress-container">
@@ -525,6 +611,36 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
             btnPause.style.display = "inline-flex";
             btnResume.style.display = "none";
+        }
+
+        // Framework Button Class Toggling: Light & Notifications (btn-warning = ON, btn-neutral = OFF)
+        const btnLightModal = document.getElementById("btn-action-light");
+        const btnNotifyModal = document.getElementById("btn-action-notify");
+
+        if (btnLightModal) {
+            const isLightOn = String(p.chamber_light_state || "off").toLowerCase() === "on";
+            if (isLightOn) {
+                btnLightModal.classList.add("btn-warning");
+                btnLightModal.classList.remove("btn-neutral");
+                btnLightModal.innerHTML = `<i class="fa-solid fa-lightbulb"></i> Світло`;
+            } else {
+                btnLightModal.classList.add("btn-neutral");
+                btnLightModal.classList.remove("btn-warning");
+                btnLightModal.innerHTML = `<i class="fa-regular fa-lightbulb"></i> Світло`;
+            }
+        }
+
+        if (btnNotifyModal) {
+            const isNotifyOn = Boolean(p.notify);
+            if (isNotifyOn) {
+                btnNotifyModal.classList.add("btn-warning");
+                btnNotifyModal.classList.remove("btn-neutral");
+                btnNotifyModal.innerHTML = `<i class="fa-solid fa-bell"></i> Сповіщення`;
+            } else {
+                btnNotifyModal.classList.add("btn-neutral");
+                btnNotifyModal.classList.remove("btn-warning");
+                btnNotifyModal.innerHTML = `<i class="fa-solid fa-bell-slash"></i> Сповіщення`;
+            }
         }
 
         // Filament & AMS Slots in Modal
@@ -907,54 +1023,97 @@ document.addEventListener("DOMContentLoaded", () => {
     if (addPrinterBtn) {
         addPrinterBtn.addEventListener("click", () => {
             triggerHaptic("medium");
-            addPrinterModal.classList.add("active");
+            const form = document.getElementById("add-printer-form");
+            if (form) form.reset();
+            if (addPrinterModal) addPrinterModal.classList.add("active");
+            setTimeout(() => {
+                const nameInput = document.getElementById("new-p-name");
+                if (nameInput) nameInput.focus();
+            }, 100);
         });
     }
 
     if (closeAddPrinterModalBtn) {
         closeAddPrinterModalBtn.addEventListener("click", () => {
             triggerHaptic("light");
-            addPrinterModal.classList.remove("active");
+            if (addPrinterModal) addPrinterModal.classList.remove("active");
+        });
+    }
+
+    if (addPrinterModal) {
+        addPrinterModal.addEventListener("click", (e) => {
+            if (e.target === addPrinterModal) {
+                addPrinterModal.classList.remove("active");
+            }
+        });
+    }
+
+    async function submitAddPrinterForm() {
+        const nameInput = document.getElementById("new-p-name");
+        const ipInput = document.getElementById("new-p-ip");
+        const codeInput = document.getElementById("new-p-code");
+        const snInput = document.getElementById("new-p-sn");
+
+        const name = nameInput ? nameInput.value.trim() : "";
+        const ip = ipInput ? ipInput.value.trim() : "";
+        const accessCode = codeInput ? codeInput.value.trim() : "";
+        const serialNumber = snInput ? snInput.value.trim() : "";
+
+        if (!name || !ip || !accessCode || !serialNumber) {
+            alert("Будь ласка, заповніть всі 4 поля (Назва, IP, Код доступу, Серійний номер)!");
+            return;
+        }
+
+        triggerHaptic("medium");
+        if (savePrinterSubmitBtn) {
+            savePrinterSubmitBtn.disabled = true;
+            savePrinterSubmitBtn.textContent = "Збереження...";
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        try {
+            const res = await fetch("/api/printers", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, ip, accessCode, serialNumber }),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            const data = await res.json();
+            if (data.status === "ok") {
+                if (addPrinterModal) addPrinterModal.classList.remove("active");
+                const form = document.getElementById("add-printer-form");
+                if (form) form.reset();
+                fetchPrinters();
+            } else {
+                alert("Помилка додавання принтера: " + (data.error || "Невідомо"));
+            }
+        } catch (e) {
+            clearTimeout(timeoutId);
+            console.error("Add printer error:", e);
+            alert("Помилка з'єднання або таймаут при додаванні принтера.");
+        } finally {
+            if (savePrinterSubmitBtn) {
+                savePrinterSubmitBtn.disabled = false;
+                savePrinterSubmitBtn.textContent = "Зберегти принтер";
+            }
+        }
+    }
+
+    const addPrinterFormEl = document.getElementById("add-printer-form");
+    if (addPrinterFormEl) {
+        addPrinterFormEl.addEventListener("submit", (e) => {
+            e.preventDefault();
+            submitAddPrinterForm();
         });
     }
 
     if (savePrinterSubmitBtn) {
-        savePrinterSubmitBtn.addEventListener("click", async () => {
-            const name = document.getElementById("new-p-name").value.trim();
-            const ip = document.getElementById("new-p-ip").value.trim();
-            const accessCode = document.getElementById("new-p-code").value.trim();
-            const serialNumber = document.getElementById("new-p-sn").value.trim();
-
-            if (!name || !ip || !accessCode || !serialNumber) {
-                alert("Заповніть всі поля!");
-                return;
-            }
-
-            triggerHaptic("medium");
-            savePrinterSubmitBtn.disabled = true;
-            savePrinterSubmitBtn.textContent = "Збереження...";
-
-            try {
-                const res = await fetch("/api/printers", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name, ip, accessCode, serialNumber })
-                });
-                const data = await res.json();
-                if (data.status === "ok") {
-                    addPrinterModal.classList.remove("active");
-                    document.getElementById("add-printer-form").reset();
-                    fetchPrinters();
-                } else {
-                    alert("Помилка додавання принтера: " + (data.error || "Невідомо"));
-                }
-            } catch (e) {
-                console.error("Add printer error:", e);
-                alert("Помилка з'єднання при додаванні принтера.");
-            } finally {
-                savePrinterSubmitBtn.disabled = false;
-                savePrinterSubmitBtn.textContent = "Зберегти принтер";
-            }
+        savePrinterSubmitBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            submitAddPrinterForm();
         });
     }
 
@@ -1649,6 +1808,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Preset Modal handlers
     const presetModal = document.getElementById("preset-modal");
+    if (presetModal) {
+        presetModal.addEventListener("click", (e) => {
+            if (e.target === presetModal) {
+                presetModal.classList.remove("active");
+            }
+        });
+    }
+
     document.getElementById("add-preset-btn")?.addEventListener("click", () => {
         editingPresetId = null;
         const titleEl = document.getElementById("preset-modal-title");
@@ -1666,18 +1833,20 @@ document.addEventListener("DOMContentLoaded", () => {
         triggerHaptic("light");
         if (presetModal) presetModal.classList.add("active");
     });
+
     document.getElementById("close-preset-modal")?.addEventListener("click", () => {
         if (presetModal) presetModal.classList.remove("active");
     });
-    document.getElementById("save-preset-submit")?.addEventListener("click", async () => {
+
+    async function submitPresetForm() {
         triggerHaptic("medium");
         const name = document.getElementById("preset-name").value.trim();
-        const raw_price = document.getElementById("preset-price-g").value;
+        const raw_price = String(document.getElementById("preset-price-g").value || "").replace(",", ".");
         const price_per_g = (raw_price && !isNaN(parseFloat(raw_price))) ? parseFloat(raw_price) : 0.85;
         const elecEl = document.getElementById("preset-elec-rate");
-        const raw_elec = elecEl ? elecEl.value : "4.32";
+        const raw_elec = String(elecEl ? elecEl.value : "4.32").replace(",", ".");
         const electricity_rate_uah = (raw_elec && !isNaN(parseFloat(raw_elec))) ? parseFloat(raw_elec) : 4.32;
-        const raw_power = document.getElementById("preset-power").value;
+        const raw_power = String(document.getElementById("preset-power").value || "").replace(",", ".");
         const power_watts = (raw_power && !isNaN(parseFloat(raw_power))) ? parseFloat(raw_power) : 120.0;
         const depreciation_val = document.getElementById("preset-depreciation").value.trim() || "10";
         const consumables_val = document.getElementById("preset-consumables").value.trim() || "5";
@@ -1700,7 +1869,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             const data = await res.json();
             if (data.status === "ok") {
-                presetModal.classList.remove("active");
+                if (presetModal) presetModal.classList.remove("active");
                 editingPresetId = null;
                 await loadCommercialPresets();
             } else {
@@ -1710,6 +1879,19 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Failed saving preset:", e);
             alert(`⚠️ Не вдалося зберегти пресет: ${e.message || e}`);
         }
+    }
+
+    const presetFormEl = document.getElementById("preset-form");
+    if (presetFormEl) {
+        presetFormEl.addEventListener("submit", (e) => {
+            e.preventDefault();
+            submitPresetForm();
+        });
+    }
+
+    document.getElementById("save-preset-submit")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        submitPresetForm();
     });
 
     // Update Tab Listener
@@ -1768,7 +1950,15 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("sys-uptime").textContent = `${uptimeMins} хв`;
             document.getElementById("sys-printers-count").textContent = health.total_printers || 0;
 
-            loadUsersTable();
+            const adminUsersCard = document.getElementById("admin-users-card");
+            const isUserAdmin = userSettingsData.user?.role === "ADMIN" || Boolean(userSettingsData.user?.is_admin);
+
+            if (isUserAdmin) {
+                if (adminUsersCard) adminUsersCard.style.display = "block";
+                loadUsersTable();
+            } else {
+                if (adminUsersCard) adminUsersCard.style.display = "none";
+            }
         } catch (e) {
             console.error("Failed loading settings:", e);
         }
@@ -1776,11 +1966,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function loadUsersTable() {
         const usersTableBody = document.getElementById("users-table-body");
+        const adminUsersCard = document.getElementById("admin-users-card");
         if (!usersTableBody) return;
 
         try {
             const res = await fetch("/api/users");
             if (!res.ok) {
+                if (adminUsersCard) adminUsersCard.style.display = "none";
                 usersTableBody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Потрібні права адміністратора</td></tr>`;
                 return;
             }
@@ -2176,24 +2368,37 @@ document.addEventListener("DOMContentLoaded", () => {
             filePrintPanel.style.display = "block";
 
             const printers = uploadedFileData.printers || [];
-            filePrintersList.innerHTML = printers.map(p => `
-                <div class="spool-item mb-2">
-                    <div class="spool-left">
-                        <i class="fa-solid fa-print ${p.state === 'RUNNING' ? 'color-green' : 'color-purple'}" style="font-size:20px;"></i>
-                        <div class="spool-details">
-                            <h4>${escapeHtml(p.name)}</h4>
-                            <p>Статус: <strong>${p.state}</strong> | ${p.compatible ? '✅ Сумісний' : '🛑 Несумісна модель'}</p>
+            filePrintersList.innerHTML = printers.map(p => {
+                let badgeText = '✅ Сумісний';
+                if (!p.compatible) {
+                    badgeText = p.reason_type === 'FILAMENT' ? '🛑 Несумісність пластику' : '🛑 Несумісна модель';
+                }
+                return `
+                <div class="spool-item mb-2" style="flex-direction:column; align-items:stretch;">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="spool-left">
+                            <i class="fa-solid fa-print ${p.state === 'RUNNING' ? 'color-green' : 'color-purple'}" style="font-size:20px;"></i>
+                            <div class="spool-details">
+                                <h4>${escapeHtml(p.name)}</h4>
+                                <p>Статус: <strong>${p.state}</strong> | ${badgeText}</p>
+                            </div>
                         </div>
+                        <button class="btn btn-sm ${p.compatible ? 'btn-success' : 'btn-outline-danger'} btn-start-print-job" data-id="${p.id}" ${p.state === 'RUNNING' ? 'disabled' : ''}>
+                            ${p.state === 'RUNNING' ? 'Зайнятий' : (p.compatible ? '🚀 Друк' : '🛑 Заблокировано')}
+                        </button>
                     </div>
-                    <button class="btn btn-sm ${p.compatible ? 'btn-success' : 'btn-outline-danger'} btn-start-print-job" data-id="${p.id}" ${p.state === 'RUNNING' ? 'disabled' : ''}>
-                        ${p.state === 'RUNNING' ? 'Зайнятий' : '🚀 Друк'}
-                    </button>
+                    ${!p.compatible ? `<div class="mt-2 p-2" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); border-radius:6px; font-size:12px; color:#fca5a5;">${escapeHtml(p.reason.replace(/<[^>]*>/g, ""))}</div>` : ''}
                 </div>
-            `).join("");
+            `}).join("");
 
             document.querySelectorAll(".btn-start-print-job").forEach(btn => {
                 btn.addEventListener("click", async () => {
                     const printerId = btn.getAttribute("data-id");
+                    const targetP = (uploadedFileData.printers || []).find(x => x.id === printerId);
+                    if (targetP && !targetP.compatible) {
+                        alert(targetP.reason.replace(/<[^>]*>/g, ""));
+                        return;
+                    }
                     triggerHaptic("heavy");
                     btn.disabled = true;
                     btn.textContent = "⏳ Відправка...";
@@ -2225,6 +2430,450 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 });
             });
+        });
+    }
+
+    // ----------------------------------------------------
+    // PARTS WAREHOUSE MANAGEMENT
+    // ----------------------------------------------------
+    let partsData = {};
+
+    async function loadParts() {
+        const partsListEl = document.getElementById("parts-list");
+        const partsBadgeEl = document.getElementById("parts-summary-badge");
+        if (!partsListEl) return;
+
+        try {
+            const res = await fetch("/api/parts");
+            if (!res.ok) throw new Error("Failed fetching parts");
+            partsData = await res.json();
+            window._partsCache = partsData;
+
+            const partSearchInput = document.getElementById("part-search-input");
+            const partSearchClearBtn = document.getElementById("part-search-clear-btn");
+            const searchQuery = partSearchInput ? partSearchInput.value.trim().toLowerCase() : "";
+
+            if (partSearchClearBtn) {
+                partSearchClearBtn.style.display = searchQuery ? "flex" : "none";
+            }
+
+            const allKeys = Object.keys(partsData);
+            let totalCount = 0;
+
+            allKeys.forEach(k => {
+                const cnt = parseInt(partsData[k].count || partsData[k].quantity || 0, 10);
+                totalCount += cnt;
+            });
+
+            if (partsBadgeEl) {
+                partsBadgeEl.textContent = `${totalCount} шт`;
+            }
+
+            const keys = allKeys.filter(id => {
+                if (!searchQuery) return true;
+                const p = partsData[id];
+                const nameMatch = p.name && p.name.toLowerCase().includes(searchQuery);
+                const modelMatch = p.printer_model && p.printer_model.toLowerCase().includes(searchQuery);
+                return nameMatch || modelMatch;
+            });
+
+            if (keys.length === 0) {
+                partsListEl.innerHTML = searchQuery ? `
+                    <div class="empty-state p-4 text-center">
+                        <i class="fa-solid fa-magnifying-glass color-amber" style="font-size: 2.5rem;"></i>
+                        <p class="mt-2 text-muted">За запитом "${escapeHtml(searchQuery)}" деталей не знайдено.</p>
+                    </div>
+                ` : `
+                    <div class="empty-state p-4 text-center">
+                        <i class="fa-solid fa-puzzle-piece color-amber" style="font-size: 2.5rem;"></i>
+                        <p class="mt-2 text-muted">Склад деталей порожній. Натисніть "+ Нова деталь", щоб додати першу деталь.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = "";
+            keys.forEach(id => {
+                const part = partsData[id];
+                const count = parseInt(part.count || part.quantity || 0, 10);
+                const threeMf = part.three_mf ? escapeHtml(part.three_mf_name || "Файл .3mf") : "";
+                const imageSrc = part.image && (part.image.startsWith("http") || part.image.startsWith("/")) ? part.image : "";
+                const pModelBadge = part.printer_model && part.printer_model !== 'Unknown'
+                    ? `<span class="badge badge-outline text-info border-info ms-2" style="font-size: 0.75rem;"><i class="fa-solid fa-print"></i> ${escapeHtml(part.printer_model)}</span>`
+                    : '';
+
+                html += `
+                    <div class="spool-item-card glass-card mb-3 p-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div class="d-flex gap-3 align-items-center">
+                                ${imageSrc ? `<img src="${imageSrc}" class="part-preview-thumb" style="width: 54px; height: 54px; object-fit: cover; border-radius: 8px;">` : `<div class="part-preview-placeholder" style="width: 54px; height: 54px; background: rgba(255,255,255,0.05); border-radius: 8px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-cube color-green fs-4"></i></div>`}
+                                <div>
+                                    <h4 class="mb-1 text-light"><i class="fa-solid fa-puzzle-piece color-green me-1"></i> ${escapeHtml(part.name)} ${pModelBadge}</h4>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button class="icon-btn btn-edit-part" data-id="${part.id}" onclick="window.editPartModal('${part.id}')" title="Редагувати">
+                                    <i class="fa-solid fa-pen-to-square"></i>
+                                </button>
+                                <button class="icon-btn btn-delete-part text-danger" data-id="${part.id}" title="Видалити">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        ${threeMf ? `
+                            <div class="p-2 mt-2 bg-dark rounded border border-secondary text-muted small d-flex flex-wrap gap-3">
+                                <span>📄 <strong>.3mf:</strong> ${threeMf}</span>
+                            </div>
+                        ` : ''}
+
+                        <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-secondary">
+                            <button class="btn btn-sm btn-primary btn-print-part" data-id="${part.id}">
+                                <i class="fa-solid fa-rocket"></i> Кинути на друк
+                            </button>
+                            <div class="d-flex align-items-center gap-2">
+                                <button class="btn btn-sm btn-outline btn-part-qty-dec" data-id="${part.id}">-</button>
+                                <strong class="fs-5 px-2 text-info">${count} шт</strong>
+                                <button class="btn btn-sm btn-outline btn-part-qty-inc" data-id="${part.id}">+</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            partsListEl.innerHTML = html;
+
+            document.querySelectorAll(".btn-print-part").forEach(b => {
+                b.addEventListener("click", async () => {
+                    const id = b.getAttribute("data-id");
+                    const part = partsData[id];
+                    if (!part) return;
+
+                    if (!part.three_mf) {
+                        alert("⚠️ Для цієї деталі ще не завантажено файл .3mf!");
+                        return;
+                    }
+
+                    if (!printersData || printersData.length === 0) {
+                        alert("⚠️ Немає підключених принтерів у фермі!");
+                        return;
+                    }
+
+                    const printerChoices = printersData.map((p, idx) => {
+                        const targetM = part.printer_model || '';
+                        let compTag = '';
+                        if (targetM && targetM !== 'Unknown') {
+                            const pName = p.name || '';
+                            if (pName.toLowerCase().includes(targetM.toLowerCase()) || targetM.toLowerCase().includes(pName.toLowerCase())) {
+                                compTag = ' ✅ Сумісний';
+                            } else {
+                                compTag = ' ⚠️ Нарізано для ' + targetM;
+                            }
+                        }
+                        return `${idx + 1}. ${p.name} (${p.gcode_state || 'IDLE'})${compTag}`;
+                    }).join("\n");
+
+                    const inputIdx = prompt(`🚀 Оберіть номер принтера для запуску друку деталі "${part.name}":\n\n${printerChoices}\n\nВведіть номер (1-${printersData.length}):`);
+                    if (!inputIdx) return;
+
+                    const pIndex = parseInt(inputIdx.trim(), 10) - 1;
+                    if (isNaN(pIndex) || pIndex < 0 || pIndex >= printersData.length) {
+                        alert("⚠️ Невірно обраний номер принтера.");
+                        return;
+                    }
+
+                    const chosenPrinter = printersData[pIndex];
+                    triggerHaptic("medium");
+                    b.disabled = true;
+                    b.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Відправка...';
+
+                    try {
+                        const res = await fetch(`/api/parts/${id}/print/${chosenPrinter.id}`, { method: "POST" });
+                        const result = await res.json().catch(() => ({}));
+                        if (res.ok && result.status === "ok") {
+                            alert(`✅ Друк успішно запущено на принтері ${chosenPrinter.name}!`);
+                        } else {
+                            alert(`⚠️ Помилка запуску: ${result.error || `HTTP ${res.status}`}`);
+                        }
+                    } catch (err) {
+                        console.error("Print part error:", err);
+                        alert("⚠️ Помилка зв'язку при запуску друку.");
+                    } finally {
+                        b.disabled = false;
+                        b.innerHTML = '<i class="fa-solid fa-rocket"></i> Кинути на друк';
+                    }
+                });
+            });
+
+            document.querySelectorAll(".btn-edit-part").forEach(b => {
+                b.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const btn = e.currentTarget || e.target.closest(".btn-edit-part");
+                    const id = btn ? btn.getAttribute("data-id") : null;
+                    if (id && partsData[id]) window.openAddPartModal(partsData[id]);
+                });
+            });
+
+            document.querySelectorAll(".btn-delete-part").forEach(b => {
+                b.addEventListener("click", async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const btn = e.target.closest(".btn-delete-part");
+                    const id = btn ? btn.getAttribute("data-id") : null;
+                    if (id && confirm("Видалити цю деталь зі складу?")) {
+                        await fetch(`/api/parts/${id}`, { method: "DELETE" });
+                        loadParts();
+                    }
+                });
+            });
+
+            document.querySelectorAll(".btn-part-qty-dec").forEach(b => {
+                b.addEventListener("click", async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const btn = e.target.closest(".btn-part-qty-dec");
+                    const id = btn ? btn.getAttribute("data-id") : null;
+                    if (id && partsData[id]) {
+                        const current = parseInt(partsData[id].count || partsData[id].quantity || 0, 10);
+                        const newCount = Math.max(0, current - 1);
+                        await savePartApi({ ...partsData[id], count: newCount, quantity: newCount });
+                        loadParts();
+                    }
+                });
+            });
+
+            document.querySelectorAll(".btn-part-qty-inc").forEach(b => {
+                b.addEventListener("click", async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const btn = e.target.closest(".btn-part-qty-inc");
+                    const id = btn ? btn.getAttribute("data-id") : null;
+                    if (id && partsData[id]) {
+                        const current = parseInt(partsData[id].count || partsData[id].quantity || 0, 10);
+                        const newCount = current + 1;
+                        await savePartApi({ ...partsData[id], count: newCount, quantity: newCount });
+                        loadParts();
+                    }
+                });
+            });
+
+        } catch (e) {
+            console.error("Error loading parts:", e);
+        }
+    }
+
+    async function savePartApi(partData) {
+        try {
+            const res = await fetch("/api/parts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(partData)
+            });
+            return await res.json();
+        } catch (e) {
+            console.error("Failed saving part:", e);
+            return { error: String(e) };
+        }
+    }
+
+    window.editPartModal = function(id) {
+        const cache = window._partsCache || partsData || {};
+        if (cache && cache[id]) {
+            window.openAddPartModal(cache[id]);
+        } else {
+            window.openAddPartModal();
+        }
+    };
+
+    // Direct Image Upload Listener in Modal
+    const partImageFileInput = document.getElementById("part-image-file-input");
+    if (partImageFileInput) {
+        partImageFileInput.addEventListener("change", async (e) => {
+            const file = e.target.files ? e.target.files[0] : null;
+            if (!file) return;
+
+            const isImageExt = /\.(jpg|jpeg|png|webp|gif)$/i.test(file.name);
+            if (!file.type.startsWith("image/") && !isImageExt) {
+                alert("⚠️ Помилка! Файл зображення повинен бути у форматі JPG, PNG, WEBP або GIF!");
+                partImageFileInput.value = "";
+                return;
+            }
+
+            const imageInput = document.getElementById("part-image-input");
+            const previewWrap = document.getElementById("part-image-preview-wrap");
+            const previewImg = document.getElementById("part-image-preview");
+
+            try {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const res = await fetch("/api/files/upload_image", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const data = await res.json();
+                if (res.ok && data.image_url) {
+                    if (imageInput) imageInput.value = data.image_url;
+                    if (previewImg) previewImg.src = data.image_url;
+                    if (previewWrap) previewWrap.style.display = "block";
+                    triggerHaptic("medium");
+                } else {
+                    alert(`⚠️ Помилка завантаження фото: ${data.error || 'Невдала спроба'}`);
+                }
+            } catch (err) {
+                console.error("Image Upload error:", err);
+                alert("⚠️ Не вдалося завантажити фото");
+            }
+        });
+    }
+
+    // Direct .3mf File Upload Listener in Modal
+    const part3mfFileInput = document.getElementById("part-3mf-file-input");
+    if (part3mfFileInput) {
+        part3mfFileInput.addEventListener("change", async (e) => {
+            const file = e.target.files ? e.target.files[0] : null;
+            if (!file) return;
+
+            const detectedModelEl = document.getElementById("part-detected-model");
+            const threeMfInput = document.getElementById("part-3mf-input");
+
+            if (!file.name.toLowerCase().endsWith(".3mf")) {
+                alert("⚠️ Помилка! Файл для друку повинен бути у форматі .3mf!");
+                part3mfFileInput.value = "";
+                if (detectedModelEl) detectedModelEl.style.display = "none";
+                return;
+            }
+
+            if (detectedModelEl) {
+                detectedModelEl.textContent = "⏳ Зчитування метаданих файлу .3mf...";
+                detectedModelEl.style.display = "block";
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const res = await fetch("/api/files/upload", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const data = await res.json();
+                if (res.ok && data.file_token) {
+                    if (threeMfInput) threeMfInput.value = data.file_token;
+                    if (detectedModelEl) {
+                        detectedModelEl.textContent = `✅ Файл розпізнано! Принтер: ${data.printer_model || 'Bambu Lab'}`;
+                        detectedModelEl.style.display = "block";
+                    }
+                    triggerHaptic("medium");
+                } else {
+                    alert(`⚠️ Помилка завантаження файлу: ${data.error || 'Недійсний .3mf файл'}`);
+                    if (detectedModelEl) detectedModelEl.style.display = "none";
+                }
+            } catch (err) {
+                console.error(".3mf Upload error:", err);
+                alert("⚠️ Не вдалося завантажити файл .3mf");
+                if (detectedModelEl) detectedModelEl.style.display = "none";
+            }
+        });
+    }
+
+    const partSearchInput = document.getElementById("part-search-input");
+    const partSearchClearBtn = document.getElementById("part-search-clear-btn");
+    if (partSearchInput) {
+        partSearchInput.addEventListener("input", () => {
+            loadParts();
+        });
+    }
+    if (partSearchClearBtn) {
+        partSearchClearBtn.addEventListener("click", () => {
+            if (partSearchInput) partSearchInput.value = "";
+            loadParts();
+        });
+    }
+
+    const addPartBtn = document.getElementById("add-part-btn");
+    if (addPartBtn) {
+        addPartBtn.addEventListener("click", (e) => {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            window.openAddPartModal();
+        });
+    }
+
+    const closeAddPartModalBtn = document.getElementById("close-add-part-modal");
+    if (closeAddPartModalBtn) {
+        closeAddPartModalBtn.addEventListener("click", () => {
+            const modal = document.getElementById("add-part-modal");
+            if (modal) modal.classList.remove("active");
+        });
+    }
+
+    const cancelPartSubmitBtn = document.getElementById("cancel-part-submit");
+    if (cancelPartSubmitBtn) {
+        cancelPartSubmitBtn.addEventListener("click", () => {
+            const modal = document.getElementById("add-part-modal");
+            if (modal) modal.classList.remove("active");
+        });
+    }
+
+    const savePartSubmitBtn = document.getElementById("save-part-submit");
+    if (savePartSubmitBtn) {
+        savePartSubmitBtn.addEventListener("click", async () => {
+            const editIdInput = document.getElementById("edit-part-id");
+            const nameInput = document.getElementById("part-name-input");
+            const imageInput = document.getElementById("part-image-input");
+            const countInput = document.getElementById("part-count-input");
+            const threeMfInput = document.getElementById("part-3mf-input");
+
+            const name = nameInput ? nameInput.value.trim() : "";
+            if (!name) {
+                alert("⚠️ Помилка! Назва деталі не може бути порожньою!");
+                if (nameInput) nameInput.focus();
+                return;
+            }
+
+            const rawCount = countInput ? countInput.value.trim() : "";
+            if (rawCount === "" || isNaN(rawCount) || parseInt(rawCount, 10) < 0) {
+                alert("⚠️ Помилка! Кількість повинна бути цілим додатним числом (наприклад: 1, 5, 10)!");
+                if (countInput) countInput.focus();
+                return;
+            }
+            const cnt = parseInt(rawCount, 10);
+
+            const partData = {
+                id: editIdInput ? editIdInput.value : "",
+                name: name,
+                image: imageInput ? imageInput.value.trim() : "",
+                count: cnt,
+                quantity: cnt,
+                three_mf: threeMfInput ? threeMfInput.value.trim() : ""
+            };
+
+            triggerHaptic("medium");
+            savePartSubmitBtn.disabled = true;
+            savePartSubmitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Збереження...';
+
+            try {
+                const res = await savePartApi(partData);
+                if (res && res.status === "ok") {
+                    const modal = document.getElementById("add-part-modal");
+                    if (modal) modal.classList.remove("active");
+                    await loadParts();
+                } else {
+                    alert(`⚠️ Помилка збереження деталі: ${res?.error || "Невідома помилка"}`);
+                }
+            } catch (err) {
+                console.error("Save part submit error:", err);
+                alert("⚠️ Помилка зв'язку при збереженні деталі.");
+            } finally {
+                savePartSubmitBtn.disabled = false;
+                savePartSubmitBtn.innerHTML = '💾 Зберегти деталь';
+            }
         });
     }
 

@@ -318,20 +318,62 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
     return result
 
 
-def check_compatibility(sliced_model: str, filament_type: str, target_printer_name: str) -> dict[str, Any]:
+def normalize_filament_name(raw_name: str) -> str:
+    """Normalizes filament preset names/types (e.g., 'Bambu ABS @BBL A1', 'TPU 95A', 'PLA-CF') to canonical types."""
+    if not raw_name or str(raw_name).strip().lower() in ["unknown", "generic", "невизначено", ""]:
+        return ""
+    s = str(raw_name).strip().upper()
+    for main_type in ["TPU", "PETG", "PLA", "ABS", "ASA", "PC", "PA", "PVA", "HIPS"]:
+        if main_type in s:
+            return main_type
+    return s
+
+
+def get_printer_active_filament(printer: Any, spools_map: dict | None = None) -> str:
+    """Returns the active filament type/spool mounted on the printer's active slot."""
+    active_key = str(printer.get_active_slot_key()) if hasattr(printer, "get_active_slot_key") else "255"
+
+    # 1. Check mounted spool from Warehouse
+    if spools_map and isinstance(spools_map, dict):
+        for s_id, spool in spools_map.items():
+            if isinstance(spool, dict) and spool.get("assigned_printer_id") == getattr(printer, "id", None):
+                if str(spool.get("assigned_slot_key")) == active_key:
+                    s_type = spool.get("type") or spool.get("name") or ""
+                    if s_type:
+                        return str(s_type)
+
+    # 2. Check AMS trays info for active slot
+    ams_trays = getattr(printer, "ams_trays_info", {})
+    if isinstance(ams_trays, dict) and active_key in ams_trays:
+        t_info = ams_trays[active_key]
+        if isinstance(t_info, dict) and t_info.get("type"):
+            brand_sub = t_info.get("sub_brands", "")
+            return f"Bambu {t_info['type']} {brand_sub}".strip() if brand_sub else f"Bambu {t_info['type']}"
+
+    # 3. Fallback to printer.filament_type attribute
+    fil_type = getattr(printer, "filament_type", "Невизначено")
+    if fil_type and fil_type != "Невизначено":
+        return str(fil_type)
+
+    return ""
+
+
+def check_compatibility(
+    sliced_model: str,
+    filament_type: str,
+    target_printer_name: str,
+    target_filament: str = "",
+) -> dict[str, Any]:
     """
-    Checks G-code / model compatibility between sliced model and target printer.
-    Tag rules:
-      - P1S family: 'x1c', '@bbl x1c', 'c12', 'p1s'
-      - A1 family: '@bbl a1', 'n1', 'a1'
-      - A1 mini family: '@bbl a1m', 'a1m', 'n2s', 'a1 mini'
+    Checks G-code / model & filament compatibility between sliced 3MF metadata and target printer.
+    Stage 1 (Hardware): Checks printer family (e.g. A1 mini vs A1 vs P1S).
+    Stage 2 (Material): Checks filament type (e.g. TPU vs ABS).
     """
     sliced_clean = sliced_model.strip()
     target_clean = target_printer_name.strip()
 
     def get_model_family(name_str: str) -> str:
         s = re.sub(r"[\-_]", " ", name_str.lower())
-        # Check A1 mini FIRST before A1
         if "a1m" in s or "a1 mini" in s or "a1mini" in s or "n2s" in s or "n2" in s or "@bbl a1m" in s:
             return "a1_mini"
         elif "a1" in s or "n1" in s or "@bbl a1" in s:
@@ -349,30 +391,33 @@ def check_compatibility(sliced_model: str, filament_type: str, target_printer_na
             return "p1s"
         return "unknown"
 
+    # Stage 1: Hardware Check (Printer Model Family)
     sliced_family = get_model_family(sliced_clean)
     target_family = get_model_family(target_clean)
 
-    if sliced_family != "unknown" and target_family != "unknown":
-        if sliced_family == target_family:
-            return {
-                "compatible": True,
-                "level": "OK",
-                "reason": "✅ Ідеальна сумісність... Але тільки не думай, що це твоя заслуга, Бака! 😤💅",
-            }
-        else:
-            return {
-                "compatible": False,
-                "level": "BLOCK",
-                "reason": (
-                    f"🛑 <b>Х-ХМПФ! НЕСУМІСНІСТЬ МОДЕЛІ ПРИНТЕРА!</b>\n"
-                    f"Ти куди дивився, Бака?! Файл нарізано для <code>{sliced_clean}</code> ({sliced_family.upper()}), "
-                    f"а ти хочеш запустити на <code>{target_clean}</code> ({target_family.upper()})!\n"
-                    f"Стартовий G-code та макроси відрізняються! Не змушуй мене ремонтувати принтер після тебе! 😤💥"
-                ),
-            }
+    if sliced_family != "unknown" and target_family != "unknown" and sliced_family != target_family:
+        return {
+            "compatible": False,
+            "reason_type": "PRINTER",
+            "level": "BLOCK",
+            "reason": "🛑 Принтер несумісний з файлом",
+        }
+
+    # Stage 2: Material Check (Filament Type)
+    norm_sliced_fil = normalize_filament_name(filament_type)
+    norm_target_fil = normalize_filament_name(target_filament)
+
+    if norm_sliced_fil and norm_target_fil and norm_sliced_fil != norm_target_fil:
+        return {
+            "compatible": False,
+            "reason_type": "FILAMENT",
+            "level": "BLOCK",
+            "reason": "🛑 Філамент несумісний з файлом",
+        }
 
     return {
         "compatible": True,
+        "reason_type": "OK",
         "level": "OK",
-        "reason": "✅ Сумісність підтверджено... Тільки не кажи, що я не попереджала, Бака! 😤💅",
+        "reason": "✅ Сумісність підтверджено!",
     }

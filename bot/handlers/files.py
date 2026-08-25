@@ -11,7 +11,12 @@ from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from bot.keyboards import get_printer_menu_keyboard
 from config import STORAGE_DIR, logger
-from services.gcode_parser import check_compatibility, format_print_time_human, parse_3mf_file
+from services.gcode_parser import (
+    check_compatibility,
+    format_print_time_human,
+    get_printer_active_filament,
+    parse_3mf_file,
+)
 
 router = Router()
 
@@ -89,10 +94,14 @@ async def handle_document_upload(message: Message, app):
             f"<b>Перевірка сумісності з фермою:</b>\n\n"
         )
 
+        spools_map = await app.storage.load_spools()
         kb_buttons = []
         for p_id, p in app.printers.items():
-            c_info = check_compatibility(meta["printer_model"], meta["filament_type"], p.name)
-            status_str = "✅ Сумісний" if c_info["compatible"] else "🛑 НЕСУМІСНИЙ (Різна модель)"
+            active_fil = get_printer_active_filament(p, spools_map)
+            c_info = check_compatibility(meta["printer_model"], meta["filament_type"], p.name, active_fil)
+            status_str = "✅ Сумісний" if c_info["compatible"] else (
+                "🛑 НЕСУМІСНИЙ (Пластик)" if c_info.get("reason_type") == "FILAMENT" else "🛑 НЕСУМІСНИЙ (Різна модель)"
+            )
 
             comp_txt += f"• <b>{html.escape(p.name)}</b>: {status_str}\n"
             if c_info["compatible"]:
@@ -200,9 +209,11 @@ async def handle_3mf_preset_choice(message: Message, app):
     file_f_type = pending_file.get("filament_type", "PLA")
 
     # Build keyboard to return back to file options
+    spools_map = await app.storage.load_spools()
     kb_buttons = []
     for p_id, p in app.printers.items():
-        c_info = check_compatibility(file_p_model, file_f_type, p.name)
+        active_fil = get_printer_active_filament(p, spools_map)
+        c_info = check_compatibility(file_p_model, file_f_type, p.name, active_fil)
         if c_info["compatible"]:
             kb_buttons.append([KeyboardButton(text=f"🚀 Запустити на {p.name}")])
     kb_buttons.append([KeyboardButton(text="💰 Розрахувати комерційну вартість 3MF")])
@@ -251,7 +262,9 @@ async def handle_select_printer_for_file(message: Message, app):
 
     sliced_model = pending_file.get("printer_model", "Unknown")
     fil_type = pending_file.get("filament_type", "PLA")
-    c_info = check_compatibility(sliced_model, fil_type, target_p.name)
+    spools_map = await app.storage.load_spools()
+    active_fil = get_printer_active_filament(target_p, spools_map)
+    c_info = check_compatibility(sliced_model, fil_type, target_p.name, active_fil)
     if not c_info["compatible"]:
         await message.answer(
             f"🚨 <b>ПОМИЛКА БЕЗПЕКИ! ДРУК БЛОКОВАНО!</b>\n\n{c_info['reason']}", parse_mode=ParseMode.HTML

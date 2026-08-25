@@ -413,3 +413,53 @@ def upload_3mf_to_bambu(ip: str, access_code: str, file_bytes: bytes, filename: 
                 pass
 
     return None
+
+
+def verify_bambu_file_size(
+    ip: str, access_code: str, remote_path: str, expected_size: int, max_retries: int = 10, retry_delay: float = 0.3
+) -> bool:
+    """
+    Verifies that the uploaded file on Bambu Lab printer's SD card matches expected_size using FTPS SIZE command.
+    Polls up to max_retries with retry_delay. Returns True if size matches.
+    """
+    if not ip or not access_code or not remote_path or expected_size <= 0:
+        return False
+
+    import time
+    clean_path = remote_path.lstrip("/")
+
+    for attempt in range(1, max_retries + 1):
+        ftps = _connect_bambu_ftps(ip, access_code, timeout=5.0)
+        if ftps:
+            try:
+                # 1. Try FTPS SIZE command
+                try:
+                    r_size = ftps.size(clean_path)
+                    if r_size is not None and int(r_size) == expected_size:
+                        logger.info(f"✅ Verified FTPS SIZE for [{clean_path}] on [{ip}]: {r_size} bytes (attempt {attempt})")
+                        return True
+                except Exception:
+                    pass
+
+                # 2. Fallback: Check size via sendcmd("SIZE ...")
+                try:
+                    resp = ftps.sendcmd(f"SIZE {clean_path}")
+                    if resp and resp.startswith("213"):
+                        sz_val = int(resp.split()[-1])
+                        if sz_val == expected_size:
+                            logger.info(f"✅ Verified FTPS SIZE via sendcmd for [{clean_path}] on [{ip}]: {sz_val} bytes")
+                            return True
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.debug(f"FTPS size check attempt {attempt} failed on [{ip}]: {e}")
+            finally:
+                try:
+                    ftps.quit()
+                except Exception:
+                    pass
+
+        time.sleep(retry_delay)
+
+    logger.warning(f"⚠️ Could not verify FTPS SIZE ({expected_size} bytes) for [{remote_path}] on [{ip}] after {max_retries} attempts.")
+    return False
