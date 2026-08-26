@@ -1713,23 +1713,60 @@ document.addEventListener("DOMContentLoaded", () => {
 
                         triggerHaptic("medium");
 
-                        let matchedPart = null;
-                        if (window._partsCache) {
-                            const pKeys = Object.keys(window._partsCache);
-                            matchedPart = pKeys.map(k => window._partsCache[k]).find(p => p.name && (p.name.toLowerCase() === taskName.toLowerCase() || taskName.toLowerCase().includes(p.name.toLowerCase())));
-                        }
-
                         try {
-                            if (matchedPart && matchedPart.three_mf) {
+                            let partsList = [];
+                            try {
+                                const partsRes = await fetch("/api/parts");
+                                const partsData = await partsRes.json();
+                                partsList = Object.values(partsData || {});
+                            } catch (e) {
+                                console.error("Failed fetching parts for reprint:", e);
+                            }
+
+                            const normTask = taskName.trim().toLowerCase();
+                            const matchedPart = partsList.find(p => {
+                                if (!p.name) return false;
+                                const normP = p.name.trim().toLowerCase();
+                                return normP === normTask || normTask.includes(normP) || normP.includes(normTask);
+                            });
+
+                            if (matchedPart && matchedPart.id) {
                                 const res = await fetch(`/api/parts/${matchedPart.id}/print/${targetPrinter.id}`, { method: "POST" });
                                 const result = await res.json().catch(() => ({}));
                                 if (res.ok && result.status === "ok") {
-                                    alert(`✅ Модель "${taskName}" успішно відправлено на друк на ${targetPrinter.name}!`);
+                                    alert(`✅ Модель "${taskName}" успішно відправлено на друк на принтер ${targetPrinter.name}!`);
                                 } else {
-                                    alert(`⚠️ Помилка запуску: ${result.error || `HTTP ${res.status}`}`);
+                                    alert(`⚠️ Помилка запуску друку: ${result.error || `HTTP ${res.status}`}`);
                                 }
                             } else {
-                                alert(`💡 Повідомлення: Відправлено команду повторного запуску моделі "${taskName}" на принтер ${targetPrinter.name}.`);
+                                let filesList = [];
+                                try {
+                                    const filesRes = await fetch("/api/files");
+                                    const filesData = await filesRes.json();
+                                    filesList = Array.isArray(filesData.files) ? filesData.files : [];
+                                } catch (e) {}
+
+                                const matchedFile = filesList.find(f => {
+                                    const fName = (f.filename || f.name || "").trim().toLowerCase();
+                                    return fName === normTask || normTask.includes(fName) || fName.includes(normTask);
+                                });
+
+                                if (matchedFile && (matchedFile.file_token || matchedFile.filename)) {
+                                    const fileToken = matchedFile.file_token || matchedFile.filename;
+                                    const res = await fetch(`/api/printers/${targetPrinter.id}/print_file`, {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ file_token: fileToken, filename: matchedFile.filename || taskName })
+                                    });
+                                    const result = await res.json().catch(() => ({}));
+                                    if (res.ok && result.status === "ok") {
+                                        alert(`✅ Файл "${taskName}" успішно відправлено на друк на принтер ${targetPrinter.name}!`);
+                                    } else {
+                                        alert(`⚠️ Помилка запуску друку: ${result.error || `HTTP ${res.status}`}`);
+                                    }
+                                } else {
+                                    alert(`⚠️ Модель або файл "${taskName}" не знайдено в Складі деталей чи Завантаженнях. Неможливо заново запустити друк.`);
+                                }
                             }
                         } catch (err) {
                             console.error("Reprint error:", err);
