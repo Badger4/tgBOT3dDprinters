@@ -262,6 +262,8 @@ class PrinterBotApp:
                             st["notifiedStart"] = False
                             st["notifiedPause"] = False
                             st["notifiedInsufficentWarning"] = False
+                            st["notifiedClearReminder"] = False
+                            p.finish_timestamp = time.time()
 
                             # Record completed print hours
                             job_mins = getattr(p, "last_job_mins", 0) or getattr(p, "mc_remaining_time", 0) or 30
@@ -308,12 +310,15 @@ class PrinterBotApp:
                             p._history_recorded = True
                             logger.info(f"📜 History entry recorded via monitoring_loop for [{p.name}]: '{clean_subtask}' ({final_weight}g)")
 
-                    # 4. Part Removal Reminder
+                    # 4. Part Removal Reminder (Strict 15..30 min window)
                     if curr_state == "FINISH" and getattr(p, "finish_timestamp", 0.0) > 0:
                         mins_passed = (time.time() - p.finish_timestamp) / 60.0
-                        if mins_passed >= 15 and not st.get("notifiedClearReminder"):
-                            rem_txt = f"🔔 *Скільки можна чекати, Бака?!*\nДрук на {p.name} закінчився аж {int(mins_passed)} хв тому!\nНегайно зніми готову деталь зі столу, щоб звільнити принтер! 🧼😤"
-                            await self.send_notification("finish", rem_txt)
+                        if 15.0 <= mins_passed <= 30.0:
+                            if not st.get("notifiedClearReminder"):
+                                rem_txt = f"🔔 *Скільки можна чекати, Бака?!*\nДрук на {p.name} закінчився 15 хв тому!\nНегайно зніми готову деталь зі столу, щоб звільнити принтер! 🧼😤"
+                                await self.send_notification("finish", rem_txt)
+                                st["notifiedClearReminder"] = True
+                        elif mins_passed > 30.0:
                             st["notifiedClearReminder"] = True
                     elif curr_state != "FINISH":
                         st["notifiedClearReminder"] = False
