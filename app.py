@@ -6,6 +6,7 @@ import asyncio
 import gc
 import html
 import os
+import re
 import time
 from typing import Any
 
@@ -16,6 +17,7 @@ from bot.handlers import setup_routers
 from bot.keyboards import get_notification_inline_keyboard
 from config import ADMIN_CHAT_ID, STORAGE_DIR, TELEGRAM_BOT_TOKEN, logger
 from models.printer import BambuPrinter
+from services.mqtt_message_parser import extract_subtask_weight
 from storage.manager import StorageManager
 
 
@@ -97,7 +99,11 @@ class PrinterBotApp:
         logger.info("⚙️ [Monitoring] Background printer monitor loop started!")
         await asyncio.sleep(5)
 
+        main_loop = asyncio.get_running_loop()
         for p_id, p in list(self.printers.items()):
+            p._main_loop = main_loop
+            if not getattr(p, "storage", None):
+                p.storage = self.storage
             self.printer_states[p_id] = {
                 "lastState": p.gcode_state,
                 "notifiedStart": (p.gcode_state == "RUNNING"),
@@ -115,6 +121,9 @@ class PrinterBotApp:
 
                 is_any_printing = False
                 for p_id, p in list(self.printers.items()):
+                    p._main_loop = main_loop
+                    if not getattr(p, "storage", None):
+                        p.storage = self.storage
                     if p.id not in self.printer_states:
                         self.printer_states[p.id] = {
                             "lastState": p.gcode_state,
@@ -237,7 +246,7 @@ class PrinterBotApp:
                             )
                             st["notifiedPause"] = True
 
-                    # 3. Finish Notification
+                    # 3. Finish Notification & History Recording
                     if curr_state == "FINISH" and st["lastState"] != "FINISH":
                         if p.notify and not st["notifiedFinish"]:
                             used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
@@ -258,6 +267,46 @@ class PrinterBotApp:
                             job_mins = getattr(p, "last_job_mins", 0) or getattr(p, "mc_remaining_time", 0) or 30
                             p.record_print_hours(job_mins / 60.0)
                             await self.save_printers_config()
+
+                        # Ensure History Entry is Recorded for Slicer / App / Bot prints
+                        if not getattr(p, "_history_recorded", False):
+                            final_weight = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
+                            if final_weight == 0.0 and p.subtask_name:
+                                final_weight = extract_subtask_weight(p.subtask_name)
+
+                            if final_weight == 0.0:
+                                cache_file = STORAGE_DIR / "last_sliced_weight.json"
+                                if cache_file.exists():
+                                    try:
+                                        c_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                                        c_w = float(c_data.get("weight", 0.0))
+                                        if c_w > 0:
+                                            final_weight = c_w
+                                    except Exception:
+                                        pass
+
+                            raw_title = getattr(p, "_custom_job_name", None) or str(p.subtask_name or "").strip()
+                            raw_title = raw_title.replace("Metadata/", "").replace("metadata/", "").strip()
+                            if "." in raw_title and not raw_title.endswith((".3mf", ".gcode")):
+                                raw_title = raw_title.rsplit(".", 1)[0]
+                            elif raw_title.endswith((".3mf", ".gcode")):
+                                raw_title = raw_title.rsplit(".", 1)[0]
+
+                            clean_subtask = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", raw_title).strip()
+                            if not clean_subtask or clean_subtask.lower() in ["untitled", "none", "null"] or re.match(r"^[_ -]+$", clean_subtask):
+                                clean_subtask = "Деталь 3D"
+
+                            entry = {
+                                "timestamp": time.time(),
+                                "printer_name": p.name,
+                                "subtask_name": clean_subtask,
+                                "weight_g": round(float(final_weight), 1),
+                                "filament_type": p.filament_type,
+                                "note": "Успішно виконано",
+                            }
+                            await self.storage.add_history_entry(entry)
+                            p._history_recorded = True
+                            logger.info(f"📜 History entry recorded via monitoring_loop for [{p.name}]: '{clean_subtask}' ({final_weight}g)")
 
                     # 4. Part Removal Reminder
                     if curr_state == "FINISH" and getattr(p, "finish_timestamp", 0.0) > 0:
