@@ -318,20 +318,58 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
     return result
 
 
+HARDCODED_FILAMENT_TYPES = [
+    "ASA-AERO",
+    "PETG-CF",
+    "PLA-AERO",
+    "PPA-CF",
+    "PPA-GF",
+    "TPU-AMS",
+    "ABS-GF",
+    "ASA-CF",
+    "PA6-CF",
+    "PLA-CF",
+    "PET-CF",
+    "PA-GF",
+    "PP-CF",
+    "PP-GF",
+    "PE-CF",
+    "PCTG",
+    "BVOH",
+    "CoPE",
+    "HIPS",
+    "PA6",
+    "PETG",
+    "PLA",
+    "ABS",
+    "TPU",
+    "ASA",
+    "PVA",
+    "SBS",
+    "EVA",
+    "PHA",
+    "PP",
+    "PE",
+    "PC",
+    "PA",
+]
+
+
 def normalize_filament_name(raw_name: str) -> str:
-    """Normalizes filament preset names/types (e.g., 'Bambu ABS @BBL A1', 'TPU 95A', 'PLA-CF') to canonical types."""
-    if not raw_name or str(raw_name).strip().lower() in ["unknown", "generic", "невизначено", ""]:
+    """Normalizes filament preset names/types to canonical hardcoded filament types."""
+    if not raw_name or not isinstance(raw_name, str) or str(raw_name).startswith("<") or str(raw_name).strip().lower() in ["unknown", "generic", "невизначено", ""]:
         return ""
     s = str(raw_name).strip().upper()
-    for main_type in ["TPU", "PETG", "PLA", "ABS", "ASA", "PC", "PA", "PVA", "HIPS"]:
-        if main_type in s:
+    for main_type in HARDCODED_FILAMENT_TYPES:
+        pattern = r"(?<![A-Z0-9\-])" + re.escape(main_type) + r"(?![A-Z0-9\-])"
+        if re.search(pattern, s, re.IGNORECASE):
             return main_type
     return s
 
 
 def get_printer_active_filament(printer: Any, spools_map: dict | None = None) -> str:
     """Returns the active filament type/spool mounted on the printer's active slot."""
-    active_key = str(printer.get_active_slot_key()) if hasattr(printer, "get_active_slot_key") else "255"
+    active_key = str(printer.get_active_slot_key()) if (hasattr(printer, "get_active_slot_key") and callable(getattr(printer, "get_active_slot_key"))) else "255"
 
     # 1. Check mounted spool from Warehouse
     if spools_map and isinstance(spools_map, dict):
@@ -339,7 +377,7 @@ def get_printer_active_filament(printer: Any, spools_map: dict | None = None) ->
             if isinstance(spool, dict) and spool.get("assigned_printer_id") == getattr(printer, "id", None):
                 if str(spool.get("assigned_slot_key")) == active_key:
                     s_type = spool.get("type") or spool.get("name") or ""
-                    if s_type:
+                    if s_type and isinstance(s_type, str) and not s_type.startswith("<"):
                         return str(s_type)
 
     # 2. Check AMS trays info for active slot
@@ -352,10 +390,56 @@ def get_printer_active_filament(printer: Any, spools_map: dict | None = None) ->
 
     # 3. Fallback to printer.filament_type attribute
     fil_type = getattr(printer, "filament_type", "Невизначено")
-    if fil_type and fil_type != "Невизначено":
+    if fil_type and isinstance(fil_type, str) and fil_type != "Невизначено" and not fil_type.startswith("<"):
         return str(fil_type)
 
     return ""
+
+
+def get_bambu_model_code(name_str: str) -> str:
+    """
+    Hardcoded Bambu Lab printer model mapping:
+      - a1 mini -> @BBL A1M
+      - a1 -> @BBL A1
+      - a2l -> @BBL A2L
+      - p1s -> @BBL X1C
+      - h2c -> @BBL H2C
+      - h2d -> @BBL H2D
+      - h2d pro -> @BBL H2DP
+      - h2s -> @BBL H2S
+      - p1p -> @BBL P1P
+      - p2s -> @BBL P2S
+      - x1, x1 carbon, x1e -> @BBL X1C
+      - x2d -> @BBL X2D
+    """
+    if not name_str:
+        return "UNKNOWN"
+    s = re.sub(r"[\-_]", " ", str(name_str).lower()).strip()
+
+    if "a1 mini" in s or "a1mini" in s or "a1m" in s or "@bbl a1m" in s or "n2s" in s or "n2" in s:
+        return "@BBL A1M"
+    if "a1" in s or "@bbl a1" in s or "n1" in s:
+        return "@BBL A1"
+    if "a2l" in s or "@bbl a2l" in s:
+        return "@BBL A2L"
+    if "h2d pro" in s or "h2dpro" in s or "h2dp" in s or "@bbl h2dp" in s:
+        return "@BBL H2DP"
+    if "h2c" in s or "@bbl h2c" in s:
+        return "@BBL H2C"
+    if "h2d" in s or "@bbl h2d" in s:
+        return "@BBL H2D"
+    if "h2s" in s or "@bbl h2s" in s:
+        return "@BBL H2S"
+    if "p1p" in s or "@bbl p1p" in s:
+        return "@BBL P1P"
+    if "p2s" in s or "@bbl p2s" in s:
+        return "@BBL P2S"
+    if "x2d" in s or "@bbl x2d" in s:
+        return "@BBL X2D"
+    if "p1s" in s or "x1 carbon" in s or "x1c" in s or "x1e" in s or "x1" in s or "@bbl x1c" in s or "c12" in s or "c10" in s:
+        return "@BBL X1C"
+
+    return "UNKNOWN"
 
 
 def check_compatibility(
@@ -366,36 +450,13 @@ def check_compatibility(
 ) -> dict[str, Any]:
     """
     Checks G-code / model & filament compatibility between sliced 3MF metadata and target printer.
-    Stage 1 (Hardware): Checks printer family (e.g. A1 mini vs A1 vs P1S).
+    Stage 1 (Hardware): Checks printer model code (@BBL A1M vs @BBL A1 vs @BBL X1C, etc).
     Stage 2 (Material): Checks filament type (e.g. TPU vs ABS).
     """
-    sliced_clean = sliced_model.strip()
-    target_clean = target_printer_name.strip()
+    sliced_code = get_bambu_model_code(sliced_model)
+    target_code = get_bambu_model_code(target_printer_name)
 
-    def get_model_family(name_str: str) -> str:
-        s = re.sub(r"[\-_]", " ", name_str.lower())
-        if "a1m" in s or "a1 mini" in s or "a1mini" in s or "n2s" in s or "n2" in s or "@bbl a1m" in s:
-            return "a1_mini"
-        elif "a1" in s or "n1" in s or "@bbl a1" in s:
-            return "a1"
-        elif (
-            "x1c" in s
-            or "p1s" in s
-            or "c12" in s
-            or "p1p" in s
-            or "c11" in s
-            or "x1" in s
-            or "c10" in s
-            or "@bbl x1c" in s
-        ):
-            return "p1s"
-        return "unknown"
-
-    # Stage 1: Hardware Check (Printer Model Family)
-    sliced_family = get_model_family(sliced_clean)
-    target_family = get_model_family(target_clean)
-
-    if sliced_family != "unknown" and target_family != "unknown" and sliced_family != target_family:
+    if sliced_code != "UNKNOWN" and target_code != "UNKNOWN" and sliced_code != target_code:
         return {
             "compatible": False,
             "reason_type": "PRINTER",

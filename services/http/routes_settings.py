@@ -263,7 +263,8 @@ async def handle_get_history(request: web.Request) -> web.Response:
     return web.json_response(
         {
             "total_jobs": len(normalized_history),
-            "total_weight_kg": round(total_grams / 1000.0, 2),
+            "total_weight_g": round(total_grams, 1),
+            "total_weight_kg": round(total_grams / 1000.0, 3),
             "total_cost_uah": round(total_cost, 2),
             "history": normalized_history,
         }

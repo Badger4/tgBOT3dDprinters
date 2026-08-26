@@ -193,6 +193,22 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
         job_w = float(meta.get("weight_g", 0.0))
         plate_name = meta.get("plate_name", "plate_1.gcode")
 
+        # Strict Hardware & Filament Compatibility Validation
+        from services.gcode_parser import check_compatibility, get_printer_active_filament
+        spools = await app_obj.storage.load_spools() if (app_obj and hasattr(app_obj, "storage") and hasattr(app_obj.storage, "load_spools")) else {}
+        active_fil = get_printer_active_filament(p, spools)
+
+        comp = check_compatibility(
+            sliced_model=meta.get("printer_model", ""),
+            filament_type=meta.get("filament_type", ""),
+            target_printer_name=p.name,
+            target_filament=active_fil,
+        )
+        if not comp.get("compatible"):
+            reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
+            logger.warning(f"⛔ Blocked incompatible uploaded file print on '{p.name}': {reason}")
+            return web.json_response({"error": f"🛑 Друк заблоковано: {reason}"}, status=400)
+
         ok, msg = await p.start_print_job_async(file_bytes, filename, plate_name=plate_name)
         if ok:
             p._is_printing = True

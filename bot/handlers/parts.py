@@ -251,6 +251,16 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
     spools_map = await app_ref.storage.load_spools() if app_ref and hasattr(app_ref, "storage") else None
     active_fil = get_printer_active_filament(printer, spools_map)
     comp = check_compatibility(part.get("printer_model", ""), part.get("filament_type", ""), printer.name, active_fil)
+    if not comp.get("compatible"):
+        reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
+        await callback.answer(f"🛑 ДРУК БЛОКОВАНО: {reason}", show_alert=True)
+        await callback.message.answer(
+            f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n{reason}\n\n"
+            f"Необхідний пластик: <code>{html.escape(part.get('filament_type', 'Невідомо'))}</code>\n"
+            f"Пластик на принтері: <code>{html.escape(active_fil or 'Невідомо')}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
 
     await callback.answer("⏳ Завантаження .3mf файлу та відправка на принтер...")
 

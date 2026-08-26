@@ -103,6 +103,8 @@ class PrinterBotApp:
                 "notifiedStart": (p.gcode_state == "RUNNING"),
                 "notifiedFinish": (p.gcode_state == "FINISH"),
                 "notifiedPause": (p.gcode_state == "PAUSE"),
+                "notifiedClearReminder": (p.gcode_state == "FINISH"),
+                "notifiedHMS": bool(getattr(p, "hms_errors", None)),
             }
 
         while True:
@@ -119,6 +121,8 @@ class PrinterBotApp:
                             "notifiedStart": (p.gcode_state == "RUNNING"),
                             "notifiedFinish": (p.gcode_state == "FINISH"),
                             "notifiedPause": (p.gcode_state == "PAUSE"),
+                            "notifiedClearReminder": (p.gcode_state == "FINISH"),
+                            "notifiedHMS": bool(getattr(p, "hms_errors", None)),
                         }
 
                     st = self.printer_states[p.id]

@@ -12,6 +12,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- html2pdf.js for PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp CSS -->
     <link rel="stylesheet" href="/static/css/style.css?v=1024">
 </head>
@@ -87,7 +89,12 @@
 
                 <!-- Calculator Card -->
                 <div class="glass-card mb-4">
-                    <h3><i class="fa-solid fa-coins color-orange"></i> <span data-i18n="calc_cost_title">Розрахунок вартості друку</span></h3>
+                    <div class="d-flex align-items-center justify-content-between mb-3 gap-2" style="flex-wrap: wrap;">
+                        <h3 style="margin: 0; display: inline-flex; align-items: center; gap: 8px;"><i class="fa-solid fa-coins color-orange"></i> <span data-i18n="calc_cost_title">Розрахунок вартості друку</span></h3>
+                        <button type="button" id="btn-export-calc-pdf" class="btn btn-primary btn-sm" style="margin: 0; flex-shrink: 0;">
+                            <i class="fa-solid fa-file-pdf"></i> <span data-i18n="export_pdf_btn">Звіт (PDF)</span>
+                        </button>
+                    </div>
                     <form id="comm-calc-form">
                         <div class="form-group">
                             <label data-i18n="pricing_preset_label">Пресет ціноутворення</label>
@@ -156,9 +163,9 @@
                 <div class="section-header">
                     <h2><i class="fa-solid fa-boxes-packing"></i> <span data-i18n="materials_stock_title">Склад пластику</span></h2>
                     <div class="d-flex gap-2">
-                        <a href="/api/warehouse/export_csv" download="warehouse_report.csv" class="btn btn-outline-success btn-sm" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none;">
-                            <i class="fa-solid fa-file-csv"></i> Звіт CSV
-                        </a>
+                        <button type="button" class="btn btn-primary btn-sm btn-export-warehouse-csv" data-type="spools">
+                            <i class="fa-solid fa-file-csv"></i> <span data-i18n="export_csv_btn">Звіт (CSV)</span>
+                        </button>
                         <button id="add-spool-btn" class="btn btn-primary btn-sm">
                             <i class="fa-solid fa-plus"></i> <span data-i18n="new_spool_btn">Нова котушка</span>
                         </button>
@@ -179,9 +186,9 @@
                 <div class="section-header">
                     <h2><i class="fa-solid fa-puzzle-piece"></i> <span data-i18n="parts_stock_title">Склад готових деталей</span></h2>
                     <div class="d-flex gap-2">
-                        <a href="/api/warehouse/export_csv" download="warehouse_report.csv" class="btn btn-outline-success btn-sm" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none;">
-                            <i class="fa-solid fa-file-csv"></i> Звіт CSV
-                        </a>
+                        <button type="button" class="btn btn-primary btn-sm btn-export-warehouse-csv" data-type="parts">
+                            <i class="fa-solid fa-file-csv"></i> <span data-i18n="export_csv_btn">Звіт (CSV)</span>
+                        </button>
                         <button id="add-part-btn" class="btn btn-primary btn-sm" onclick="window.openAddPartModal()">
                             <i class="fa-solid fa-plus"></i> <span data-i18n="new_part_btn">Нова деталь</span>
                         </button>
@@ -190,9 +197,8 @@
 
                 <!-- Parts Inventory -->
                 <div class="glass-card">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="mb-3">
                         <h3><i class="fa-solid fa-cubes"></i> <span data-i18n="parts_warehouse_subtitle">Інвентар деталей</span></h3>
-                        <span id="parts-summary-badge" class="badge badge-active">0 шт.</span>
                     </div>
 
                     <!-- Search Input Bar -->
@@ -623,9 +629,37 @@
                                     <option value="PLA">PLA</option>
                                     <option value="PETG">PETG</option>
                                     <option value="ABS">ABS</option>
-                                    <option value="ASA">ASA</option>
                                     <option value="TPU">TPU</option>
-                                    <option value="PNC">PNA/PNC</option>
+                                    <option value="PC">PC</option>
+                                    <option value="ASA">ASA</option>
+                                    <option value="BVOH">BVOH</option>
+                                    <option value="CoPE">CoPE</option>
+                                    <option value="EVA">EVA</option>
+                                    <option value="HIPS">HIPS</option>
+                                    <option value="PA">PA</option>
+                                    <option value="PA-CF">PA-CF</option>
+                                    <option value="PCTG">PCTG</option>
+                                    <option value="PE">PE</option>
+                                    <option value="PE-CF">PE-CF</option>
+                                    <option value="PETG-CF">PETG-CF</option>
+                                    <option value="PHA">PHA</option>
+                                    <option value="PLA-CF">PLA-CF</option>
+                                    <option value="PP">PP</option>
+                                    <option value="PP-CF">PP-CF</option>
+                                    <option value="PP-GF">PP-GF</option>
+                                    <option value="PPA-CF">PPA-CF</option>
+                                    <option value="PPA-GF">PPA-GF</option>
+                                    <option value="PVA">PVA</option>
+                                    <option value="SBS">SBS</option>
+                                    <option value="TPU-AMS">TPU-AMS</option>
+                                    <option value="ABS-GF">ABS-GF</option>
+                                    <option value="ASA-AERO">ASA-AERO</option>
+                                    <option value="ASA-CF">ASA-CF</option>
+                                    <option value="PA6-CF">PA6-CF</option>
+                                    <option value="PA-GF">PA-GF</option>
+                                    <option value="PET-CF">PET-CF</option>
+                                    <option value="PLA-AERO">PLA-AERO</option>
+                                    <option value="PA6">PA6</option>
                                 </select>
                             </div>
                             <div class="form-group col">
@@ -859,6 +893,6 @@
     </div>
 
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1038"></script>
+    <script src="/static/js/app.js?v=1053"></script>
 </body>
 </html>

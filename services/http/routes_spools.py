@@ -61,19 +61,22 @@ async def handle_delete_spool(request: web.Request) -> web.Response:
 
 
 async def handle_export_warehouse_csv(request: web.Request) -> web.Response:
-    """GET /api/warehouse/export_csv - Download structured CSV report of spools and parts warehouse."""
+    """GET /api/warehouse/export_csv - Download structured CSV report of spools warehouse."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
-    app_obj = request.app["app_obj"]
-    spools = await app_obj.storage.load_spools()
-    parts = await app_obj.storage.load_parts()
+    try:
+        app_obj = request.app["app_obj"]
+        spools = await app_obj.storage.load_spools()
+        parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
 
-    from services.report_generator import generate_warehouse_csv_report
-    csv_bytes = generate_warehouse_csv_report(spools, parts)
+        from services.report_generator import generate_warehouse_csv_report
+        csv_bytes = generate_warehouse_csv_report(spools, parts)
 
-    headers = {
-        "Content-Disposition": 'attachment; filename="warehouse_report.csv"',
-        "Content-Type": "text/csv; charset=utf-8",
-    }
-    return web.Response(body=csv_bytes, headers=headers)
+        headers = {
+            "Content-Disposition": 'attachment; filename="warehouse_report.csv"',
+            "Content-Type": "text/csv; charset=utf-8",
+        }
+        return web.Response(body=csv_bytes, headers=headers)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)

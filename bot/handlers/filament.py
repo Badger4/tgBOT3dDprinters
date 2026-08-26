@@ -24,35 +24,8 @@ router = Router()
 
 
 def extract_filament_type_from_name(name: str) -> str:
-    import re
-
-    types = [
-        "PLA+",
-        "PLA-CF",
-        "PLA",
-        "PETG-CF",
-        "PETG",
-        "PET",
-        "ABS-GF",
-        "ABS",
-        "ASA",
-        "TPU-95A",
-        "TPU",
-        "PPA-CF",
-        "PA-CF",
-        "PA6-CF",
-        "PA",
-        "PC",
-        "HIPS",
-        "PVA",
-    ]
-    name_upper = name.upper()
-    for t in types:
-        pattern = r"(?:\b|_)" + re.escape(t) + r"(?:\b|_)"
-        if re.search(pattern, name_upper):
-            return t
-    words = name.strip().split()
-    return words[0] if words else name.strip()
+    from utils.filament_utils import extract_filament_type_from_name as _extract
+    return _extract(name)
 
 
 def parse_slot_key_from_text(text: str) -> str:

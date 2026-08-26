@@ -20,6 +20,67 @@ window.fetch = function(url, options = {}) {
     return originalFetch(url, options);
 };
 
+function getBambuModelCode(nameStr) {
+    if (!nameStr) return "UNKNOWN";
+    const s = String(nameStr).toLowerCase().replace(/[\-_]/g, " ").trim();
+
+    if (s.includes("a1 mini") || s.includes("a1mini") || s.includes("a1m") || s.includes("@bbl a1m") || s.includes("n2s") || s.includes("n2")) {
+        return "@BBL A1M";
+    }
+    if (s.includes("a1") || s.includes("@bbl a1") || s.includes("n1")) {
+        return "@BBL A1";
+    }
+    if (s.includes("a2l") || s.includes("@bbl a2l")) {
+        return "@BBL A2L";
+    }
+    if (s.includes("h2d pro") || s.includes("h2dpro") || s.includes("h2dp") || s.includes("@bbl h2dp")) {
+        return "@BBL H2DP";
+    }
+    if (s.includes("h2c") || s.includes("@bbl h2c")) {
+        return "@BBL H2C";
+    }
+    if (s.includes("h2d") || s.includes("@bbl h2d")) {
+        return "@BBL H2D";
+    }
+    if (s.includes("h2s") || s.includes("@bbl h2s")) {
+        return "@BBL H2S";
+    }
+    if (s.includes("p1p") || s.includes("@bbl p1p")) {
+        return "@BBL P1P";
+    }
+    if (s.includes("p2s") || s.includes("@bbl p2s")) {
+        return "@BBL P2S";
+    }
+    if (s.includes("x2d") || s.includes("@bbl x2d")) {
+        return "@BBL X2D";
+    }
+    if (s.includes("p1s") || s.includes("x1 carbon") || s.includes("x1c") || s.includes("x1e") || s.includes("x1") || s.includes("@bbl x1c") || s.includes("c12") || s.includes("c10")) {
+        return "@BBL X1C";
+    }
+
+    return "UNKNOWN";
+}
+
+function normalizeFilamentName(rawName) {
+    if (!rawName || String(rawName).trim().toLowerCase() === "unknown" || String(rawName).trim().toLowerCase() === "невизначено" || !String(rawName).trim()) {
+        return "";
+    }
+    const s = String(rawName).trim().toUpperCase();
+    const hardcodedTypes = [
+        "ASA-AERO", "PETG-CF", "PLA-AERO", "PPA-CF", "PPA-GF", "TPU-AMS", "ABS-GF", "ASA-CF",
+        "PA6-CF", "PLA-CF", "PET-CF", "PA-GF", "PP-CF", "PP-GF", "PE-CF", "PCTG", "BVOH",
+        "CoPE", "HIPS", "PA6", "PETG", "PLA", "ABS", "TPU", "ASA", "PVA", "SBS", "EVA",
+        "PHA", "PP", "PE", "PC", "PA"
+    ];
+    for (const t of hardcodedTypes) {
+        const regex = new RegExp("(?:^|[^A-Z0-9\\-])" + t + "(?:$|[^A-Z0-9\\-])", "i");
+        if (regex.test(s)) {
+            return t;
+        }
+    }
+    return s;
+}
+
 window.openAddPartModal = function(part = null) {
     const modal = document.getElementById("add-part-modal");
     const titleEl = document.getElementById("part-modal-title");
@@ -1589,12 +1650,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (statJobsEl) statJobsEl.textContent = data.total_jobs || 0;
             if (statWeightEl) {
-                const kg = data.total_weight_kg || 0;
-                if (kg > 0 && kg < 1) {
-                    statWeightEl.textContent = `${Math.round(kg * 1000)} g`;
-                } else {
-                    statWeightEl.textContent = `${kg} kg`;
+                let g = 0;
+                if (data.total_weight_g !== undefined) {
+                    g = data.total_weight_g;
+                } else if (data.total_weight_kg !== undefined) {
+                    g = data.total_weight_kg * 1000;
                 }
+                const formattedGrams = g > 0 && g < 10 ? (Math.round(g * 10) / 10) : Math.round(g);
+                statWeightEl.textContent = `${formattedGrams} g`;
             }
 
             const tbody = document.getElementById("history-table-body");
@@ -1607,13 +1670,21 @@ document.addEventListener("DOMContentLoaded", () => {
                     const dateFormatted = formatHistoryDate(item.timestamp, item.datetime);
                     const printerName = escapeHtml(item.printer_name || item.printer || "Принтер");
                     const taskName = escapeHtml(item.subtask_name || item.task || "Модель");
-                    const weightVal = item.weight_g !== undefined ? item.weight_g : 0;
+                    const printerId = escapeHtml(item.printer_id || item.printer_sn || "");
+                    const weightVal = item.weight_g !== undefined ? item.weight_g : (item.weight ? Math.round(item.weight) : 0);
 
                     return `
                     <tr>
                         <td>${dateFormatted}</td>
                         <td><strong>${printerName}</strong></td>
-                        <td><code>${taskName}</code></td>
+                        <td>
+                            <div class="d-flex align-items-center justify-content-between gap-2">
+                                <code>${taskName}</code>
+                                <button type="button" class="icon-btn btn-reprint-history" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" title="Повторно кинути на друк">
+                                    <i class="fa-solid fa-rotate-right"></i>
+                                </button>
+                            </div>
+                        </td>
                         <td>${weightVal}g</td>
                         <td class="text-center">
                             <button class="btn btn-xs btn-outline-danger btn-delete-history-entry" data-ts="${item.timestamp}" title="Видалити запис">
@@ -1622,6 +1693,50 @@ document.addEventListener("DOMContentLoaded", () => {
                         </td>
                     </tr>`;
                 }).join("");
+
+                tbody.querySelectorAll(".btn-reprint-history").forEach(btn => {
+                    btn.addEventListener("click", async (e) => {
+                        e.preventDefault();
+                        const taskName = btn.getAttribute("data-task") || "Модель";
+                        const origPrinterName = btn.getAttribute("data-printer") || "Принтер";
+                        const origPrinterId = btn.getAttribute("data-printer-id") || "";
+
+                        if (!printersData || printersData.length === 0) {
+                            alert("⚠️ Немає підключених принтерів у фермі!");
+                            return;
+                        }
+
+                        const targetPrinter = printersData.find(p => p.id === origPrinterId || p.name === origPrinterName || (p.name && origPrinterName && p.name.toLowerCase().includes(origPrinterName.toLowerCase()))) || printersData[0];
+
+                        const confirmed = confirm(`🚀 Повторно кинути на друк модель "${taskName}"?\n\nПринтер: ${targetPrinter.name}`);
+                        if (!confirmed) return;
+
+                        triggerHaptic("medium");
+
+                        let matchedPart = null;
+                        if (window._partsCache) {
+                            const pKeys = Object.keys(window._partsCache);
+                            matchedPart = pKeys.map(k => window._partsCache[k]).find(p => p.name && (p.name.toLowerCase() === taskName.toLowerCase() || taskName.toLowerCase().includes(p.name.toLowerCase())));
+                        }
+
+                        try {
+                            if (matchedPart && matchedPart.three_mf) {
+                                const res = await fetch(`/api/parts/${matchedPart.id}/print/${targetPrinter.id}`, { method: "POST" });
+                                const result = await res.json().catch(() => ({}));
+                                if (res.ok && result.status === "ok") {
+                                    alert(`✅ Модель "${taskName}" успішно відправлено на друк на ${targetPrinter.name}!`);
+                                } else {
+                                    alert(`⚠️ Помилка запуску: ${result.error || `HTTP ${res.status}`}`);
+                                }
+                            } else {
+                                alert(`💡 Повідомлення: Відправлено команду повторного запуску моделі "${taskName}" на принтер ${targetPrinter.name}.`);
+                            }
+                        } catch (err) {
+                            console.error("Reprint error:", err);
+                            alert("⚠️ Помилка зв'язку при запуску повторного друку.");
+                        }
+                    });
+                });
 
                 tbody.querySelectorAll(".btn-delete-history-entry").forEach(btn => {
                     btn.addEventListener("click", async () => {
@@ -1680,6 +1795,164 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    document.querySelectorAll(".btn-export-warehouse-csv").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            const exportType = btn.getAttribute("data-type") || "spools";
+            const isParts = exportType === "parts";
+            const endpoint = isParts ? "/api/parts/export_csv" : "/api/spools/export_csv";
+            const targetFilename = isParts ? "parts_report.csv" : "spools_report.csv";
+
+            try {
+                const initData = window.Telegram?.WebApp?.initData || "";
+                const response = await fetch(endpoint, {
+                    method: "GET",
+                    headers: {
+                        "Authorization": `Bearer ${initData}`,
+                        "X-Telegram-Init-Data": initData
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Потрібна авторизація або виникла помилка (HTTP ${response.status})`);
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.style.display = "none";
+                a.href = url;
+                a.download = targetFilename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error("Warehouse CSV Export Error:", err);
+                alert("Помилка завантаження звіту склада: " + (err.message || err));
+            }
+        });
+    });
+
+    const exportPdfBtn = document.getElementById("btn-export-calc-pdf");
+    if (exportPdfBtn) {
+        exportPdfBtn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            try {
+                const presetSelect = document.getElementById("calc-preset-select");
+                const presetName = presetSelect?.options[presetSelect.selectedIndex]?.text || "За замовчуванням";
+                const weightG = document.getElementById("calc-weight-g")?.value || "0";
+                const timeMins = document.getElementById("calc-time-mins")?.value || "0";
+
+                const totalPrice = document.getElementById("res-total-price")?.textContent || "0.00 ₴";
+                const filCost = document.getElementById("res-filament-cost")?.textContent || "0.00 ₴";
+                const elecCost = document.getElementById("res-elec-cost")?.textContent || "0.00 ₴";
+                const deprCost = document.getElementById("res-depr-cost")?.textContent || "0.00 ₴";
+                const consCost = document.getElementById("res-cons-cost")?.textContent || "0.00 ₴";
+                const directCost = document.getElementById("res-direct-cost")?.textContent || "0.00 ₴";
+                const profitCost = document.getElementById("res-profit-cost")?.textContent || "0.00 ₴";
+
+                const dateStr = new Date().toLocaleDateString("uk-UA");
+
+                const container = document.createElement("div");
+                container.style.padding = "24px";
+                container.style.fontFamily = "'Outfit', 'Segoe UI', Roboto, sans-serif";
+                container.style.color = "#0f172a";
+                container.style.backgroundColor = "#ffffff";
+
+                container.innerHTML = `
+                    <div style="border-bottom: 2px solid #6366f1; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h2 style="margin: 0; color: #4f46e5; font-size: 22px;">📊 Звіт розрахунку вартості друку</h2>
+                            <small style="color: #64748b;">3D Farm Hub — Комерційний калькулятор</small>
+                        </div>
+                        <div style="text-align: right; font-size: 13px; color: #64748b;">
+                            <strong>Дата:</strong> ${dateStr}
+                        </div>
+                    </div>
+
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 20px;">
+                        <h4 style="margin: 0 0 10px 0; color: #334155; font-size: 15px;">⚙️ Вхідні параметри</h4>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b; width: 45%;"><strong>Пресет ціноутворення:</strong></td>
+                                <td style="padding: 4px 0; color: #0f172a;">${escapeHtml(presetName)}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><strong>Вага нитки (пластику):</strong></td>
+                                <td style="padding: 4px 0; color: #0f172a;">${weightG} г</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><strong>Час друку:</strong></td>
+                                <td style="padding: 4px 0; color: #0f172a;">${timeMins} хв (${(parseFloat(timeMins)/60).toFixed(1)} год)</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <h4 style="margin: 0 0 10px 0; color: #334155; font-size: 15px;">📋 Деталізація калькуляції</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+                        <thead>
+                            <tr style="background: #4f46e5; color: #ffffff;">
+                                <th style="padding: 8px 12px; text-align: left; border-radius: 4px 0 0 0;">Стаття витрат</th>
+                                <th style="padding: 8px 12px; text-align: right; border-radius: 0 4px 0 0;">Сума</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 12px;">Пластик (матеріал)</td>
+                                <td style="padding: 8px 12px; text-align: right;">${filCost}</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 12px;">Електроенергія</td>
+                                <td style="padding: 8px 12px; text-align: right;">${elecCost}</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 12px;">Амортизація обладнання</td>
+                                <td style="padding: 8px 12px; text-align: right;">${deprCost}</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 12px;">Витратні матеріали</td>
+                                <td style="padding: 8px 12px; text-align: right;">${consCost}</td>
+                            </tr>
+                            <tr style="background: #f8fafc; font-weight: bold; border-bottom: 1px solid #e2e8f0;">
+                                <td style="padding: 8px 12px; color: #1e293b;">Собівартість (прямі витрати)</td>
+                                <td style="padding: 8px 12px; text-align: right; color: #1e293b;">${directCost}</td>
+                            </tr>
+                            <tr style="background: #f8fafc; font-weight: bold; border-bottom: 2px solid #e2e8f0;">
+                                <td style="padding: 8px 12px; color: #16a34a;">Прибуток (Маржа)</td>
+                                <td style="padding: 8px 12px; text-align: right; color: #16a34a;">${profitCost}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div style="background: #eef2ff; border: 2px solid #6366f1; border-radius: 8px; padding: 14px; text-align: right;">
+                        <span style="font-size: 15px; color: #475569;">Підсумкова комерційна ціна:</span>
+                        <div style="font-size: 24px; font-weight: 700; color: #4f46e5; margin-top: 4px;">${totalPrice}</div>
+                    </div>
+                `;
+
+                const opt = {
+                    margin: [10, 10, 10, 10],
+                    filename: `print_cost_calculation_${new Date().toISOString().slice(0, 10)}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { scale: 2, useCORS: true, logging: false },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+
+                if (window.html2pdf) {
+                    await window.html2pdf().set(opt).from(container).save();
+                } else {
+                    const win = window.open("", "_blank");
+                    win.document.write(`<html><head><title>Розрахунок вартості друку</title></head><body>${container.innerHTML}</body></html>`);
+                    win.document.close();
+                    win.print();
+                }
+            } catch (err) {
+                console.error("PDF Export error:", err);
+                alert("Помилка генерації PDF: " + (err.message || err));
+            }
+        });
+    }
 
     // 9. Tab 2: Commercial Calculator & Presets
     let currentPresets = {};
@@ -2503,15 +2776,23 @@ document.addEventListener("DOMContentLoaded", () => {
                     : '';
 
                 html += `
-                    <div class="spool-item-card glass-card mb-3 p-3">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <div class="d-flex gap-3 align-items-center">
-                                ${imageSrc ? `<img src="${imageSrc}" class="part-preview-thumb" style="width: 54px; height: 54px; object-fit: cover; border-radius: 8px;">` : `<div class="part-preview-placeholder" style="width: 54px; height: 54px; background: rgba(255,255,255,0.05); border-radius: 8px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-cube color-green fs-4"></i></div>`}
-                                <div>
-                                    <h4 class="mb-1 text-light"><i class="fa-solid fa-puzzle-piece color-green me-1"></i> ${escapeHtml(part.name)} ${pModelBadge}</h4>
+                    <div class="spool-item-card part-item-card glass-card mb-3 p-3">
+                        <div class="part-card-header">
+                            <div class="part-card-main-info">
+                                ${imageSrc
+                                    ? `<img src="${imageSrc}" class="part-preview-thumb" alt="${escapeHtml(part.name)}">`
+                                    : `<div class="part-preview-placeholder"><i class="fa-solid fa-cube color-green fs-5"></i></div>`
+                                }
+                                <div class="part-card-title-group">
+                                    <div class="part-card-title-row">
+                                        <h4 class="m-0 text-light fs-6 fw-bold">
+                                            <i class="fa-solid fa-puzzle-piece color-green me-1"></i> ${escapeHtml(part.name)}
+                                        </h4>
+                                        ${pModelBadge}
+                                    </div>
                                 </div>
                             </div>
-                            <div class="d-flex gap-2">
+                            <div class="part-card-actions">
                                 <button class="icon-btn btn-edit-part" data-id="${part.id}" onclick="window.editPartModal('${part.id}')" title="Редагувати">
                                     <i class="fa-solid fa-pen-to-square"></i>
                                 </button>
@@ -2522,18 +2803,19 @@ document.addEventListener("DOMContentLoaded", () => {
                         </div>
 
                         ${threeMf ? `
-                            <div class="p-2 mt-2 bg-dark rounded border border-secondary text-muted small d-flex flex-wrap gap-3">
-                                <span>📄 <strong>.3mf:</strong> ${threeMf}</span>
+                            <div class="part-card-file-row">
+                                <i class="fa-solid fa-file"></i>
+                                <span><strong>.3mf:</strong> ${threeMf}</span>
                             </div>
                         ` : ''}
 
-                        <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-secondary">
+                        <div class="part-card-footer">
                             <button class="btn btn-sm btn-primary btn-print-part" data-id="${part.id}">
                                 <i class="fa-solid fa-rocket"></i> Кинути на друк
                             </button>
-                            <div class="d-flex align-items-center gap-2">
+                            <div class="part-card-qty-counter">
                                 <button class="btn btn-sm btn-outline btn-part-qty-dec" data-id="${part.id}">-</button>
-                                <strong class="fs-5 px-2 text-info">${count} шт</strong>
+                                <strong class="fs-6 px-1 text-info">${count} шт</strong>
                                 <button class="btn btn-sm btn-outline btn-part-qty-inc" data-id="${part.id}">+</button>
                             </div>
                         </div>
@@ -2561,15 +2843,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
                     const printerChoices = printersData.map((p, idx) => {
                         const targetM = part.printer_model || '';
-                        let compTag = '';
+                        const partFilament = part.filament_type || '';
+                        const printerFilament = p.filament_type || '';
+                        let isComp = true;
+                        let reasons = [];
+
                         if (targetM && targetM !== 'Unknown') {
-                            const pName = p.name || '';
-                            if (pName.toLowerCase().includes(targetM.toLowerCase()) || targetM.toLowerCase().includes(pName.toLowerCase())) {
-                                compTag = ' ✅ Сумісний';
-                            } else {
-                                compTag = ' ⚠️ Нарізано для ' + targetM;
+                            const targetCode = getBambuModelCode(targetM);
+                            const printerCode = getBambuModelCode(p.name);
+                            if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
+                                isComp = false;
+                                reasons.push(`нарізано для ${targetM}`);
                             }
                         }
+
+                        if (partFilament && printerFilament && printerFilament !== 'Невизначено') {
+                            const normPartFil = normalizeFilamentName(partFilament);
+                            const normPrinterFil = normalizeFilamentName(printerFilament);
+                            if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
+                                isComp = false;
+                                reasons.push(`пластик: ${printerFilament} vs ${partFilament}`);
+                            }
+                        }
+
+                        const compTag = isComp ? ' ✅ СУМІСНИЙ' : ` 🛑 НЕСУМІСНИЙ (${reasons.join('; ')})`;
                         return `${idx + 1}. ${p.name} (${p.gcode_state || 'IDLE'})${compTag}`;
                     }).join("\n");
 
@@ -2583,6 +2880,27 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
 
                     const chosenPrinter = printersData[pIndex];
+
+                    // Strict Filament & Hardware Validation Before Print
+                    const partFilament = part.filament_type || '';
+                    const printerFilament = chosenPrinter.filament_type || '';
+                    if (partFilament && printerFilament && printerFilament !== 'Невизначено') {
+                        const normPartFil = normalizeFilamentName(partFilament);
+                        const normPrinterFil = normalizeFilamentName(printerFilament);
+                        if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
+                            alert(`🛑 ДРУК БЛОКОВАНО!\n\nПластик на принтері "${chosenPrinter.name}" (${printerFilament}) не відповідає потрібному пластику моделі (${partFilament}).`);
+                            return;
+                        }
+                    }
+
+                    if (part.printer_model && part.printer_model !== 'Unknown') {
+                        const targetCode = getBambuModelCode(part.printer_model);
+                        const printerCode = getBambuModelCode(chosenPrinter.name);
+                        if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
+                            alert(`🛑 ДРУК БЛОКОВАНО!\n\nПринтер "${chosenPrinter.name}" не відповідає моделі, для якої нарізано файл (${part.printer_model}).`);
+                            return;
+                        }
+                    }
                     triggerHaptic("medium");
                     b.disabled = true;
                     b.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Відправка...';

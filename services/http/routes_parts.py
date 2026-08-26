@@ -140,6 +140,22 @@ async def handle_print_part(request: web.Request) -> web.Response:
         if not file_bytes:
             return web.json_response({"error": "Файл .3mf недоступний на сервері"}, status=404)
 
+        # Strict Hardware & Filament Compatibility Validation
+        from services.gcode_parser import check_compatibility, get_printer_active_filament
+        spools = await app_obj.storage.load_spools() if (app_obj and hasattr(app_obj, "storage") and hasattr(app_obj.storage, "load_spools")) else {}
+        active_fil = get_printer_active_filament(printer, spools)
+
+        comp = check_compatibility(
+            sliced_model=part.get("printer_model", ""),
+            filament_type=part.get("filament_type", ""),
+            target_printer_name=printer.name,
+            target_filament=active_fil,
+        )
+        if not comp.get("compatible"):
+            reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
+            logger.warning(f"⛔ Blocked incompatible print of part '{part.get('name')}' on '{printer.name}': {reason}")
+            return web.json_response({"error": f"🛑 Друк заблоковано: {reason}"}, status=400)
+
         filename = part.get("three_mf_name") or f"{part.get('name', 'model')}.3mf"
         part_title = part.get("name") or filename
         ok, msg = await printer.start_print_job_async(file_bytes, filename, part_name=part_title)
@@ -150,6 +166,27 @@ async def handle_print_part(request: web.Request) -> web.Response:
             return web.json_response({"status": "ok", "message": msg})
         else:
             return web.json_response({"error": msg}, status=500)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_export_parts_csv(request: web.Request) -> web.Response:
+    """GET /api/parts/export_csv - Download CSV report of printed parts warehouse."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    try:
+        app_obj = request.app["app_obj"]
+        parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+
+        from services.report_generator import generate_parts_csv_report
+        csv_bytes = generate_parts_csv_report(parts)
+
+        headers = {
+            "Content-Disposition": 'attachment; filename="parts_report.csv"',
+            "Content-Type": "text/csv; charset=utf-8",
+        }
+        return web.Response(body=csv_bytes, headers=headers)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
