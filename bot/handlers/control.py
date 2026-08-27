@@ -76,7 +76,8 @@ async def handle_skip_objects_menu(message: Message, app):
     from bot.keyboards import build_skip_objects_keyboard
     from utils.image_utils import render_plate_diagram
 
-    bed_size = (180, 180) if "mini" in (target_printer.model or "").lower() else (256, 256)
+    p_model = str(getattr(target_printer, "printer_model", "") or getattr(target_printer, "name", "")).lower()
+    bed_size = (180, 180) if "mini" in p_model else (256, 256)
     diagram_bytes = render_plate_diagram(objects, bed_size_mm=bed_size, skipped_ids=getattr(target_printer, "skipped_objects", []))
 
     if diagram_bytes:

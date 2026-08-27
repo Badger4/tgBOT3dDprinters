@@ -158,7 +158,8 @@ async def handle_get_printer_plate_map(request: web.Request) -> web.Response:
 
     objects = getattr(printer, "current_job_objects", [])
     skipped = getattr(printer, "skipped_objects", [])
-    bed_size = (180, 180) if "mini" in (printer.model or "").lower() else (256, 256)
+    p_model = str(getattr(printer, "printer_model", "") or getattr(printer, "name", "")).lower()
+    bed_size = (180, 180) if "mini" in p_model else (256, 256)
 
     from utils.image_utils import render_plate_diagram
 
