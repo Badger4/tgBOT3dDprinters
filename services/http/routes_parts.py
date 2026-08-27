@@ -9,12 +9,41 @@ from services.http.auth import check_auth
 
 
 async def handle_get_parts(request: web.Request) -> web.Response:
-    """GET /api/parts - List 3D printed parts inventory."""
+    """GET /api/parts - List 3D printed parts inventory with slice metadata."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
     parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+
+    import config
+    from services.gcode_parser import parse_3mf_file
+
+    modified = False
+    for p_id, part in parts.items():
+        three_mf = part.get("three_mf")
+        if three_mf and (not part.get("weight_g") or not part.get("time_mins") or part.get("printer_model") == "Unknown"):
+            for dir_path in [config.STORAGE_DIR / "uploads", config.STORAGE_DIR / "parts_files"]:
+                sp = dir_path / three_mf
+                if sp.exists():
+                    try:
+                        meta = parse_3mf_file(sp.read_bytes(), sp.name)
+                        if meta.get("printer_model") and meta.get("printer_model") != "Unknown":
+                            part["printer_model"] = meta["printer_model"]
+                        if meta.get("filament_type"):
+                            part["filament_type"] = meta["filament_type"]
+                        if meta.get("weight_g"):
+                            part["weight_g"] = meta["weight_g"]
+                        if meta.get("time_mins"):
+                            part["time_mins"] = meta["time_mins"]
+                        modified = True
+                    except Exception:
+                        pass
+                    break
+
+    if modified:
+        await app_obj.storage.save_json(app_obj.storage.parts_file, parts)
+
     return web.json_response(parts)
 
 
@@ -40,6 +69,8 @@ async def handle_save_part(request: web.Request) -> web.Response:
 
         printer_model = existing.get("printer_model", "Unknown")
         filament_type = existing.get("filament_type", "PLA")
+        weight_g = existing.get("weight_g", 0.0)
+        time_mins = existing.get("time_mins", 0)
 
         if new_three_mf:
             import config
@@ -53,6 +84,10 @@ async def handle_save_part(request: web.Request) -> web.Response:
                     printer_model = meta["printer_model"]
                 if meta.get("filament_type"):
                     filament_type = meta["filament_type"]
+                if meta.get("weight_g"):
+                    weight_g = meta["weight_g"]
+                if meta.get("time_mins"):
+                    time_mins = meta["time_mins"]
 
         parts[part_id] = {
             "id": part_id,
@@ -63,6 +98,8 @@ async def handle_save_part(request: web.Request) -> web.Response:
             "three_mf": new_three_mf,
             "printer_model": printer_model,
             "filament_type": filament_type,
+            "weight_g": weight_g,
+            "time_mins": time_mins,
             "updated_at": time.time(),
         }
 
@@ -70,6 +107,54 @@ async def handle_save_part(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok", "part": parts[part_id]})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
+
+
+async def handle_download_part_3mf(request: web.Request) -> web.Response:
+    """GET /api/parts/{id}/download_3mf - Download the .3mf file of a warehouse part."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    part_id = request.match_info.get("id", "")
+    parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+    part = parts.get(part_id)
+    if not part:
+        return web.json_response({"error": "Part not found"}, status=404)
+
+    three_mf_id = part.get("three_mf")
+    if not three_mf_id:
+        return web.json_response({"error": "Файл .3mf відсутній для цієї деталі"}, status=404)
+
+    import config
+    file_bytes = None
+    filename = part.get("name", "model").replace(" ", "_") + ".3mf"
+
+    # Search local disk uploads or parts_files
+    for dir_path in [config.STORAGE_DIR / "uploads", config.STORAGE_DIR / "parts_files"]:
+        target_path = dir_path / three_mf_id
+        if target_path.exists():
+            file_bytes = target_path.read_bytes()
+            break
+
+    # If telegram file_id, download via bot
+    if not file_bytes and getattr(app_obj, "bot", None) and not three_mf_id.startswith(("/", "\\", "http")):
+        try:
+            file_info = await app_obj.bot.get_file(three_mf_id)
+            file_bytes_io = await app_obj.bot.download_file(file_info.file_path)
+            file_bytes = file_bytes_io.read()
+        except Exception:
+            pass
+
+    if not file_bytes:
+        return web.json_response({"error": "Файл .3mf недоступний на сервері"}, status=404)
+
+    return web.Response(
+        body=file_bytes,
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
 
 
 async def handle_delete_part(request: web.Request) -> web.Response:

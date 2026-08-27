@@ -892,7 +892,30 @@
         </div>
     </div>
 
+    <!-- PART DETAILS VIEW MODAL -->
+    <div id="part-details-modal" class="modal-backdrop">
+        <div class="modal-window">
+            <div class="modal-header">
+                <h3 id="part-details-title" class="m-0"><i class="fa-solid fa-puzzle-piece color-green me-2"></i> Деталі моделі</h3>
+                <button type="button" class="icon-btn-close" onclick="window.closePartDetailsModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <div id="part-details-content">
+                    <!-- Dynamic details content -->
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                    <button type="button" id="part-details-download-btn" class="btn btn-outline col">
+                        <i class="fa-solid fa-file-arrow-down"></i> Завантажити .3mf
+                    </button>
+                    <button type="button" id="part-details-print-btn" class="btn btn-primary col">
+                        <i class="fa-solid fa-rocket"></i> Кинути на друк
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1054"></script>
+    <script src="/static/js/app.js?v=1055"></script>
 </body>
 </html>

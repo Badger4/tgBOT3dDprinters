@@ -2748,6 +2748,200 @@ document.addEventListener("DOMContentLoaded", () => {
     // ----------------------------------------------------
     let partsData = {};
 
+    function formatTimeMins(mins) {
+        if (!mins || mins <= 0) return "—";
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        if (h > 0 && m > 0) return `${h} год ${m} хв`;
+        if (h > 0) return `${h} год`;
+        return `${m} хв`;
+    }
+
+    async function triggerPrintPartById(id) {
+        const part = partsData[id];
+        if (!part) return;
+
+        if (!part.three_mf) {
+            alert("⚠️ Для цієї деталі ще не завантажено файл .3mf!");
+            return;
+        }
+
+        if (!printersData || printersData.length === 0) {
+            alert("⚠️ Немає підключених принтерів у фермі!");
+            return;
+        }
+
+        const printerChoices = printersData.map((p, idx) => {
+            const targetM = part.printer_model || '';
+            const partFilament = part.filament_type || '';
+            const printerFilament = p.filament_type || '';
+            let isComp = true;
+            let reasons = [];
+
+            if (targetM && targetM !== 'Unknown') {
+                const targetCode = getBambuModelCode(targetM);
+                const printerCode = getBambuModelCode(p.name);
+                if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
+                    isComp = false;
+                    reasons.push(`нарізано для ${targetM}`);
+                }
+            }
+
+            if (partFilament && printerFilament && printerFilament !== 'Невизначено') {
+                const normPartFil = normalizeFilamentName(partFilament);
+                const normPrinterFil = normalizeFilamentName(printerFilament);
+                if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
+                    isComp = false;
+                    reasons.push(`пластик: ${printerFilament} vs ${partFilament}`);
+                }
+            }
+
+            const compTag = isComp ? ' ✅ СУМІСНИЙ' : ` 🛑 НЕСУМІСНИЙ (${reasons.join('; ')})`;
+            return `${idx + 1}. ${p.name} (${p.gcode_state || 'IDLE'})${compTag}`;
+        }).join("\n");
+
+        const inputIdx = prompt(`🚀 Оберіть номер принтера для запуску друку деталі "${part.name}":\n\n${printerChoices}\n\nВведіть номер (1-${printersData.length}):`);
+        if (!inputIdx) return;
+
+        const chosenIndex = parseInt(inputIdx.trim(), 10) - 1;
+        if (isNaN(chosenIndex) || chosenIndex < 0 || chosenIndex >= printersData.length) {
+            alert("⚠️ Некоректний номер принтера.");
+            return;
+        }
+
+        const selectedPrinter = printersData[chosenIndex];
+
+        // Strict compatibility blocking
+        const targetM = part.printer_model || '';
+        const partFilament = part.filament_type || '';
+        const printerFilament = selectedPrinter.filament_type || '';
+
+        if (targetM && targetM !== 'Unknown') {
+            const targetCode = getBambuModelCode(targetM);
+            const printerCode = getBambuModelCode(selectedPrinter.name);
+            if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
+                alert(`🛑 Помилка сумісності моделі принтера!\nДеталь нарізано для ${targetM}, а принтер ${selectedPrinter.name} (${printerCode}) не є сумісним.`);
+                return;
+            }
+        }
+
+        if (partFilament && printerFilament && printerFilament !== 'Невизначено') {
+            const normPartFil = normalizeFilamentName(partFilament);
+            const normPrinterFil = normalizeFilamentName(printerFilament);
+            if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
+                alert(`🛑 Помилка сумісності пластику!\nДеталь вимагає пластик "${partFilament}", а на принтері ${selectedPrinter.name} встановлено "${printerFilament}".`);
+                return;
+            }
+        }
+
+        try {
+            const res = await fetch(`/api/parts/${part.id}/print/${selectedPrinter.id}`, {
+                method: "POST"
+            });
+            const result = await res.json();
+            if (res.ok && result.status === "ok") {
+                alert(`🚀 Друк деталі "${part.name}" успішно запущено на принтері [${selectedPrinter.name}]!`);
+            } else {
+                alert(`⚠️ Помилка запуску: ${result.error || `HTTP ${res.status}`}`);
+            }
+        } catch (err) {
+            console.error("Print part error:", err);
+            alert("⚠️ Помилка зв'язку при запуску друку.");
+        }
+    }
+
+    window.showPartDetails = function(partId) {
+        const part = partsData ? partsData[partId] : null;
+        if (!part) return;
+
+        const modal = document.getElementById("part-details-modal");
+        const titleEl = document.getElementById("part-details-title");
+        const contentEl = document.getElementById("part-details-content");
+        const downloadBtn = document.getElementById("part-details-download-btn");
+        const printBtn = document.getElementById("part-details-print-btn");
+
+        if (titleEl) {
+            titleEl.innerHTML = `<i class="fa-solid fa-puzzle-piece color-green me-2"></i> ${escapeHtml(part.name)}`;
+        }
+
+        const imageSrc = part.image && (part.image.startsWith("http") || part.image.startsWith("/")) ? part.image : "";
+        const count = parseInt(part.count || part.quantity || 0, 10);
+        const weightDisplay = part.weight_g ? `${part.weight_g} g` : "Не вказано в .3mf";
+        const timeDisplay = part.time_mins ? formatTimeMins(part.time_mins) : "Не вказано в .3mf";
+        const printerModelDisplay = part.printer_model && part.printer_model !== "Unknown" ? part.printer_model : "Довільний принтер";
+        const filamentTypeDisplay = part.filament_type || "PLA";
+        const threeMfName = part.three_mf ? escapeHtml(part.three_mf_name || part.three_mf) : "Файл не завантажено";
+
+        let html = `
+            <div class="part-details-img-container">
+                ${imageSrc
+                    ? `<img src="${imageSrc}" class="part-details-full-img" alt="${escapeHtml(part.name)}">`
+                    : `<div class="part-details-no-img"><i class="fa-solid fa-cube"></i><span>Немає зображення деталі</span></div>`
+                }
+            </div>
+
+            <div class="part-details-grid">
+                <div class="part-detail-badge">
+                    <span class="part-detail-label"><i class="fa-solid fa-weight-hanging color-green"></i> Вага моделі</span>
+                    <span class="part-detail-value">${escapeHtml(weightDisplay)}</span>
+                </div>
+
+                <div class="part-detail-badge">
+                    <span class="part-detail-label"><i class="fa-solid fa-clock color-blue"></i> Час друку</span>
+                    <span class="part-detail-value">${escapeHtml(timeDisplay)}</span>
+                </div>
+
+                <div class="part-detail-badge">
+                    <span class="part-detail-label"><i class="fa-solid fa-print color-purple"></i> Модель принтера</span>
+                    <span class="part-detail-value">${escapeHtml(printerModelDisplay)}</span>
+                </div>
+
+                <div class="part-detail-badge">
+                    <span class="part-detail-label"><i class="fa-solid fa-compact-disc color-amber"></i> Тип пластику</span>
+                    <span class="part-detail-value">${escapeHtml(filamentTypeDisplay)}</span>
+                </div>
+
+                <div class="part-detail-badge">
+                    <span class="part-detail-label"><i class="fa-solid fa-cubes color-cyan"></i> Кількість в наявності</span>
+                    <span class="part-detail-value text-info">${count} шт</span>
+                </div>
+
+                <div class="part-detail-badge">
+                    <span class="part-detail-label"><i class="fa-solid fa-file-code color-orange"></i> Файл .3mf</span>
+                    <span class="part-detail-value" style="font-size: 0.85rem; word-break: break-all;">${threeMfName}</span>
+                </div>
+            </div>
+        `;
+
+        if (contentEl) contentEl.innerHTML = html;
+
+        if (downloadBtn) {
+            if (part.three_mf) {
+                downloadBtn.style.display = "inline-flex";
+                downloadBtn.onclick = () => {
+                    window.location.href = `/api/parts/${part.id}/download_3mf`;
+                };
+            } else {
+                downloadBtn.style.display = "none";
+            }
+        }
+
+        if (printBtn) {
+            printBtn.onclick = () => {
+                if (modal) modal.classList.remove("active");
+                triggerPrintPartById(part.id);
+            };
+        }
+
+        triggerHaptic("medium");
+        if (modal) modal.classList.add("active");
+    };
+
+    window.closePartDetailsModal = function() {
+        const modal = document.getElementById("part-details-modal");
+        if (modal) modal.classList.remove("active");
+    };
+
     async function loadParts() {
         const partsListEl = document.getElementById("parts-list");
         const partsBadgeEl = document.getElementById("parts-summary-badge");
@@ -2815,7 +3009,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 html += `
                     <div class="spool-item-card part-item-card glass-card mb-3 p-3">
                         <div class="part-card-header">
-                            <div class="part-card-main-info">
+                            <div class="part-card-main-info" onclick="window.showPartDetails('${part.id}')" title="Натисніть для перегляду деталей моделі">
                                 ${imageSrc
                                     ? `<img src="${imageSrc}" class="part-preview-thumb" alt="${escapeHtml(part.name)}">`
                                     : `<div class="part-preview-placeholder"><i class="fa-solid fa-cube color-green fs-5"></i></div>`
@@ -2827,10 +3021,11 @@ document.addEventListener("DOMContentLoaded", () => {
                                         </h4>
                                         ${pModelBadge}
                                     </div>
+                                    <small class="text-muted" style="font-size: 0.72rem;"><i class="fa-solid fa-circle-info"></i> Натисніть для детальної інформації</small>
                                 </div>
                             </div>
                             <div class="part-card-actions">
-                                <button class="icon-btn btn-edit-part" data-id="${part.id}" onclick="window.editPartModal('${part.id}')" title="Редагувати">
+                                <button class="icon-btn btn-edit-part" data-id="${part.id}" title="Редагувати">
                                     <i class="fa-solid fa-pen-to-square"></i>
                                 </button>
                                 <button class="icon-btn btn-delete-part text-danger" data-id="${part.id}" title="Видалити">
@@ -2840,7 +3035,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         </div>
 
                         ${threeMf ? `
-                            <div class="part-card-file-row">
+                            <div class="part-card-file-row" onclick="window.showPartDetails('${part.id}')" style="cursor: pointer;" title="Натисніть для детальної інформації">
                                 <i class="fa-solid fa-file"></i>
                                 <span><strong>.3mf:</strong> ${threeMf}</span>
                             </div>
@@ -2863,100 +3058,11 @@ document.addEventListener("DOMContentLoaded", () => {
             partsListEl.innerHTML = html;
 
             document.querySelectorAll(".btn-print-part").forEach(b => {
-                b.addEventListener("click", async () => {
+                b.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     const id = b.getAttribute("data-id");
-                    const part = partsData[id];
-                    if (!part) return;
-
-                    if (!part.three_mf) {
-                        alert("⚠️ Для цієї деталі ще не завантажено файл .3mf!");
-                        return;
-                    }
-
-                    if (!printersData || printersData.length === 0) {
-                        alert("⚠️ Немає підключених принтерів у фермі!");
-                        return;
-                    }
-
-                    const printerChoices = printersData.map((p, idx) => {
-                        const targetM = part.printer_model || '';
-                        const partFilament = part.filament_type || '';
-                        const printerFilament = p.filament_type || '';
-                        let isComp = true;
-                        let reasons = [];
-
-                        if (targetM && targetM !== 'Unknown') {
-                            const targetCode = getBambuModelCode(targetM);
-                            const printerCode = getBambuModelCode(p.name);
-                            if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
-                                isComp = false;
-                                reasons.push(`нарізано для ${targetM}`);
-                            }
-                        }
-
-                        if (partFilament && printerFilament && printerFilament !== 'Невизначено') {
-                            const normPartFil = normalizeFilamentName(partFilament);
-                            const normPrinterFil = normalizeFilamentName(printerFilament);
-                            if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
-                                isComp = false;
-                                reasons.push(`пластик: ${printerFilament} vs ${partFilament}`);
-                            }
-                        }
-
-                        const compTag = isComp ? ' ✅ СУМІСНИЙ' : ` 🛑 НЕСУМІСНИЙ (${reasons.join('; ')})`;
-                        return `${idx + 1}. ${p.name} (${p.gcode_state || 'IDLE'})${compTag}`;
-                    }).join("\n");
-
-                    const inputIdx = prompt(`🚀 Оберіть номер принтера для запуску друку деталі "${part.name}":\n\n${printerChoices}\n\nВведіть номер (1-${printersData.length}):`);
-                    if (!inputIdx) return;
-
-                    const pIndex = parseInt(inputIdx.trim(), 10) - 1;
-                    if (isNaN(pIndex) || pIndex < 0 || pIndex >= printersData.length) {
-                        alert("⚠️ Невірно обраний номер принтера.");
-                        return;
-                    }
-
-                    const chosenPrinter = printersData[pIndex];
-
-                    // Strict Filament & Hardware Validation Before Print
-                    const partFilament = part.filament_type || '';
-                    const printerFilament = chosenPrinter.filament_type || '';
-                    if (partFilament && printerFilament && printerFilament !== 'Невизначено') {
-                        const normPartFil = normalizeFilamentName(partFilament);
-                        const normPrinterFil = normalizeFilamentName(printerFilament);
-                        if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
-                            alert(`🛑 ДРУК БЛОКОВАНО!\n\nПластик на принтері "${chosenPrinter.name}" (${printerFilament}) не відповідає потрібному пластику моделі (${partFilament}).`);
-                            return;
-                        }
-                    }
-
-                    if (part.printer_model && part.printer_model !== 'Unknown') {
-                        const targetCode = getBambuModelCode(part.printer_model);
-                        const printerCode = getBambuModelCode(chosenPrinter.name);
-                        if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
-                            alert(`🛑 ДРУК БЛОКОВАНО!\n\nПринтер "${chosenPrinter.name}" не відповідає моделі, для якої нарізано файл (${part.printer_model}).`);
-                            return;
-                        }
-                    }
-                    triggerHaptic("medium");
-                    b.disabled = true;
-                    b.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Відправка...';
-
-                    try {
-                        const res = await fetch(`/api/parts/${id}/print/${chosenPrinter.id}`, { method: "POST" });
-                        const result = await res.json().catch(() => ({}));
-                        if (res.ok && result.status === "ok") {
-                            alert(`✅ Друк успішно запущено на принтері ${chosenPrinter.name}!`);
-                        } else {
-                            alert(`⚠️ Помилка запуску: ${result.error || `HTTP ${res.status}`}`);
-                        }
-                    } catch (err) {
-                        console.error("Print part error:", err);
-                        alert("⚠️ Помилка зв'язку при запуску друку.");
-                    } finally {
-                        b.disabled = false;
-                        b.innerHTML = '<i class="fa-solid fa-rocket"></i> Кинути на друк';
-                    }
+                    if (id) triggerPrintPartById(id);
                 });
             });
 

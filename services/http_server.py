@@ -44,6 +44,7 @@ from services.http.routes_settings import (
 )
 from services.http.routes_parts import (
     handle_delete_part,
+    handle_download_part_3mf,
     handle_export_parts_csv,
     handle_get_parts,
     handle_print_part,
@@ -114,6 +115,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_get("/api/parts", handle_get_parts)
     web_app.router.add_post("/api/parts", handle_save_part)
     web_app.router.add_delete("/api/parts/{id}", handle_delete_part)
+    web_app.router.add_get("/api/parts/{id}/download_3mf", handle_download_part_3mf)
     web_app.router.add_get("/api/parts/export_csv", handle_export_parts_csv)
     web_app.router.add_post("/api/parts/{part_id}/print/{printer_id}", handle_print_part)
 
