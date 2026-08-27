@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Farm Manager — Майстер початкового налаштування</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- WebApp CSS -->
+    <link rel="stylesheet" href="/static/css/style.css?v=1024">
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: #090d16;
+            margin: 0;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+        .setup-card {
+            width: 100%;
+            max-width: 520px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 20px;
+            padding: 32px 24px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .setup-header {
+            text-align: center;
+        }
+        .setup-logo {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #10b981, #059669);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            font-size: 32px;
+            color: #fff;
+            box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4);
+        }
+        .setup-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #fff;
+            margin: 0 0 6px;
+        }
+        .setup-subtitle {
+            font-size: 13px;
+            color: #94a3b8;
+            margin: 0;
+        }
+        .setup-alert {
+            display: none;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+        .section-badge {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #38bdf8;
+            margin-bottom: 6px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-card">
+        <div class="setup-header">
+            <div class="setup-logo">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+            </div>
+            <h1 class="setup-title">Майстер Налаштування 3D Farm</h1>
+            <p class="setup-subtitle">Перший запуск: налаштуйте систему без редагування вихідного коду</p>
+        </div>
+
+        <div id="setup-alert" class="setup-alert"></div>
+
+        <form id="setup-form" onsubmit="handleSetup(event)">
+            <!-- Step 1: Admin Web Auth -->
+            <div class="mb-3">
+                <span class="section-badge"><i class="fa-solid fa-lock"></i> Крок 1. Веб-Доступ та Безпека</span>
+                <div class="form-group">
+                    <label for="admin-pass-input">🔑 Майстер-пароль Адміністратора *</label>
+                    <input type="password" id="admin-pass-input" class="form-control" placeholder="Введіть надійний пароль..." required autofocus>
+                    <small class="text-muted" style="font-size: 0.72rem;">Використовуватиметься для входу у веб-панель поза Telegram</small>
+                </div>
+            </div>
+
+            <!-- Step 2: Telegram Bot Integration (Optional) -->
+            <div class="mb-3">
+                <span class="section-badge"><i class="fa-paper-plane"></i> Крок 2. Інтеграція з Telegram (Опціонально)</span>
+                <div class="form-group mb-2">
+                    <label for="bot-token-input">🤖 Telegram Bot Token</label>
+                    <input type="text" id="bot-token-input" class="form-control" placeholder="1234567890:ABCdef...">
+                    <small class="text-muted" style="font-size: 0.72rem;">Токен бота з @BotFather (залиште порожнім для суто веб-режиму)</small>
+                </div>
+                <div class="form-group">
+                    <label for="admin-chat-id-input">💬 Admin Telegram Chat ID</label>
+                    <input type="text" id="admin-chat-id-input" class="form-control" placeholder="123456789">
+                    <small class="text-muted" style="font-size: 0.72rem;">Ваш особистий Telegram ID для сповіщень про друк</small>
+                </div>
+            </div>
+
+            <!-- Step 3: Farm Parameters -->
+            <div class="mb-3">
+                <span class="section-badge"><i class="fa-solid fa-sliders"></i> Крок 3. Параметри Ферми</span>
+                <div class="form-group">
+                    <label for="electricity-cost-input">⚡ Тариф Електроенергії (грн / кВт·год)</label>
+                    <input type="number" step="0.01" id="electricity-cost-input" class="form-control" value="4.32">
+                </div>
+            </div>
+
+            <button type="submit" id="setup-btn" class="btn btn-success w-100 mt-2">
+                <i class="fa-solid fa-check me-2"></i> Завершити Налаштування та Увійти
+            </button>
+        </form>
+    </div>
+
+    <script>
+        async function handleSetup(e) {
+            e.preventDefault();
+            const alertEl = document.getElementById("setup-alert");
+            const btnEl = document.getElementById("setup-btn");
+
+            const admin_password = document.getElementById("admin-pass-input").value.trim();
+            const telegram_bot_token = document.getElementById("bot-token-input").value.trim();
+            const admin_chat_id = document.getElementById("admin-chat-id-input").value.trim();
+            const electricity_cost = document.getElementById("electricity-cost-input").value.trim();
+
+            if (!admin_password) {
+                alertEl.textContent = "⚠️ Пароль адміністратора є обов'язковим!";
+                alertEl.style.display = "block";
+                return;
+            }
+
+            alertEl.style.display = "none";
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> Збереження...';
+
+            try {
+                const res = await fetch("/api/setup", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        admin_password,
+                        telegram_bot_token,
+                        admin_chat_id,
+                        electricity_cost
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.status === "ok") {
+                    if (data.token) {
+                        localStorage.setItem("3d_farm_session", data.token);
+                    }
+                    alert("🎉 Система успішно налаштована!");
+                    window.location.href = "/webapp";
+                } else {
+                    alertEl.textContent = "⚠️ " + (data.error || "Помилка збереження налаштувань!");
+                    alertEl.style.display = "block";
+                }
+            } catch (err) {
+                console.error("Setup error:", err);
+                alertEl.textContent = "⚠️ Помилка зв'язку із сервером.";
+                alertEl.style.display = "block";
+            } finally {
+                btnEl.disabled = false;
+                btnEl.innerHTML = '<i class="fa-solid fa-check me-2"></i> Завершити Налаштування та Увійти';
+            }
+        }
+    </script>
+</body>
+</html>

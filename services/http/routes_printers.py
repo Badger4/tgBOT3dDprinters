@@ -59,6 +59,8 @@ def build_printer_telemetry(p: Any) -> dict:
         "active_slot_key": p.get_active_slot_key() if hasattr(p, "get_active_slot_key") else "255",
         "has_ams": p.has_ams if hasattr(p, "has_ams") else bool(getattr(p, "ams_units", [])),
         "notify": getattr(p, "notify", True),
+        "current_job_objects": getattr(p, "current_job_objects", []),
+        "skipped_objects": getattr(p, "skipped_objects", []),
     }
 
 

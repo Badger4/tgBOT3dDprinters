@@ -50,9 +50,20 @@ from services.http.routes_parts import (
     handle_print_part,
     handle_save_part,
 )
+from services.http.routes_auth import (
+    handle_get_session,
+    handle_get_setup_status,
+    handle_post_login,
+    handle_post_logout,
+    handle_post_setup,
+    handle_serve_login,
+    handle_serve_setup,
+)
 from services.http.routes_spools import (
     handle_delete_spool,
+    handle_export_movements_csv,
     handle_export_warehouse_csv,
+    handle_get_spool_movements,
     handle_get_spools,
     handle_save_spool,
 )
@@ -76,9 +87,18 @@ def create_http_app(app_obj: Any) -> web.Application:
     )
     web_app["app_obj"] = app_obj
 
-    # WebApp Index & Assets
+    # WebApp Index, Login, Setup & Assets
     web_app.router.add_get("/", handle_serve_index)
     web_app.router.add_get("/webapp", handle_serve_index)
+    web_app.router.add_get("/login", handle_serve_login)
+    web_app.router.add_get("/setup", handle_serve_setup)
+
+    # Standalone Web Auth & Setup API
+    web_app.router.add_get("/api/setup/status", handle_get_setup_status)
+    web_app.router.add_post("/api/setup", handle_post_setup)
+    web_app.router.add_post("/api/auth/login", handle_post_login)
+    web_app.router.add_post("/api/auth/logout", handle_post_logout)
+    web_app.router.add_get("/api/auth/session", handle_get_session)
 
     static_dir = WEBAPP_DIR / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
@@ -107,6 +127,8 @@ def create_http_app(app_obj: Any) -> web.Application:
 
     # Spools API & Warehouse Export
     web_app.router.add_get("/api/spools", handle_get_spools)
+    web_app.router.add_get("/api/spools/movements", handle_get_spool_movements)
+    web_app.router.add_get("/api/spools/movements/export_csv", handle_export_movements_csv)
     web_app.router.add_post("/api/spools", handle_save_spool)
     web_app.router.add_delete("/api/spools/{id}", handle_delete_spool)
     web_app.router.add_get("/api/warehouse/export_csv", handle_export_warehouse_csv)

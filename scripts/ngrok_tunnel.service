@@ -1,0 +1,23 @@
+[Unit]
+Description=3D Printer Farm Ngrok Tunnel Service
+After=network-online.target printer_bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/python_project
+ExecStart=/home/pi/python_project/.venv/bin/python scripts/run_ngrok.py
+Restart=always
+RestartSec=5
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=3dprinter-ngrok
+
+# Resource & Environment limits for Raspberry Pi / Linux Host
+LimitNOFILE=4096
+MemoryHigh=150M
+MemoryMax=250M
+
+[Install]
+WantedBy=multi-user.target

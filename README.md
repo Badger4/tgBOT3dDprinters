@@ -4,7 +4,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Badger4/tgBOT3dDprinters/releases/tag/v1.0.0)
 [![CI Tests](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml/badge.svg)](https://github.com/Badger4/tgBOT3dDprinters/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
 
@@ -128,5 +128,5 @@ If you discover a security vulnerability, please do **NOT** open a public issue.
 
 
 
-- **License**: Released under the open-source [MIT License](LICENSE).
+- **License**: Proprietary Commercial License (All Rights Reserved). See [LICENSE](LICENSE) for details.
 - **Contributing**: Contributions are welcome! Please read the developer guidelines in [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a Pull Request.

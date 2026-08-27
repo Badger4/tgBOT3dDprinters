@@ -236,16 +236,16 @@ def _connect_bambu_ftps(ip: str, access_code: str, timeout: float = 10.0) -> Any
         return None
 
 
-def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = "") -> float:
-    """Connects to Bambu Lab FTPS, downloads recent print file from SD card, and extracts weight."""
+def fetch_bambu_ftps_info(ip: str, access_code: str, target_filename: str = "") -> dict[str, Any]:
+    """Connects to Bambu Lab FTPS, downloads recent print file from SD card, and returns full parsed metadata dict."""
     if not ip or not access_code:
-        return 0.0
+        return {}
 
     ftps = None
     try:
         ftps = _connect_bambu_ftps(ip, access_code)
         if not ftps:
-            return 0.0
+            return {}
 
         files = []
         for folder in ["/", "/cache"]:
@@ -257,7 +257,7 @@ def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = ""
                 logger.debug(f"FTPS nlst failed for {folder}: {e}")
 
         if not files:
-            return 0.0
+            return {}
 
         candidate_files = [f for f in files if f.endswith(".3mf") or f.endswith(".gcode") or f.endswith(".gcode.3mf")]
         chosen_file = None
@@ -272,7 +272,7 @@ def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = ""
             chosen_file = candidate_files[-1]
 
         if not chosen_file:
-            return 0.0
+            return {}
 
         logger.info(f"📥 Downloading print file via FTPS from {ip}: {chosen_file}")
         buf = io.BytesIO()
@@ -280,28 +280,25 @@ def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = ""
 
         data_bytes = buf.getvalue()
         if not data_bytes:
-            return 0.0
+            return {}
 
-        if chosen_file.endswith(".3mf") or chosen_file.endswith(".gcode.3mf"):
-            w = parse_weight_from_3mf_bytes(data_bytes)
-            if w > 0:
-                logger.info(f"✅ Extracted weight {w}g from 3MF via FTPS ({chosen_file})")
-                return w
-
-        txt = data_bytes.decode("utf-8", errors="ignore")
-        w = parse_weight_from_gcode_text(txt)
-        if w > 0:
-            logger.info(f"✅ Extracted weight {w}g from Gcode via FTPS ({chosen_file})")
-            return w
-
+        from services.gcode_parser import parse_3mf_file
+        return parse_3mf_file(data_bytes, chosen_file)
     except Exception as e:
-        logger.error(f"❌ Bambu FTPS fetch error for {ip}: {e}", exc_info=True)
+        logger.error(f"❌ Bambu FTPS fetch info error for {ip}: {e}", exc_info=True)
+        return {}
     finally:
         if ftps:
             try:
                 ftps.quit()
             except Exception:
                 pass
+
+
+def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = "") -> float:
+    """Connects to Bambu Lab FTPS, downloads recent print file from SD card, and extracts weight."""
+    info = fetch_bambu_ftps_info(ip, access_code, target_filename)
+    return float(info.get("weight_g") or 0.0)
 
     return 0.0
 

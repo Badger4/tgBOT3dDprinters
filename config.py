@@ -38,12 +38,35 @@ def _get_env_float(key: str, default: float) -> float:
         return default
 
 
+def update_env_key(key: str, val: str) -> None:
+    """Safely sets or updates a key=val pair in the project's .env file."""
+    lines = []
+    if ENV_PATH.exists():
+        content = ENV_PATH.read_text(encoding="utf-8")
+        lines = content.splitlines()
+
+    found = False
+    new_lines = []
+    for line in lines:
+        if line.strip().startswith(f"{key}="):
+            new_lines.append(f"{key}={val}")
+            found = True
+        else:
+            new_lines.append(line)
+
+    if not found:
+        new_lines.append(f"{key}={val}")
+
+    ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+
 # Environment variables
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
 STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./printers_storage")).resolve()
 HTTP_PORT = _get_env_int("HTTP_PORT", 8080)
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "").strip()
+WEB_ADMIN_PASSWORD = os.getenv("WEB_ADMIN_PASSWORD", os.getenv("API_SECRET_KEY", "")).strip()
 WEBAPP_URL = os.getenv("WEBAPP_URL", f"http://localhost:{HTTP_PORT}").strip()
 SSE_INTERVAL_SECONDS = _get_env_float("SSE_INTERVAL_SECONDS", 5.0)
 NGROK_AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "").strip()

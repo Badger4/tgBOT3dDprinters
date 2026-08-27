@@ -30,6 +30,7 @@ class StorageManager:
         self.spools_file = self.base_dir / "spools.json"
         self.parts_file = self.base_dir / "parts.json"
         self.history_file = self.base_dir / "history.json"
+        self.movements_file = self.base_dir / "warehouse_movements.json"
         self._file_locks: dict[Path, asyncio.Lock] = {}
 
         self._init_db()
@@ -308,6 +309,44 @@ class StorageManager:
 
     async def save_spools(self, spools: dict[str, dict[str, Any]]) -> bool:
         return await self.save_json(self.spools_file, spools)
+
+    async def load_spool_movements(self) -> list[dict[str, Any]]:
+        """Loads warehouse movement audit history."""
+        return await self.load_json(self.movements_file, [])
+
+    async def record_spool_movement(
+        self,
+        spool_id: str,
+        spool_name: str,
+        action: str,
+        weight_change_g: float,
+        prev_weight_g: float,
+        new_weight_g: float,
+        reason: str = "",
+        user: str = "System",
+    ) -> dict[str, Any]:
+        """Records a spool weight movement / audit log entry."""
+        movements = await self.load_spool_movements()
+        now = time.time()
+        entry = {
+            "id": f"mov_{int(now * 1000)}",
+            "timestamp": now,
+            "datetime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+            "spool_id": spool_id,
+            "spool_name": spool_name,
+            "action": action,  # "print", "refill", "manual_edit", "write_off"
+            "weight_change_g": round(float(weight_change_g), 2),
+            "prev_weight_g": round(float(prev_weight_g), 2),
+            "new_weight_g": round(float(new_weight_g), 2),
+            "reason": reason or action,
+            "user": user,
+        }
+        movements.append(entry)
+        if len(movements) > 1000:
+            movements = movements[-1000:]
+        await self.save_json(self.movements_file, movements)
+        logger.info(f"📦 Audit Log [{action}] for '{spool_name}' ({spool_id}): {weight_change_g:+.1f}g -> new: {new_weight_g:.1f}g ({reason})")
+        return entry
 
     async def load_history(self) -> list[dict[str, Any]]:
         return await self.load_json(self.history_file, [])

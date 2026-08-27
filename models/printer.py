@@ -107,6 +107,8 @@ class BambuPrinter:
         self._job_deducted = False
         self._is_calibrating = False
         self.last_job_grams = 0.0
+        self.current_job_objects: list[dict[str, Any]] = []
+        self.skipped_objects: list[int] = []
         self._ftps_fetching = False
         self._ftps_attempted = False
         self._main_loop: asyncio.AbstractEventLoop | None = None
@@ -304,7 +306,13 @@ class BambuPrinter:
         def _worker() -> None:
             try:
                 if self.ip and self.access_code:
-                    w = fetch_bambu_ftps_weight(self.ip, self.access_code, self.subtask_name)
+                    from services.ftps_client import fetch_bambu_ftps_info
+                    info = fetch_bambu_ftps_info(self.ip, self.access_code, self.subtask_name)
+                    w = float(info.get("weight_g") or 0.0)
+                    objs = info.get("objects") or []
+                    if objs:
+                        self.current_job_objects = objs
+                        logger.info(f"🧩 FTPS fetched {len(objs)} objects for [{self.name}]: {[o['name'] for o in objs]}")
                     if w > 0:
                         self._current_job_grams = w
                         logger.info(f"💡 FTPS fetched model weight {w}g for [{self.name}]")
@@ -392,6 +400,8 @@ class BambuPrinter:
             if "hms_errors" in parsed:
                 self.hms_errors = parsed["hms_errors"]
                 self.hms_resolved = parsed.get("hms_resolved") or format_hms_errors(self.hms_errors)
+            if "skipped_objects" in parsed:
+                self.skipped_objects = parsed["skipped_objects"]
 
             if "ams_exist_bits" in parsed:
                 self.ams_exist_bits = parsed["ams_exist_bits"]
@@ -473,8 +483,12 @@ class BambuPrinter:
 
                         fname_match = bool(clean_c and clean_s and clean_s != "untitled" and (clean_c in clean_s or clean_s in clean_c))
                         recent_slice = bool(c_ts > 0 and (time.time() - c_ts < 300) and (not clean_s or clean_s == "untitled"))
-                        if c_w > 0 and (fname_match or recent_slice):
-                            self._current_job_grams = c_w
+                        if (c_w > 0 or "objects" in c_data) and (fname_match or recent_slice):
+                            if c_w > 0:
+                                self._current_job_grams = c_w
+                            if isinstance(c_data.get("objects"), list) and c_data["objects"]:
+                                self.current_job_objects = c_data["objects"]
+                                logger.info(f"🧩 Loaded {len(self.current_job_objects)} cached objects for [{self.name}]")
                             logger.info(f"💡 Loaded OrcaSlicer cached weight {c_w}g for [{self.name}] (matched '{clean_c}')")
                     except Exception as e:
                         logger.warning(f"Error reading OrcaSlicer weight cache: {e}")
@@ -486,8 +500,8 @@ class BambuPrinter:
                     self._current_job_grams = w_fname
                     logger.info(f"💡 Extracted weight {w_fname}g from subtask_name for [{self.name}]")
 
-            # Trigger FTPS fetch to download 3MF/gcode from printer SD card and extract exact weight from slice_info.config / .gcode
-            if self.gcode_state in ["RUNNING", "PAUSE"] and self._current_job_grams == 0.0:
+            # Trigger FTPS fetch to download 3MF/gcode from printer SD card and extract exact weight/objects from slice_info.config / .gcode
+            if self.gcode_state in ["RUNNING", "PAUSE"] and (self._current_job_grams == 0.0 or not self.current_job_objects):
                 now_ts = time.time()
                 if (
                     not self._ftps_fetching
@@ -623,19 +637,21 @@ class BambuPrinter:
 
                     self._is_printing = False
 
-                if self.gcode_state in ["IDLE", "FAILED"]:
-                    # Reset state counters for next job
-                    self.finish_timestamp = 0.0
-                    self.job_start_time = 0.0
+                if self.gcode_state in ["IDLE", "FAILED", "FINISH", "SUCCESS", "CANCEL"]:
+                    # Reset state counters & job objects for next job
+                    self.finish_timestamp = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self.finish_timestamp
+                    self.job_start_time = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self.job_start_time
+                    self.current_job_objects = []
+                    self.skipped_objects = []
                     self._is_printing = False
                     self._was_running = False
                     self._job_started_from_app = False
-                    self._job_deducted = False
+                    self._job_deducted = False if self.gcode_state in ["IDLE", "FAILED"] else self._job_deducted
                     self._ftps_attempted = False
                     self._ftps_attempts = 0
                     self._last_ftps_time = 0.0
-                    self._current_job_grams = 0.0
-                    self._history_recorded = False
+                    self._current_job_grams = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self._current_job_grams
+                    self._history_recorded = False if self.gcode_state in ["IDLE", "FAILED"] else self._history_recorded
 
         except Exception as e:
             logger.error(f"Error processing MQTT message for [{self.name}]: {e}")
@@ -734,6 +750,39 @@ class BambuPrinter:
         logger.info(f"🎯 Triggered automatic calibration (G32 / option 63) for [{self.name}] ({self.serial_number})")
         return True
 
+    async def skip_objects_async(self, obj_ids: list[int]) -> tuple[bool, str]:
+        """
+        Sends MQTT print.skip_objects command to skip specific object IDs on the current plate.
+        Does not stop the print job.
+        """
+        if not self._client or not self._client.is_connected():
+            return False, "Принтер не підключений по MQTT"
+        if not obj_ids or not isinstance(obj_ids, list):
+            return False, "Необхідно вказати список ID об'єктів для пропуску"
+
+        int_obj_ids = [int(i) for i in obj_ids if str(i).isdigit()]
+        if not int_obj_ids:
+            return False, "Список ID об'єктів порожній або некоректний"
+
+        payload = {
+            "print": {
+                "sequence_id": str(int(time.time())),
+                "command": "skip_objects",
+                "obj_list": int_obj_ids,
+            }
+        }
+        topic = f"device/{self.serial_number}/request"
+        result = self._client.publish(topic, json.dumps(payload), qos=1)
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+            return False, "Не вдалося відправити MQTT команду пропуску об'єктів"
+
+        for oid in int_obj_ids:
+            if oid not in self.skipped_objects:
+                self.skipped_objects.append(oid)
+
+        logger.info(f"🚫 Sent skip_objects {int_obj_ids} to printer [{self.name}] ({self.serial_number})")
+        return True, f"Об'єкт(и) {int_obj_ids} успішно пропущено"
+
     async def start_print_job_async(
         self, file_bytes: bytes, filename: str, plate_name: str = "plate_1.gcode", use_ams: bool = True, part_name: str | None = None
     ) -> tuple[bool, str]:
@@ -809,10 +858,27 @@ class BambuPrinter:
         self.subtask_name = clean_subtask
         self._custom_job_name = clean_subtask
 
-        # Pre-calculate filament weight from uploaded 3MF file
+        # Pre-calculate filament weight & extract plate objects from uploaded 3MF file
         try:
             m_info = parse_3mf_file(file_bytes, filename)
+            self.current_job_objects = m_info.get("objects", [])
+            self.skipped_objects = []
             w_g = float(m_info.get("weight_g") or 0.0)
+
+            # Persist objects & weight into last_sliced_weight.json cache
+            try:
+                cache_file = STORAGE_DIR / "last_sliced_weight.json"
+                cache_payload = {
+                    "filename": filename,
+                    "weight": w_g,
+                    "timestamp": time.time(),
+                    "objects": self.current_job_objects,
+                }
+                cache_file.write_text(json.dumps(cache_payload, ensure_ascii=False), encoding="utf-8")
+                logger.info(f"🧩 Persisted {len(self.current_job_objects)} objects to weight cache for [{self.name}]")
+            except Exception as e_cache:
+                logger.warning(f"Failed writing weight/objects cache: {e_cache}")
+
             if w_g > 0:
                 self._current_job_grams = w_g
                 self._job_deducted = False

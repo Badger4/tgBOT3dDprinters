@@ -128,13 +128,16 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
     Parses a .3mf file bytes to extract Bambu Studio / OrcaSlicer slice metadata.
     Returns dict with keys: printer_model, filament_type, weight_g, time_mins, filename, plate_name.
     """
-    result = {
+    objects_list: list[dict[str, str]] = []
+    bbox_list: list[dict[str, Any]] = []
+    result: dict[str, Any] = {
         "filename": filename,
         "printer_model": "Unknown",
         "filament_type": "PLA",
         "weight_g": 0.0,
         "time_mins": 0,
         "plate_name": "plate_1.gcode",
+        "objects": objects_list,
         "valid": False,
         "error": "",
     }
@@ -148,8 +151,49 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
                 namelist = zf.namelist()
 
-                # 1. Search XML config files (Metadata/slice_info.config, etc)
-                xml_files = [f for f in namelist if f.endswith(".config") or f.endswith(".xml") or f.endswith(".info")]
+                # 1. Primary Object Extraction: Metadata/slice_info.config
+                if "Metadata/slice_info.config" in namelist:
+                    try:
+                        content_str = zf.read("Metadata/slice_info.config").decode("utf-8", errors="ignore")
+                        root = ET.fromstring(content_str)
+                        for elem in root.iter():
+                            tag_name = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                            if tag_name == "object":
+                                obj_id = elem.get("identify_id") or elem.get("id") or elem.get("identify") or elem.get("object_id")
+                                obj_name = elem.get("name") or elem.get("part_name")
+                                if obj_id:
+                                    obj_id_str = str(obj_id).strip()
+                                    obj_name_str = str(obj_name).strip() if obj_name else f"Об'єкт {obj_id_str}"
+                                    if not any(o["id"] == obj_id_str for o in objects_list):
+                                        objects_list.append({"id": obj_id_str, "name": obj_name_str})
+                    except Exception:
+                        pass
+
+                # 1b. Fallback XML config files if slice_info.config didn't yield objects
+                if not objects_list:
+                    xml_files = [f for f in namelist if f.endswith(".config") or f.endswith(".xml") or f.endswith(".info") or f.endswith(".model") or f.startswith("3D/")]
+                    for xf in xml_files:
+                        try:
+                            content_str = zf.read(xf).decode("utf-8", errors="ignore")
+                            root = ET.fromstring(content_str)
+                            for elem in root.iter():
+                                tag_name = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                                if tag_name in ["object", "item", "component"]:
+                                    obj_id = elem.get("identify_id") or elem.get("id") or elem.get("identify") or elem.get("object_id") or elem.get("objectid")
+                                    obj_name = elem.get("name") or elem.get("part_name") or elem.get("filename")
+                                    obj_type = elem.get("type", "").lower()
+                                    if obj_type == "other":
+                                        continue
+                                    if obj_id:
+                                        obj_id_str = str(obj_id).strip()
+                                        obj_name_str = str(obj_name).strip() if obj_name else f"Об'єкт {obj_id_str}"
+                                        if not any(o["id"] == obj_id_str for o in objects_list):
+                                            objects_list.append({"id": obj_id_str, "name": obj_name_str})
+                        except Exception:
+                            pass
+
+                # 2. Search XML files for metadata & printer presets
+                xml_files = [f for f in namelist if f.endswith(".config") or f.endswith(".xml") or f.endswith(".info") or f.endswith(".model") or f.startswith("3D/")]
                 for xf in xml_files:
                     try:
                         content_str = zf.read(xf).decode("utf-8", errors="ignore")
@@ -157,7 +201,8 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
 
                         # Extract printer model or filament preset tag
                         for elem in root.iter():
-                            if elem.tag in [
+                            tag_name = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                            if tag_name in [
                                 "printer_model_id",
                                 "printer_settings_id",
                                 "printer_name",
@@ -173,12 +218,13 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                                         break
 
                         # Extract filament type & weight
-                        for fil in root.iter():
-                            if fil.tag in ["type", "filament_type"] and fil.text and fil.text.strip():
-                                result["filament_type"] = fil.text.strip()
-                            elif fil.tag in ["used_g", "filament_used_g"] and fil.text and fil.text.strip():
+                        for elem in root.iter():
+                            tag_name = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                            if tag_name in ["type", "filament_type"] and elem.text and elem.text.strip():
+                                result["filament_type"] = elem.text.strip()
+                            elif tag_name in ["used_g", "filament_used_g"] and elem.text and elem.text.strip():
                                 try:
-                                    w = float(fil.text.strip())
+                                    w = float(elem.text.strip())
                                     if w > 0:
                                         result["weight_g"] = w
                                 except ValueError:
@@ -186,13 +232,24 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                     except Exception:
                         pass
 
-                # 2. Search JSON config files (Metadata/project_settings.config, etc)
+                # 3. Search JSON config files for bbox_objects fallback & preset metadata
                 json_files = [f for f in namelist if f.endswith(".json") or f.endswith(".config")]
                 for jf in json_files:
                     try:
                         content_str = zf.read(jf).decode("utf-8", errors="ignore")
                         p_json = json.loads(content_str)
                         if isinstance(p_json, dict):
+                            if "bbox_objects" in p_json and isinstance(p_json["bbox_objects"], list):
+                                if not bbox_list:
+                                    bbox_list = p_json["bbox_objects"]
+                                if not objects_list:
+                                    for b_obj in p_json["bbox_objects"]:
+                                        if isinstance(b_obj, dict) and "id" in b_obj:
+                                            b_id = str(b_obj["id"]).strip()
+                                            b_name = str(b_obj.get("name") or f"Об'єкт {b_id}").strip()
+                                            if not any(o["id"] == b_id for o in objects_list):
+                                                objects_list.append({"id": b_id, "name": b_name})
+
                             for k in [
                                 "printer_model_id",
                                 "printer_settings_id",
@@ -221,6 +278,19 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                 for gf in gcode_files:
                     try:
                         gcode_text = zf.read(gf).decode("utf-8", errors="ignore")
+
+                        # Object IDs regex from Gcode comments (e.g. ; PRINT_OBJECT_START name='Part' id=206)
+                        for obj_match in re.finditer(
+                            r";\s*(?:PRINT_OBJECT_START|object_info|object)\b.*?(?:id[:=]\s*(\d+)|name[:=]\s*['\"]?([^'\";\r\n]+)['\"]?)",
+                            gcode_text,
+                            re.IGNORECASE,
+                        ):
+                            g_id = obj_match.group(1)
+                            g_name = obj_match.group(2) or (f"Об'єкт {g_id}" if g_id else None)
+                            if g_id:
+                                g_id_str = str(g_id).strip()
+                                if not any(o["id"] == g_id_str for o in objects_list):
+                                    objects_list.append({"id": g_id_str, "name": str(g_name).strip() if g_name else f"Об'єкт {g_id_str}"})
 
                         # Printer model or filament preset tag regex
                         if result["printer_model"] == "Unknown":
@@ -310,6 +380,40 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
         elif "petg" in fname_lower:
             result["filament_type"] = "PETG"
 
+        # Spatial position calculator relative to 3D print bed coordinates (X: Left/Right, Y: Front/Back)
+        def get_spatial_label(bbox: list[float], bed_size: float = 180.0) -> str:
+            if len(bbox) < 4:
+                return ""
+            xmin, ymin, xmax, ymax = bbox[0], bbox[1], bbox[2], bbox[3]
+            cx = (xmin + xmax) / 2.0
+            cy = (ymin + ymax) / 2.0
+            x_part = "Праворуч" if cx > bed_size * 0.55 else ("Ліворуч" if cx < bed_size * 0.45 else "")
+            y_part = "Ззаду" if cy > bed_size * 0.55 else ("Спереду" if cy < bed_size * 0.45 else "")
+            parts = [p for p in [y_part, x_part] if p]
+            return " ".join(parts) if parts else "По центру"
+
+        # Disambiguate duplicate object names with sequential numbering & human-friendly bed positions (e.g. "Куб #1 (Ззаду Праворуч)")
+        name_counts: dict[str, int] = {}
+        for obj in objects_list:
+            name_counts[obj["name"]] = name_counts.get(obj["name"], 0) + 1
+
+        name_indices: dict[str, int] = {}
+        for i, obj in enumerate(objects_list):
+            base_name = obj["name"]
+            pos_str = ""
+            if i < len(bbox_list) and isinstance(bbox_list[i], dict) and "bbox" in bbox_list[i]:
+                b_lbl = get_spatial_label(bbox_list[i]["bbox"])
+                if b_lbl:
+                    pos_str = f" ({b_lbl})"
+
+            if name_counts[base_name] > 1:
+                idx = name_indices.get(base_name, 1)
+                name_indices[base_name] = idx + 1
+                obj["name"] = f"{base_name} #{idx}{pos_str}"
+            else:
+                obj["name"] = f"{base_name}{pos_str}"
+
+        result["objects"] = objects_list
         result["valid"] = True
 
     except Exception as e:

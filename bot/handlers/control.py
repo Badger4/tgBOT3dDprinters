@@ -31,6 +31,54 @@ async def handle_control_menu(message: Message, app):
     )
 
 
+@router.message(F.text.lower().in_(["🚫 пропустити об'єкт", "пропустити об'єкт"]))
+async def handle_skip_objects_menu(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+
+    if not target_printer:
+        return
+
+    objects = getattr(target_printer, "current_job_objects", [])
+    if not objects:
+        if hasattr(target_printer, "_try_ftps_fetch"):
+            target_printer._ftps_fetching = False
+            target_printer._try_ftps_fetch()
+            import asyncio
+            await asyncio.sleep(1.0)
+            objects = getattr(target_printer, "current_job_objects", [])
+
+    if not objects:
+        import json
+        cache_file = app.storage.base_dir / "last_sliced_weight.json"
+        if cache_file.exists():
+            try:
+                c_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                if isinstance(c_data.get("objects"), list) and c_data["objects"]:
+                    target_printer.current_job_objects = c_data["objects"]
+                    objects = target_printer.current_job_objects
+            except Exception:
+                pass
+
+    if not objects:
+        await message.answer(
+            f"ℹ️ Для поточного завдання друку на <b>{html.escape(target_printer.name)}</b> не виявлено списку об'єктів плейта у .3mf файлі.\n\n"
+            f"💡 <i>Об'єкти зчитуються автоматично при завантаженні .3mf файлу через бот/веб-панель або з SD-карти принтера через FTPS.</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    from bot.keyboards import build_skip_objects_keyboard
+    await message.answer(
+        f"🚫 <b>Пропуск невдалого об'єкта</b> на <b>{html.escape(target_printer.name)}</b>:\n"
+        f"Оберіть об'єкт на плейті, який потрібно припинити друкувати:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=build_skip_objects_keyboard(target_printer),
+    )
+
+
 @router.message(F.text.lower().in_(["⏸️ пауза", "пауза"]))
 async def handle_pause_print(message: Message, app):
     chat_id = str(message.chat.id)

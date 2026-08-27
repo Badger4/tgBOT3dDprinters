@@ -126,9 +126,35 @@ def get_printer_control_keyboard(printer: BambuPrinter, lang: str = "uk") -> Rep
     keyboard = [
         [KeyboardButton(text=t("btn_speed", lang)), KeyboardButton(text=t("btn_light", lang))],
         [KeyboardButton(text=t("btn_stop_print", lang)), pause_resume_btn],
-        [KeyboardButton(text=t("btn_back", lang))],
     ]
+    if printer.gcode_state in ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"] and bool(getattr(printer, "current_job_objects", None)):
+        keyboard.append([KeyboardButton(text="🚫 Пропустити об'єкт")])
+    keyboard.append([KeyboardButton(text=t("btn_back", lang))])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def build_skip_objects_keyboard(printer: BambuPrinter, lang: str = "uk") -> InlineKeyboardMarkup:
+    """Builds interactive inline buttons to skip objects on the active print plate."""
+    buttons = []
+    skipped = getattr(printer, "skipped_objects", [])
+    objects = getattr(printer, "current_job_objects", [])
+
+    for obj in objects:
+        obj_id = obj.get("id")
+        obj_name = obj.get("name", f"Об'єкт {obj_id}")
+        obj_id_int = int(obj_id) if str(obj_id).isdigit() else obj_id
+        is_skipped = obj_id_int in skipped or str(obj_id_int) in [str(s) for s in skipped]
+
+        if is_skipped:
+            btn_text = f"❌ {obj_name} (Пропущено)"
+            callback = f"skip_obj_done:{printer.id}:{obj_id}"
+        else:
+            btn_text = f"🚫 {obj_name}"
+            callback = f"skip_obj_act:{printer.id}:{obj_id}"
+
+        buttons.append([InlineKeyboardButton(text=btn_text, callback_data=callback)])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_admin_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:

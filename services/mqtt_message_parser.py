@@ -158,6 +158,9 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
         result["hms_errors"] = print_data["hms"]
         result["hms_resolved"] = format_hms_errors(print_data["hms"])
 
+    if "s_obj" in print_data and isinstance(print_data["s_obj"], list):
+        result["skipped_objects"] = [int(i) for i in print_data["s_obj"] if str(i).isdigit()]
+
     if "ams" in print_data and isinstance(print_data["ams"], dict):
         ams_info = print_data["ams"]
         if "ams_exist_bits" in ams_info:

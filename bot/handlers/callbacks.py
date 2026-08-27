@@ -207,4 +207,30 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             await callback.answer("⚠️ Не вдалося видалити користувача.", show_alert=True)
         return
 
+    elif data.startswith("skip_obj_act:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            p_id = parts[1]
+            obj_id = parts[2]
+            printer = app.printers.get(p_id)
+            if printer:
+                await callback.answer(f"🚫 Пропускаю об'єкт #{obj_id}...")
+                ok, msg = await printer.skip_objects_async([int(obj_id)])
+                if ok:
+                    await callback.answer(f"✅ Об'єкт {obj_id} успішно пропущено!", show_alert=True)
+                    try:
+                        from bot.keyboards import build_skip_objects_keyboard
+                        await callback.message.edit_reply_markup(
+                            reply_markup=build_skip_objects_keyboard(printer)
+                        )
+                    except Exception:
+                        pass
+                else:
+                    await callback.answer(f"⚠️ {msg}", show_alert=True)
+                return
+
+    elif data.startswith("skip_obj_done:"):
+        await callback.answer("ℹ️ Цей об'єкт вже пропущено на плейті!", show_alert=True)
+        return
+
     await callback.answer()

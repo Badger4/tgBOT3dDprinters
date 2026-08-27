@@ -80,6 +80,7 @@ async def handle_document_upload(message: Message, app):
             "filament_type": meta["filament_type"],
             "weight_g": meta["weight_g"],
             "time_mins": meta["time_mins"],
+            "objects": meta.get("objects", []),
         }
         user["state"] = "select_printer_for_file"
         await app.storage.save_user(user)

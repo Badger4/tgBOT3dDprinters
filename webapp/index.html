@@ -553,9 +553,18 @@
                         <button id="btn-action-pause" class="btn btn-warning"><i class="fa-solid fa-pause"></i> Пауза</button>
                         <button id="btn-action-resume" class="btn btn-success" style="display:none;"><i class="fa-solid fa-play"></i> Відновити</button>
                         <button id="btn-action-stop" class="btn btn-danger"><i class="fa-solid fa-stop"></i> Зупинити</button>
+                        <button id="btn-action-skip-object" class="btn btn-warning" style="display:none;"><i class="fa-solid fa-ban"></i> Пропустити об'єкт</button>
                         <button id="btn-action-light" class="btn btn-neutral"><i class="fa-solid fa-lightbulb"></i> Світло</button>
                         <button id="btn-action-calibrate" class="btn btn-info"><i class="fa-solid fa-sliders"></i> Калібрувати</button>
                         <button id="btn-action-notify" class="btn btn-neutral"><i class="fa-solid fa-bell"></i> Сповіщення</button>
+                    </div>
+
+                    <!-- Skip Objects Section -->
+                    <div id="modal-skip-objects-section" class="control-section mt-3" style="display:none;">
+                        <h4><i class="fa-solid fa-ban color-red"></i> Пропуск об'єктів на плейті</h4>
+                        <div id="modal-skip-objects-list" class="d-flex flex-wrap gap-2 mt-2">
+                            <!-- Dynamic object buttons -->
+                        </div>
                     </div>
 
                     <!-- Maintenance Section with Detailed Points & Custom Intervals -->
@@ -916,6 +925,6 @@
     </div>
 
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1058"></script>
+    <script src="/static/js/app.js?v=1060"></script>
 </body>
 </html>

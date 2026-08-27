@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Farm Manager — Вхід у систему</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- WebApp CSS -->
+    <link rel="stylesheet" href="/static/css/style.css?v=1024">
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: #090d16;
+            margin: 0;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+        .login-card {
+            width: 100%;
+            max-width: 420px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 20px;
+            padding: 32px 24px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .login-header {
+            text-align: center;
+        }
+        .login-logo {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            font-size: 32px;
+            color: #fff;
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+        }
+        .login-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #fff;
+            margin: 0 0 6px;
+        }
+        .login-subtitle {
+            font-size: 13px;
+            color: #94a3b8;
+            margin: 0;
+        }
+        .login-alert {
+            display: none;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+        .pass-wrap {
+            position: relative;
+        }
+        .pass-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-logo">
+                <i class="fa-solid fa-cubes"></i>
+            </div>
+            <h1 class="login-title">3D Farm Manager</h1>
+            <p class="login-subtitle">Введіть майстер-пароль адміністратора для входу у веб-панель</p>
+        </div>
+
+        <div id="login-alert" class="login-alert"></div>
+
+        <form id="login-form" onsubmit="handleLogin(event)">
+            <div class="form-group mb-3">
+                <label for="password-input">🔑 Майстер-пароль / Ключ доступу</label>
+                <div class="pass-wrap">
+                    <input type="password" id="password-input" class="form-control" placeholder="Введіть пароль..." required autofocus>
+                    <button type="button" class="pass-toggle" onclick="togglePassVisibility()">
+                        <i id="pass-icon" class="fa-solid fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <button type="submit" id="login-btn" class="btn btn-primary w-100 mt-2">
+                <i class="fa-solid fa-right-to-bracket me-2"></i> Увійти в систему
+            </button>
+        </form>
+
+        <div style="text-align: center; margin-top: 10px;">
+            <a href="/setup" style="color: #6366f1; font-size: 12px; text-decoration: none;">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Перший запуск? Майстер налаштування (Setup Wizard)
+            </a>
+        </div>
+    </div>
+
+    <script>
+        function togglePassVisibility() {
+            const input = document.getElementById("password-input");
+            const icon = document.getElementById("pass-icon");
+            if (input.type === "password") {
+                input.type = "text";
+                icon.className = "fa-solid fa-eye-slash";
+            } else {
+                input.type = "password";
+                icon.className = "fa-solid fa-eye";
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const alertEl = document.getElementById("login-alert");
+            const btnEl = document.getElementById("login-btn");
+            const passInput = document.getElementById("password-input");
+            const password = passInput.value.trim();
+
+            alertEl.style.display = "none";
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> Перевірка...';
+
+            try {
+                const res = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ password })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.status === "ok") {
+                    if (data.token) {
+                        localStorage.setItem("3d_farm_session", data.token);
+                    }
+                    window.location.href = "/webapp";
+                } else {
+                    alertEl.textContent = "⚠️ " + (data.error || "Невірний пароль доступу!");
+                    alertEl.style.display = "block";
+                }
+            } catch (err) {
+                console.error("Login error:", err);
+                alertEl.textContent = "⚠️ Помилка зв'язку із сервером.";
+                alertEl.style.display = "block";
+            } finally {
+                btnEl.disabled = false;
+                btnEl.innerHTML = '<i class="fa-solid fa-right-to-bracket me-2"></i> Увійти в систему';
+            }
+        }
+
+        // Check if session already active
+        (async () => {
+            try {
+                const res = await fetch("/api/auth/session");
+                const data = await res.json();
+                if (data.authenticated) {
+                    window.location.href = "/webapp";
+                }
+            } catch (e) {}
+        })();
+    </script>
+</body>
+</html>

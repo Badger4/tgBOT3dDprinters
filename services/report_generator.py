@@ -30,7 +30,13 @@ def generate_csv_report(history: list[dict[str, Any]]) -> bytes:
         ]
     )
 
-    sorted_history = sorted(history, key=lambda x: x.get("timestamp", 0), reverse=True)
+    def _get_ts(x: dict[str, Any]) -> float:
+        ts = x.get("timestamp", 0)
+        if isinstance(ts, (int, float)):
+            return float(ts)
+        return 0.0
+
+    sorted_history = sorted(history, key=_get_ts, reverse=True)
     for idx, item in enumerate(sorted_history, 1):
         ts = item.get("timestamp", time.time())
         if isinstance(ts, (int, float)):
@@ -72,6 +78,11 @@ def generate_spools_csv_report(spools: dict[str, Any]) -> bytes:
         ]
     )
 
+    total_initial_g = 0.0
+    total_remaining_g = 0.0
+    total_value_uah = 0.0
+    total_qty = 0
+
     if spools:
         for s_id, s in spools.items():
             if isinstance(s, dict):
@@ -85,6 +96,12 @@ def generate_spools_csv_report(spools: dict[str, Any]) -> bytes:
                 qty = max(1, int(s.get("quantity", 1)))
                 slot_info = s.get("assigned_slot_key")
                 status = f"Прив'язаний: Слот {slot_info}" if slot_info else "На складі"
+
+                val_uah = (remaining_g / 1000.0) * price_per_kg * qty
+                total_initial_g += initial_g * qty
+                total_remaining_g += remaining_g * qty
+                total_value_uah += val_uah
+                total_qty += qty
 
                 writer.writerow([
                     spool_id,
@@ -109,6 +126,12 @@ def generate_spools_csv_report(spools: dict[str, Any]) -> bytes:
                 slot_info = getattr(s, "assigned_slot_key", None)
                 status = f"Прив'язаний: Слот {slot_info}" if slot_info else "На складі"
 
+                val_uah = (remaining_g / 1000.0) * price_per_kg * qty
+                total_initial_g += initial_g * qty
+                total_remaining_g += remaining_g * qty
+                total_value_uah += val_uah
+                total_qty += qty
+
                 writer.writerow([
                     spool_id,
                     name,
@@ -120,6 +143,20 @@ def generate_spools_csv_report(spools: dict[str, Any]) -> bytes:
                     qty,
                     status,
                 ])
+
+        # Financial Summary Row
+        writer.writerow([])
+        writer.writerow([
+            "ВАРТІСТЬ СКЛАДУ",
+            "ЗАГАЛОМ ПО ВСІХ КОТУШКАХ",
+            "-",
+            "-",
+            f"{total_initial_g:.1f} г",
+            f"{total_remaining_g:.1f} г",
+            "-",
+            total_qty,
+            f"Загальна вартість: {total_value_uah:.2f} грн",
+        ])
 
     return output.getvalue().encode("utf-8")
 
@@ -177,3 +214,43 @@ def generate_warehouse_csv_report(spools: dict[str, Any], parts: dict[str, Any] 
     if report_type == "parts" and parts:
         return generate_parts_csv_report(parts)
     return generate_spools_csv_report(spools)
+
+
+def generate_movements_csv_report(movements: list[dict[str, Any]]) -> bytes:
+    """
+    Generates CSV export for Warehouse Audit Movements log.
+    Columns: ID, Дата та час, ID Котушки, Назва котушки, Дія, Зміна ваги (г), Попередня вага (г), Нова вага (г), Причина / Деталі, Користувач.
+    """
+    output = io.StringIO()
+    output.write("\ufeff")
+    writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+
+    writer.writerow([
+        "ID",
+        "Дата та час",
+        "ID Котушки",
+        "Назва котушки",
+        "Дія",
+        "Зміна ваги (г)",
+        "Попередня вага (г)",
+        "Нова вага (г)",
+        "Причина / Деталі",
+        "Користувач",
+    ])
+
+    sorted_movs = sorted(movements, key=lambda x: x.get("timestamp", 0), reverse=True)
+    for m in sorted_movs:
+        writer.writerow([
+            m.get("id", "-"),
+            m.get("datetime", "-"),
+            m.get("spool_id", "-"),
+            m.get("spool_name", "-"),
+            m.get("action", "-"),
+            f"{m.get('weight_change_g', 0.0):+.1f}",
+            f"{m.get('prev_weight_g', 0.0):.1f}",
+            f"{m.get('new_weight_g', 0.0):.1f}",
+            m.get("reason", "-"),
+            m.get("user", "System"),
+        ])
+
+    return output.getvalue().encode("utf-8")

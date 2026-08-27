@@ -164,5 +164,18 @@ async def handle_printer_control(request: web.Request) -> web.Response:
             return web.json_response(
                 {"error": "Не вдалося запустити калібрування (перевірте MQTT з'єднання)"}, status=500
             )
+    elif action == "skip_objects":
+        obj_ids = data.get("obj_ids") or data.get("obj_list") or []
+        if not obj_ids or not isinstance(obj_ids, list):
+            return web.json_response({"error": "obj_ids є обов'язковим списком цілих чисел"}, status=400)
+        ok, msg = await p.skip_objects_async(obj_ids)
+        if ok:
+            return web.json_response({
+                "status": "ok",
+                "action": "skip_objects",
+                "message": msg,
+                "skipped_objects": p.skipped_objects,
+            })
+        return web.json_response({"error": msg}, status=400)
     else:
         return web.json_response({"error": f"Unknown action '{action}'"}, status=400)

@@ -907,6 +907,43 @@ document.addEventListener("DOMContentLoaded", () => {
                 });
             });
         }
+
+        // Render Skip Objects List in Modal
+        const skipObjectsSection = document.getElementById("modal-skip-objects-section");
+        const skipObjectsList = document.getElementById("modal-skip-objects-list");
+        const btnSkipObject = document.getElementById("btn-action-skip-object");
+
+        if (skipObjectsSection && skipObjectsList) {
+            const isPrintingState = ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"].includes((p.state || p.gcode_state || "").toUpperCase());
+            const objects = isPrintingState ? (p.current_job_objects || []) : [];
+            const skipped = p.skipped_objects || [];
+            if (isPrintingState && objects.length > 0) {
+                skipObjectsSection.style.display = "block";
+                if (btnSkipObject) btnSkipObject.style.display = "inline-block";
+                skipObjectsList.innerHTML = objects.map(obj => {
+                    const objId = obj.id;
+                    const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
+                    return `
+                        <button class="btn btn-sm ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item" 
+                                data-id="${objId}" ${isSkipped ? 'disabled' : ''}>
+                            ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban"></i> '}
+                            ${escapeHtml(obj.name || ('Об\'єкт ' + objId))} ${isSkipped ? '(Пропущено)' : ''}
+                        </button>`;
+                }).join("");
+
+                skipObjectsList.querySelectorAll(".btn-skip-obj-item:not(.disabled)").forEach(b => {
+                    b.addEventListener("click", async () => {
+                        const objId = parseInt(b.getAttribute("data-id"));
+                        if (confirm(`Пропустити об'єкт #${objId} на плейті без зупинки друку?`)) {
+                            await sendPrinterAction({ action: "skip_objects", obj_ids: [objId] });
+                        }
+                    });
+                });
+            } else {
+                skipObjectsSection.style.display = "none";
+                if (btnSkipObject) btnSkipObject.style.display = "none";
+            }
+        }
     }
 
     const fullscreenCamModal = document.getElementById("camera-fullscreen-modal");
@@ -1048,6 +1085,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const btnNotify = document.getElementById("btn-action-notify");
     const btnCalibrate = document.getElementById("btn-action-calibrate");
+    const btnSkipObjectModal = document.getElementById("btn-action-skip-object");
+
+    if (btnSkipObjectModal) {
+        btnSkipObjectModal.addEventListener("click", () => {
+            const sec = document.getElementById("modal-skip-objects-section");
+            if (sec) sec.scrollIntoView({ behavior: "smooth" });
+        });
+    }
 
     if (btnPause) btnPause.addEventListener("click", () => sendPrinterAction({ action: "pause" }));
     if (btnResume) btnResume.addEventListener("click", () => sendPrinterAction({ action: "resume" }));
