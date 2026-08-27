@@ -141,7 +141,9 @@ def build_skip_objects_keyboard(printer: BambuPrinter, lang: str = "uk") -> Inli
 
     for obj in objects:
         obj_id = obj.get("id")
-        obj_name = obj.get("name", f"Об'єкт {obj_id}")
+        from services.gcode_parser import sanitize_object_name
+        raw_name = obj.get("name", f"Об'єкт {obj_id}")
+        obj_name = sanitize_object_name(raw_name)
         obj_id_int = int(obj_id) if str(obj_id).isdigit() else obj_id
         is_skipped = obj_id_int in skipped or str(obj_id_int) in [str(s) for s in skipped]
 

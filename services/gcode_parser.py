@@ -26,6 +26,37 @@ BAMBU_MODEL_MAP = {
 }
 
 
+def sanitize_object_name(name: str) -> str:
+    """Sanitizes object names, removing repetitive or stacked spatial labels and extra hashtags."""
+    if not name or not isinstance(name, str):
+        return ""
+    clean = str(name).strip()
+    match_base = re.match(r"^([^#\(\)]+)(?:\s*(#\d+))?", clean)
+    if not match_base:
+        return clean
+    base_part = match_base.group(1).strip()
+    num_part = match_base.group(2) or ""
+
+    name_lower = clean.lower()
+    found_words: list[str] = []
+    for kw in ["ззаду", "спереду"]:
+        if kw in name_lower and kw.capitalize() not in found_words:
+            found_words.append(kw.capitalize())
+            break
+    for kw in ["ліворуч", "праворуч"]:
+        if kw in name_lower and kw.capitalize() not in found_words:
+            found_words.append(kw.capitalize())
+            break
+    if not found_words and "по центру" in name_lower:
+        found_words.append("По центру")
+
+    spatial_str = " ".join(found_words)
+    pos_tag = f" ({spatial_str})" if spatial_str else ""
+    num_tag = f" {num_part}" if num_part else ""
+
+    return f"{base_part}{num_tag}{pos_tag}".strip()
+
+
 def parse_time_str(time_str: str) -> int:
     """Parses time strings like '8d 18h 54m 54s', '1h 10m 15s', '70m', '01:10:00' into total minutes."""
     if not time_str:
