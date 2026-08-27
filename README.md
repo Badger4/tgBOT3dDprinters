@@ -77,10 +77,9 @@ cp .env.example .env
 | `ADMIN_CHAT_ID` | 🔴 Yes | — | Telegram Chat ID of the main bot administrator |
 | `STORAGE_DIR` | 🟢 No | `./printers_storage` | Local directory path for SQLite DB, logs, and printer configs |
 | `HTTP_PORT` | 🟢 No | `8080` | Port for the local REST API and WebApp server |
-| `WEBAPP_URL` | 🟢 No | `http://localhost:8080` | Public HTTPS WebApp URL (e.g. Ngrok, Cloudflare Tunnel, or custom domain) |
+| `WEBAPP_URL` | 🟢 No | `http://localhost:8080` | Public HTTPS WebApp URL (e.g. Ngrok or custom domain) |
 | `API_SECRET_KEY` | 🟢 No | empty | Secret API key for protecting external REST API endpoints |
 | `SSE_INTERVAL_SECONDS` | 🟢 No | `5.0` | Server-Sent Events live update frequency in seconds |
-| `CLOUDFLARE_TUNNEL_TOKEN` | 🟢 No | empty | Cloudflare Tunnel token for automatic WebApp HTTPS tunneling |
 
 
 | `ELECTRICITY_COST_PER_KWH` | 🟢 No | `4.32` | Electricity rate (UAH/kWh) for commercial price calculation |

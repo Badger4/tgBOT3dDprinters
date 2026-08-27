@@ -2921,8 +2921,32 @@ document.addEventListener("DOMContentLoaded", () => {
         if (downloadBtn) {
             if (part.three_mf) {
                 downloadBtn.style.display = "inline-flex";
-                downloadBtn.onclick = () => {
-                    window.location.href = `/api/parts/${part.id}/download_3mf`;
+                downloadBtn.onclick = async () => {
+                    try {
+                        downloadBtn.disabled = true;
+                        downloadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Завантаження...';
+                        const res = await fetch(`/api/parts/${part.id}/download_3mf`);
+                        if (!res.ok) {
+                            const errData = await res.json().catch(() => ({}));
+                            alert(`⚠️ Помилка завантаження: ${errData.error || `HTTP ${res.status}`}`);
+                            return;
+                        }
+                        const blob = await res.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = blobUrl;
+                        a.download = `${(part.name || 'model').replace(/\s+/g, '_')}.3mf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(blobUrl);
+                    } catch (e) {
+                        console.error("Download 3mf error:", e);
+                        alert("⚠️ Не вдалося завантажити файл .3mf");
+                    } finally {
+                        downloadBtn.disabled = false;
+                        downloadBtn.innerHTML = '<i class="fa-solid fa-file-arrow-down"></i> Завантажити .3mf';
+                    }
                 };
             } else {
                 downloadBtn.style.display = "none";

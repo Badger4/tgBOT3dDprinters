@@ -69,10 +69,9 @@ cp .env.example .env
 | `ADMIN_CHAT_ID` | 🔴 Так | — | Telegram ID головного адміністратора бота |
 | `STORAGE_DIR` | 🟢 Ні | `./printers_storage` | Шлях до папки збереження БД, логів та конфігурації принтерів |
 | `HTTP_PORT` | 🟢 Ні | `8080` | Порт локального REST API та WebApp сервера |
-| `WEBAPP_URL` | 🟢 Ні | `http://localhost:8080` | HTTPS URL адреса WebApp (Ngrok, Cloudflare Tunnel або домен) |
+| `WEBAPP_URL` | 🟢 Ні | `http://localhost:8080` | HTTPS URL адреса WebApp (Ngrok або домен) |
 | `API_SECRET_KEY` | 🟢 Ні | порожньо | Ключ авторизації для захисту REST API |
 | `SSE_INTERVAL_SECONDS` | 🟢 Ні | `5.0` | Періодичність оновлення живих даних телеметрії WebApp (сек) |
-| `CLOUDFLARE_TUNNEL_TOKEN` | 🟢 Ні | порожньо | Токен Cloudflare Tunnel для автоматичного HTTPS тунелювання WebApp |
 
 
 | `ELECTRICITY_COST_PER_KWH` | 🟢 Ні | `4.32` | Тариф електроенергії (грн/кВт·год) для калькулятора себевартості |

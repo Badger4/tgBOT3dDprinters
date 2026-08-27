@@ -48,7 +48,6 @@ WEBAPP_URL = os.getenv("WEBAPP_URL", f"http://localhost:{HTTP_PORT}").strip()
 SSE_INTERVAL_SECONDS = _get_env_float("SSE_INTERVAL_SECONDS", 5.0)
 NGROK_AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "").strip()
 NGROK_DOMAIN = os.getenv("NGROK_DOMAIN", "").strip()
-CLOUDFLARE_TUNNEL_TOKEN = os.getenv("CLOUDFLARE_TUNNEL_TOKEN", os.getenv("CLOUDFLARE_TOKEN", "")).strip()
 ELECTRICITY_COST_PER_KWH = _get_env_float("ELECTRICITY_COST_PER_KWH", 4.32)
 
 
@@ -97,15 +96,12 @@ class SensitiveDataFilter(logging.Filter):
             return text
         text = re.sub(r"\b[0-9]{8,10}:[a-zA-Z0-9_-]{35}\b", "[TELEGRAM_BOT_TOKEN_MASKED]", text)
         text = re.sub(r"\b3Hg[a-zA-Z0-9_-]{40,50}\b", "[NGROK_AUTHTOKEN_MASKED]", text)
-        text = re.sub(r"\beyJh[a-zA-Z0-9_-]{60,150}\b", "[CLOUDFLARE_TOKEN_MASKED]", text)
         if TELEGRAM_BOT_TOKEN and len(TELEGRAM_BOT_TOKEN) > 5 and TELEGRAM_BOT_TOKEN in text:
             text = text.replace(TELEGRAM_BOT_TOKEN, "[TELEGRAM_BOT_TOKEN_MASKED]")
         if API_SECRET_KEY and len(API_SECRET_KEY) > 3 and API_SECRET_KEY in text:
             text = text.replace(API_SECRET_KEY, "[API_SECRET_KEY_MASKED]")
         if NGROK_AUTHTOKEN and len(NGROK_AUTHTOKEN) > 5 and NGROK_AUTHTOKEN in text:
             text = text.replace(NGROK_AUTHTOKEN, "[NGROK_AUTHTOKEN_MASKED]")
-        if CLOUDFLARE_TUNNEL_TOKEN and len(CLOUDFLARE_TUNNEL_TOKEN) > 5 and CLOUDFLARE_TUNNEL_TOKEN in text:
-            text = text.replace(CLOUDFLARE_TUNNEL_TOKEN, "[CLOUDFLARE_TOKEN_MASKED]")
 
         text = re.sub(
             r'(access[_-]?code["\']?\s*[:=]\s*["\']?)([^"\'\s,}{&]+)', r"\1••••••••", text, flags=re.IGNORECASE
@@ -167,9 +163,6 @@ def validate_config(strict: bool = True) -> None:
             raise ValueError(msg)
         else:
             logger.warning(msg)
-
-    if not CLOUDFLARE_TUNNEL_TOKEN and not NGROK_AUTHTOKEN:
-        logger.info("ℹ️ CLOUDFLARE_TUNNEL_TOKEN is not set. Using Quick Tunnel or local HTTP server.")
 
 
 if not TELEGRAM_BOT_TOKEN or not ADMIN_CHAT_ID:
