@@ -917,45 +917,49 @@ document.addEventListener("DOMContentLoaded", () => {
             const isPrintingState = ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"].includes((p.state || p.gcode_state || "").toUpperCase());
             const objects = isPrintingState ? (p.current_job_objects || []) : [];
             const skipped = p.skipped_objects || [];
-            if (isPrintingState && objects.length > 0) {
+            if (isPrintingState) {
                 skipObjectsSection.style.display = "block";
                 if (btnSkipObject) btnSkipObject.style.display = "inline-block";
-                const sanitizeObjName = (nameStr) => {
-                    if (!nameStr) return "";
-                    let base = nameStr.replace(/\s*#\d+.*$/, "").replace(/\s*\(.*?\)$/, "").trim();
-                    if (!base) base = nameStr;
-                    let nLow = nameStr.toLowerCase();
-                    let words = [];
-                    if (nLow.includes("ззаду")) words.push("Ззаду");
-                    else if (nLow.includes("спереду")) words.push("Спереду");
-                    if (nLow.includes("ліворуч")) words.push("Ліворуч");
-                    else if (nLow.includes("праворуч")) words.push("Праворуч");
-                    if (words.length === 0 && nLow.includes("по центру")) words.push("По центру");
-                    let mNum = nameStr.match(/#\d+/);
-                    let numStr = mNum ? (" " + mNum[0]) : "";
-                    let posStr = words.length > 0 ? (` (${words.join(" ")})`) : "";
-                    return `${base}${numStr}${posStr}`;
-                };
-                skipObjectsList.innerHTML = objects.map(obj => {
-                    const objId = obj.id;
-                    const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
-                    const cleanName = sanitizeObjName(obj.name || ('Об\'єкт ' + objId));
-                    return `
-                        <button class="btn btn-sm ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item" 
-                                data-id="${objId}" ${isSkipped ? 'disabled' : ''}>
-                            ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban"></i> '}
-                            ${escapeHtml(cleanName)} ${isSkipped ? '(Пропущено)' : ''}
-                        </button>`;
-                }).join("");
+                if (objects.length > 0) {
+                    const sanitizeObjName = (nameStr) => {
+                        if (!nameStr) return "";
+                        let base = nameStr.replace(/\s*#\d+.*$/, "").replace(/\s*\(.*?\)$/, "").trim();
+                        if (!base) base = nameStr;
+                        let nLow = nameStr.toLowerCase();
+                        let words = [];
+                        if (nLow.includes("ззаду")) words.push("Ззаду");
+                        else if (nLow.includes("спереду")) words.push("Спереду");
+                        if (nLow.includes("ліворуч")) words.push("Ліворуч");
+                        else if (nLow.includes("праворуч")) words.push("Праворуч");
+                        if (words.length === 0 && nLow.includes("по центру")) words.push("По центру");
+                        let mNum = nameStr.match(/#\d+/);
+                        let numStr = mNum ? (" " + mNum[0]) : "";
+                        let posStr = words.length > 0 ? (` (${words.join(" ")})`) : "";
+                        return `${base}${numStr}${posStr}`;
+                    };
+                    skipObjectsList.innerHTML = objects.map(obj => {
+                        const objId = obj.id;
+                        const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
+                        const cleanName = sanitizeObjName(obj.name || ('Об\'єкт ' + objId));
+                        return `
+                            <button class="btn btn-sm ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item" 
+                                    data-id="${objId}" ${isSkipped ? 'disabled' : ''}>
+                                ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban"></i> '}
+                                ${escapeHtml(cleanName)} ${isSkipped ? '(Пропущено)' : ''}
+                            </button>`;
+                    }).join("");
 
-                skipObjectsList.querySelectorAll(".btn-skip-obj-item:not(.disabled)").forEach(b => {
-                    b.addEventListener("click", async () => {
-                        const objId = parseInt(b.getAttribute("data-id"));
-                        if (confirm(`Пропустити об'єкт #${objId} на плейті без зупинки друку?`)) {
-                            await sendPrinterAction({ action: "skip_objects", obj_ids: [objId] });
-                        }
+                    skipObjectsList.querySelectorAll(".btn-skip-obj-item:not(.disabled)").forEach(b => {
+                        b.addEventListener("click", async () => {
+                            const objId = parseInt(b.getAttribute("data-id"));
+                            if (confirm(`Пропустити об'єкт #${objId} на плейті без зупинки друку?`)) {
+                                await sendPrinterAction({ action: "skip_objects", obj_ids: [objId] });
+                            }
+                        });
                     });
-                });
+                } else {
+                    skipObjectsList.innerHTML = `<div class="text-muted small"><i class="fa-solid fa-spinner fa-spin me-1"></i> Зчитування списку об'єктів...</div>`;
+                }
             } else {
                 skipObjectsSection.style.display = "none";
                 if (btnSkipObject) btnSkipObject.style.display = "none";

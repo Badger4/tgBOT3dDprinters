@@ -127,7 +127,7 @@ def get_printer_control_keyboard(printer: BambuPrinter, lang: str = "uk") -> Rep
         [KeyboardButton(text=t("btn_speed", lang)), KeyboardButton(text=t("btn_light", lang))],
         [KeyboardButton(text=t("btn_stop_print", lang)), pause_resume_btn],
     ]
-    if printer.gcode_state in ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"] and bool(getattr(printer, "current_job_objects", None)):
+    if printer.gcode_state in ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"]:
         keyboard.append([KeyboardButton(text="🚫 Пропустити об'єкт")])
     keyboard.append([KeyboardButton(text=t("btn_back", lang))])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
