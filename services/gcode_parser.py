@@ -381,18 +381,49 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             result["filament_type"] = "PETG"
 
         # Spatial position calculator relative to 3D print bed coordinates (X: Left/Right, Y: Front/Back)
-        def get_spatial_label(bbox: list[float], bed_size: float = 180.0) -> str:
+        def get_spatial_label(bbox: list[float], bed_size_x: float = 256.0, bed_size_y: float = 256.0) -> str:
             if len(bbox) < 4:
                 return ""
-            xmin, ymin, xmax, ymax = bbox[0], bbox[1], bbox[2], bbox[3]
-            cx = (xmin + xmax) / 2.0
-            cy = (ymin + ymax) / 2.0
-            x_part = "Праворуч" if cx > bed_size * 0.55 else ("Ліворуч" if cx < bed_size * 0.45 else "")
-            y_part = "Ззаду" if cy > bed_size * 0.55 else ("Спереду" if cy < bed_size * 0.45 else "")
-            parts = [p for p in [y_part, x_part] if p]
-            return " ".join(parts) if parts else "По центру"
+            try:
+                xmin, ymin, xmax, ymax = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+                cx = (xmin + xmax) / 2.0
+                cy = (ymin + ymax) / 2.0
 
-        # Disambiguate duplicate object names with sequential numbering & human-friendly bed positions (e.g. "Куб #1 (Ззаду Праворуч)")
+                # Y-axis position (0 = Front, max = Back)
+                if cy > bed_size_y * 0.65:
+                    y_lbl = "Ззаду"
+                elif cy < bed_size_y * 0.35:
+                    y_lbl = "Спереду"
+                else:
+                    y_lbl = "Центр"
+
+                # X-axis position (0 = Left, max = Right)
+                if cx > bed_size_x * 0.65:
+                    x_lbl = "Праворуч"
+                elif cx < bed_size_x * 0.35:
+                    x_lbl = "Ліворуч"
+                else:
+                    x_lbl = "Центр"
+
+                if y_lbl == "Центр" and x_lbl == "Центр":
+                    return "По центру"
+                elif y_lbl == "Центр":
+                    return x_lbl
+                elif x_lbl == "Центр":
+                    return y_lbl
+                else:
+                    return f"{y_lbl} {x_lbl}"
+            except Exception:
+                return ""
+
+        # Clean any pre-existing tags & disambiguate duplicate object names cleanly (e.g. "Куб #1 (Ззаду Праворуч)")
+        for obj in objects_list:
+            raw_n = obj.get("name", "")
+            # Strip any previous #N or (...) spatial tags to prevent repetitive string stacking
+            clean_n = re.sub(r"\s*#\d+.*$", "", raw_n)
+            clean_n = re.sub(r"\s*\(.*?\)$", "", clean_n).strip()
+            obj["name"] = clean_n if clean_n else raw_n
+
         name_counts: dict[str, int] = {}
         for obj in objects_list:
             name_counts[obj["name"]] = name_counts.get(obj["name"], 0) + 1
@@ -411,7 +442,10 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                 name_indices[base_name] = idx + 1
                 obj["name"] = f"{base_name} #{idx}{pos_str}"
             else:
-                obj["name"] = f"{base_name}{pos_str}"
+                if pos_str:
+                    obj["name"] = f"{base_name}{pos_str}"
+                else:
+                    obj["name"] = base_name
 
         result["objects"] = objects_list
         result["valid"] = True
