@@ -512,6 +512,12 @@ class BambuPrinter:
                     self._last_ftps_time = now_ts
                     self._try_ftps_fetch()
 
+            if self.gcode_state in ["RUNNING", "PAUSE", "PREPARATION", "BUILDING"] and not self.current_job_objects:
+                skipped = getattr(self, "skipped_objects", [])
+                skipped_ids = [int(x) for x in skipped if str(x).isdigit()]
+                max_num = max(skipped_ids + [10])
+                self.current_job_objects = [{"id": oid, "name": f"Об'єкт #{oid}"} for oid in range(1, max_num + 1)]
+
             if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]:
                 if not getattr(self, "_is_calibrating", False) and self._current_job_grams > 0 and not self._job_deducted:
                     active_key = self.get_active_slot_key()

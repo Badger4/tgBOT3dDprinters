@@ -915,8 +915,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (skipObjectsSection && skipObjectsList) {
             const isPrintingState = ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"].includes((p.state || p.gcode_state || "").toUpperCase());
-            const objects = isPrintingState ? (p.current_job_objects || []) : [];
+            let objects = isPrintingState ? (p.current_job_objects || []).slice() : [];
             const skipped = p.skipped_objects || [];
+            if (isPrintingState && objects.length === 0) {
+                let maxId = 10;
+                skipped.forEach(s => {
+                    let val = parseInt(s);
+                    if (!isNaN(val) && val > maxId) maxId = val;
+                });
+                for (let i = 1; i <= maxId; i++) {
+                    objects.push({ id: i, name: `Об'єкт #${i}` });
+                }
+            }
+
             if (isPrintingState) {
                 skipObjectsSection.style.display = "block";
                 if (btnSkipObject) btnSkipObject.style.display = "inline-block";
