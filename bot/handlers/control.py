@@ -64,12 +64,13 @@ async def handle_skip_objects_menu(message: Message, app):
                 pass
 
     if not objects:
-        await message.answer(
-            f"ℹ️ Для поточного завдання друку на <b>{html.escape(target_printer.name)}</b> не виявлено списку об'єктів плейта у .3mf файлі.\n\n"
-            f"💡 <i>Об'єкти зчитуються автоматично при завантаженні .3mf файлу через бот/веб-панель або з SD-карти принтера через FTPS.</i>",
-            parse_mode=ParseMode.HTML,
-        )
-        return
+        # Fallback: Generate numbered generic objects so user can always skip objects by ID (#1..#10)
+        skipped = getattr(target_printer, "skipped_objects", [])
+        skipped_ids = [int(x) for x in skipped if str(x).isdigit()]
+        max_num = max(skipped_ids + [10])
+        fallback_objs = [{"id": oid, "name": f"Об'єкт #{oid}"} for oid in range(1, max_num + 1)]
+        target_printer.current_job_objects = fallback_objs
+        objects = fallback_objs
 
     from bot.keyboards import build_skip_objects_keyboard
     await message.answer(

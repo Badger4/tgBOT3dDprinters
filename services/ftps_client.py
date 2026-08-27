@@ -252,38 +252,47 @@ def fetch_bambu_ftps_info(ip: str, access_code: str, target_filename: str = "") 
             try:
                 flist = ftps.nlst(folder)
                 for f in flist:
-                    files.append(f)
+                    files.append((folder, f))
             except Exception as e:
                 logger.debug(f"FTPS nlst failed for {folder}: {e}")
 
         if not files:
             return {}
 
-        candidate_files = [f for f in files if f.endswith(".3mf") or f.endswith(".gcode") or f.endswith(".gcode.3mf")]
-        chosen_file = None
+        candidate_files = [(folder, f) for folder, f in files if f.endswith(".3mf") or f.endswith(".gcode") or f.endswith(".gcode.3mf")]
+        chosen_entry = None
         if target_filename:
             clean_target = target_filename.lower().replace(".3mf", "").replace(".gcode", "")
-            for c in candidate_files:
+            for folder, c in candidate_files:
                 if clean_target in c.lower():
-                    chosen_file = c
+                    chosen_entry = (folder, c)
                     break
 
-        if not chosen_file and candidate_files:
-            chosen_file = candidate_files[-1]
+        if not chosen_entry and candidate_files:
+            chosen_entry = candidate_files[-1]
 
-        if not chosen_file:
+        if not chosen_entry:
             return {}
 
-        logger.info(f"📥 Downloading print file via FTPS from {ip}: {chosen_file}")
+        chosen_folder, chosen_file = chosen_entry
+        logger.info(f"📥 Downloading print file via FTPS from {ip}: folder='{chosen_folder}', file='{chosen_file}'")
+
+        try:
+            if chosen_folder and chosen_folder != "/":
+                ftps.cwd(chosen_folder)
+        except Exception as e_cwd:
+            logger.debug(f"FTPS CWD to {chosen_folder} warning: {e_cwd}")
+
+        clean_filename = chosen_file.split("/")[-1]
         buf = io.BytesIO()
-        ftps.retrbinary(f"RETR {chosen_file}", buf.write)
+        ftps.retrbinary(f"RETR {clean_filename}", buf.write)
 
         data_bytes = buf.getvalue()
         if not data_bytes:
             return {}
 
         from services.gcode_parser import parse_3mf_file
-        return parse_3mf_file(data_bytes, chosen_file)
+        return parse_3mf_file(data_bytes, clean_filename)
     except Exception as e:
         logger.error(f"❌ Bambu FTPS fetch info error for {ip}: {e}", exc_info=True)
         return {}
