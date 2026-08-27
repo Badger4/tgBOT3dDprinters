@@ -143,9 +143,19 @@ class StorageManager:
         def _get_user_db() -> dict[str, Any] | None:
             conn = sqlite3.connect(self.db_path, timeout=20.0)
             try:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id TEXT PRIMARY KEY,
+                        data TEXT NOT NULL,
+                        updated_at REAL NOT NULL
+                    );
+                """)
                 cur = conn.execute("SELECT data FROM users WHERE user_id = ?", (user_id_str,))
                 row = cur.fetchone()
                 return json.loads(row[0]) if row else None
+            except Exception as e:
+                logger.error(f"SQLite _get_user_db error for {user_id_str}: {e}")
+                return None
             finally:
                 conn.close()
 
@@ -212,6 +222,13 @@ class StorageManager:
         def _save_user_db() -> None:
             conn = sqlite3.connect(self.db_path, timeout=20.0)
             try:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id TEXT PRIMARY KEY,
+                        data TEXT NOT NULL,
+                        updated_at REAL NOT NULL
+                    );
+                """)
                 conn.execute(
                     "INSERT INTO users (user_id, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
                     (user_id_str, val_str, now),
