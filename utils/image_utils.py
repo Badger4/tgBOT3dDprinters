@@ -43,6 +43,60 @@ def compress_part_photo(raw_bytes: bytes) -> bytes:
     return buffer.getvalue()
 
 
+def _load_unicode_font(size: int = 14) -> Any:
+    if Image is None:
+        return None
+    try:
+        from PIL import ImageFont
+
+        font_candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+            "DejaVuSans.ttf",
+            "arial.ttf",
+            "Arial.ttf",
+        ]
+        for font_path in font_candidates:
+            try:
+                return ImageFont.truetype(font_path, size)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return None
+
+
+def _safe_draw_text(draw: Any, xy: tuple[int, int], text: str, fill: str, font: Any = None) -> None:
+    try:
+        if font:
+            draw.text(xy, text, fill=fill, font=font)
+        else:
+            draw.text(xy, text, fill=fill)
+    except Exception:
+        # Fallback transliteration to ASCII for latin-1 restricted default fonts
+        translit_map = {
+            "Спереду": "Front",
+            "Ззаду": "Back",
+            "Ліворуч": "Left",
+            "Праворуч": "Right",
+            "По центру": "Center",
+            "Об'єкт": "Object",
+            "Пропущено": "Skipped",
+        }
+        safe_text = text
+        for k, v in translit_map.items():
+            safe_text = safe_text.replace(k, v)
+        safe_text = "".join(c if ord(c) < 128 else "" for c in safe_text).strip()
+        if not safe_text:
+            safe_text = "Object"
+        try:
+            draw.text(xy, safe_text, fill=fill)
+        except Exception:
+            pass
+
+
 def render_plate_diagram(
     objects: list[dict[str, Any]],
     bed_size_mm: tuple[int, int] = (256, 256),
@@ -59,6 +113,7 @@ def render_plate_diagram(
     try:
         from PIL import ImageDraw
 
+        font = _load_unicode_font(14)
         skipped_set = {str(s) for s in (skipped_ids or [])}
         bed_w, bed_h = bed_size_mm
         scale = 3.0  # 3 px per mm -> 768x768 canvas
@@ -87,10 +142,10 @@ def render_plate_diagram(
             draw.line([bx1, gy, bx2, gy], fill="#282834", width=1)
 
         # Axes orientation labels
-        draw.text((img_w // 2 - 45, by2 + 12), "Спереду (Front)", fill="#8a8a9c")
-        draw.text((img_w // 2 - 35, by1 - 25), "Ззаду (Back)", fill="#8a8a9c")
-        draw.text((bx1 - 38, img_h // 2 - 10), "Ліворуч", fill="#8a8a9c")
-        draw.text((bx2 + 8, img_h // 2 - 10), "Праворуч", fill="#8a8a9c")
+        _safe_draw_text(draw, (img_w // 2 - 45, by2 + 12), "Спереду (Front)", fill="#8a8a9c", font=font)
+        _safe_draw_text(draw, (img_w // 2 - 35, by1 - 25), "Ззаду (Back)", fill="#8a8a9c", font=font)
+        _safe_draw_text(draw, (bx1 - 38, img_h // 2 - 10), "Ліворуч", fill="#8a8a9c", font=font)
+        _safe_draw_text(draw, (bx2 + 8, img_h // 2 - 10), "Праворуч", fill="#8a8a9c", font=font)
 
         # Check grid fallback if bbox is missing
         n_objs = len(objects)
@@ -159,7 +214,7 @@ def render_plate_diagram(
 
             # Text inside/above object box
             badge_text = f"#{obj_id}: {clean_name[:14]}{status_label}"
-            draw.text((px1 + 6, py1 + 6), badge_text, fill=text_col)
+            _safe_draw_text(draw, (px1 + 6, py1 + 6), badge_text, fill=text_col, font=font)
 
         buffer = io.BytesIO()
         img.save(buffer, format="JPEG", quality=88)
