@@ -3278,6 +3278,26 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    const closePartDetailsBtn = document.getElementById("close-part-details-modal-btn");
+    if (closePartDetailsBtn) {
+        closePartDetailsBtn.addEventListener("click", (e) => {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            window.closePartDetailsModal();
+        });
+    }
+
+    const partDetailsModal = document.getElementById("part-details-modal");
+    if (partDetailsModal) {
+        partDetailsModal.addEventListener("click", (e) => {
+            if (e.target === partDetailsModal) {
+                window.closePartDetailsModal();
+            }
+        });
+    }
+
     const closeAddPartModalBtn = document.getElementById("close-add-part-modal");
     if (closeAddPartModalBtn) {
         closeAddPartModalBtn.addEventListener("click", () => {
