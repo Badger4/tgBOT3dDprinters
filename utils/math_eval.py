@@ -4,8 +4,9 @@ Safe AST-based mathematical string evaluation utility.
 
 import ast
 import operator as op
+from typing import Any
 
-MATH_OPERATORS = {
+MATH_OPERATORS: dict[type, Any] = {
     ast.Add: op.add,
     ast.Sub: op.sub,
     ast.Mult: op.mul,
@@ -24,7 +25,7 @@ def safe_eval_math(expr_str: str) -> float | None:
     try:
         node = ast.parse(clean_expr, mode="eval").body
 
-        def _eval(n):
+        def _eval(n: ast.AST) -> float:
             if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
                 return n.value
             elif isinstance(n, ast.BinOp):

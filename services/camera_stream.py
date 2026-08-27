@@ -6,6 +6,7 @@ import asyncio
 import socket
 import ssl
 import struct
+from typing import Any
 
 from config import logger
 
@@ -138,7 +139,7 @@ async def capture_real_camera_photo(ip: str, access_code: str) -> bytes | None:
     return None
 
 
-def stream_bambu_port6000_jpegs(ip: str, access_code: str, max_frames: int = 5000):
+def stream_bambu_port6000_jpegs(ip: str, access_code: str, max_frames: int = 5000) -> Any:
     """
     Connects to Bambu Lab Port 6000 TLS Stream, sends binary auth, and continuously yields
     JPEG frames as byte objects for real-time video streaming.
@@ -208,7 +209,7 @@ def stream_bambu_port6000_jpegs(ip: str, access_code: str, max_frames: int = 500
                 pass
 
 
-async def async_stream_camera_frames(ip: str, access_code: str):
+async def async_stream_camera_frames(ip: str, access_code: str) -> Any:
     """
     Async generator yielding live JPEG frames from Bambu Lab camera.
     Retries Port 6000 TLS stream or falls back to HTTP camera snapshots.
@@ -219,10 +220,10 @@ async def async_stream_camera_frames(ip: str, access_code: str):
     while True:
         is_6000_open = await check_tcp_port_open(ip, 6000, timeout=1.0)
         if is_6000_open:
-            def _get_frame_gen():
+            def _get_frame_gen() -> Any:
                 return iter(stream_bambu_port6000_jpegs(ip, access_code, max_frames=500))
 
-            def _fetch_next(g_obj):
+            def _fetch_next(g_obj: Any) -> Any:
                 return next(g_obj, None)
 
             try:

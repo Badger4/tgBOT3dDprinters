@@ -5,6 +5,7 @@ Parts warehouse management REST API endpoints supporting reference bot fields.
 import time
 from aiohttp import web
 
+from config import logger
 from services.http.auth import check_auth
 
 

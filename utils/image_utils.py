@@ -15,17 +15,18 @@ def compress_part_photo(raw_bytes: bytes) -> bytes:
     Стискає фото деталі перед збереженням: EXIF orientation correction,
     RGB conversion, LANCZOS thumbnail to MAX_DIMENSION, and JPEG re-encoding.
     """
-    img = Image.open(io.BytesIO(raw_bytes))
+    img_raw = Image.open(io.BytesIO(raw_bytes))
 
     # 1. Fix orientation from EXIF metadata
-    img = ImageOps.exif_transpose(img)
+    img: Image.Image = ImageOps.exif_transpose(img_raw)
 
     # 2. Convert to RGB (PNG with alpha channel or HEIC/P/RGBA will break JPEG saving)
     if img.mode != "RGB":
         img = img.convert("RGB")
 
     # 3. Downscale if longer side exceeds MAX_DIMENSION
-    img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
+    resample_filter = getattr(Image, "Resampling", Image).LANCZOS
+    img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), resample_filter)
 
     # 4. Save as optimized JPEG in memory
     buffer = io.BytesIO()
