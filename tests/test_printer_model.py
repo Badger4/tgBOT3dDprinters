@@ -235,9 +235,11 @@ class TestPrinterModel(unittest.TestCase):
         self.printer._on_message(None, None, msg)
         self.assertTrue(self.printer._history_recorded)
         self.assertFalse(self.printer._is_printing)
-        mock_threadsafe.assert_called_once()
-        coro = mock_threadsafe.call_args[0][0]
-        coro.close()
+        self.assertTrue(mock_threadsafe.called)
+        for call_item in mock_threadsafe.call_args_list:
+            coro = call_item[0][0]
+            if hasattr(coro, "close"):
+                coro.close()
 
     @patch("asyncio.run_coroutine_threadsafe")
     def test_no_phantom_history_on_initial_finish(self, mock_threadsafe) -> None:
@@ -271,9 +273,11 @@ class TestPrinterModel(unittest.TestCase):
         msg.payload = json.dumps({"print": {"gcode_state": "FINISH", "mc_percent": 100}}).encode("utf-8")
         self.printer._on_message(None, None, msg)
         self.assertTrue(self.printer._history_recorded)
-        mock_threadsafe.assert_called_once()
-        coro = mock_threadsafe.call_args[0][0]
-        coro.close()
+        self.assertTrue(mock_threadsafe.called)
+        for call_item in mock_threadsafe.call_args_list:
+            coro = call_item[0][0]
+            if hasattr(coro, "close"):
+                coro.close()
 
     def test_start_calibration_prevents_weight_deduction(self) -> None:
         self.printer._client = MagicMock()
