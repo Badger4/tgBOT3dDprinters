@@ -2851,10 +2851,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     window.showPartDetails = function(partId) {
-        const part = partsData ? partsData[partId] : null;
+        const cache = partsData || window._partsCache || {};
+        const part = cache ? cache[partId] : null;
         if (!part) return;
 
         const modal = document.getElementById("part-details-modal");
+        if (!modal) return;
+
         const titleEl = document.getElementById("part-details-title");
         const contentEl = document.getElementById("part-details-content");
         const downloadBtn = document.getElementById("part-details-download-btn");
@@ -2928,13 +2931,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (printBtn) {
             printBtn.onclick = () => {
-                if (modal) modal.classList.remove("active");
+                modal.classList.remove("active");
                 triggerPrintPartById(part.id);
             };
         }
 
-        triggerHaptic("medium");
-        if (modal) modal.classList.add("active");
+        if (typeof triggerHaptic === "function") triggerHaptic("medium");
+        modal.classList.add("active");
     };
 
     window.closePartDetailsModal = function() {
@@ -3009,7 +3012,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 html += `
                     <div class="spool-item-card part-item-card glass-card mb-3 p-3">
                         <div class="part-card-header">
-                            <div class="part-card-main-info" onclick="window.showPartDetails('${part.id}')" title="Натисніть для перегляду деталей моделі">
+                            <div class="part-card-main-info" data-id="${part.id}" title="Натисніть для перегляду деталей моделі">
                                 ${imageSrc
                                     ? `<img src="${imageSrc}" class="part-preview-thumb" alt="${escapeHtml(part.name)}">`
                                     : `<div class="part-preview-placeholder"><i class="fa-solid fa-cube color-green fs-5"></i></div>`
@@ -3035,7 +3038,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         </div>
 
                         ${threeMf ? `
-                            <div class="part-card-file-row" onclick="window.showPartDetails('${part.id}')" style="cursor: pointer;" title="Натисніть для детальної інформації">
+                            <div class="part-card-file-row" data-id="${part.id}" style="cursor: pointer;" title="Натисніть для детальної інформації">
                                 <i class="fa-solid fa-file"></i>
                                 <span><strong>.3mf:</strong> ${threeMf}</span>
                             </div>
@@ -3056,6 +3059,15 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
             partsListEl.innerHTML = html;
+
+            document.querySelectorAll(".part-card-main-info, .part-card-file-row").forEach(el => {
+                el.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const id = el.getAttribute("data-id");
+                    if (id) window.showPartDetails(id);
+                });
+            });
 
             document.querySelectorAll(".btn-print-part").forEach(b => {
                 b.addEventListener("click", (e) => {
