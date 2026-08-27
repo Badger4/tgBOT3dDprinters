@@ -31,7 +31,7 @@ router = Router()
 
 async def open_parts_list(message: Message, state: FSMContext, app: Any, lang: str = "uk") -> None:
     await state.set_state(PartEditingStates.in_parts_list)
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
 
     text_keyboard = get_parts_reply_keyboard(lang)
     inline_keyboard = get_parts_inline_keyboard(parts)
@@ -151,7 +151,7 @@ async def send_part_info(target_message: Message, part: dict[str, Any], text_key
 @router.callback_query(F.data.startswith("part_view_"))
 async def handle_select_part_view(callback: CallbackQuery, state: FSMContext, app: Any) -> None:
     part_id = callback.data.replace("part_view_", "")
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
 
     if part_id not in parts:
         await callback.answer("⚠️ Деталь не знайдено!", show_alert=True)
@@ -183,7 +183,7 @@ async def handle_select_part_view(callback: CallbackQuery, state: FSMContext, ap
 @router.callback_query(F.data.startswith("part_print_select_"))
 async def handle_part_print_select(callback: CallbackQuery, state: FSMContext, app: Any) -> None:
     part_id = callback.data.replace("part_print_select_", "")
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
 
     if part_id not in parts:
         await callback.answer("⚠️ Деталь не знайдено!", show_alert=True)
@@ -227,7 +227,7 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
         return
 
     part_id, printer_id = data_parts[0], data_parts[1]
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
     printer = app.printers.get(printer_id)
 
     if part_id not in parts:
@@ -334,7 +334,7 @@ async def handle_click_property(callback: CallbackQuery, state: FSMContext, app:
     prop_name = callback.data.replace("part_prop_", "")
     data = await state.get_data()
     part_id = data.get("selected_part_id")
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
 
     if not part_id or part_id not in parts:
         await callback.answer("⚠️ Помилка: деталь не знайдена.", show_alert=True)
@@ -370,7 +370,7 @@ async def process_confirm_property_edit(message: Message, state: FSMContext, app
     prop_name = data.get("editing_prop")
     draft = data.get("editing_draft") or {}
 
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
     if not part_id or part_id not in parts:
         await message.answer("⚠️ Помилка: деталь не знайдена.")
         await state.clear()
@@ -482,7 +482,7 @@ async def process_confirm_property_edit(message: Message, state: FSMContext, app
 async def handle_print_button_text(message: Message, state: FSMContext, app: Any) -> None:
     current_state = await state.get_state()
     data = await state.get_data()
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
 
     if not parts:
         await message.answer("⚠️ Склад деталей порожній!")
@@ -518,7 +518,7 @@ async def handle_print_button_text(message: Message, state: FSMContext, app: Any
 async def handle_edit_button_text(message: Message, state: FSMContext, app: Any) -> None:
     current_state = await state.get_state()
     data = await state.get_data()
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
 
     if not parts:
         await message.answer("⚠️ Склад деталей порожній!")
@@ -546,7 +546,7 @@ async def handle_search_part_btn(message: Message, state: FSMContext) -> None:
 @router.message(PartEditingStates.search_query)
 async def process_search_part_query(message: Message, state: FSMContext, app: Any) -> None:
     query = (message.text or "").strip().lower()
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
 
     filtered = {
         pid: p for pid, p in parts.items()
@@ -632,7 +632,7 @@ async def add_part_three_mf(message: Message, state: FSMContext, app: Any) -> No
     doc_name = message.document.file_name if message.document else "model.3mf"
 
     part_id = f"part_{int(time.time() * 1000)}"
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
 
     try:
         cnt_val = int(data.get("count", 0))
@@ -692,7 +692,7 @@ async def delete_current_part(message: Message, state: FSMContext, app: Any) -> 
     data = await state.get_data()
     part_id = data.get("selected_part_id")
 
-    parts: dict[str, dict[str, Any]] = await app.storage.load_json(app.storage.parts_file, {})
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
     if part_id and part_id in parts:
         del parts[part_id]
         await app.storage.save_json(app.storage.parts_file, parts)

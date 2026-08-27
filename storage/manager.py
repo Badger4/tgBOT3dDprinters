@@ -322,10 +322,26 @@ class StorageManager:
                 "price_uah": 700.0,
             },
         }
-        return await self.load_json(self.spools_file, default_spools)
+        data = await self.load_json(self.spools_file, default_spools)
+        if isinstance(data, list):
+            return {s["id"]: s for s in data if isinstance(s, dict) and "id" in s}
+        if isinstance(data, dict):
+            return data
+        return default_spools
 
     async def save_spools(self, spools: dict[str, dict[str, Any]]) -> bool:
         return await self.save_json(self.spools_file, spools)
+
+    async def load_parts(self) -> dict[str, dict[str, Any]]:
+        data = await self.load_json(self.parts_file, {})
+        if isinstance(data, list):
+            return {p["id"]: p for p in data if isinstance(p, dict) and "id" in p}
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    async def save_parts(self, parts: dict[str, dict[str, Any]]) -> bool:
+        return await self.save_json(self.parts_file, parts)
 
     async def load_spool_movements(self) -> list[dict[str, Any]]:
         """Loads warehouse movement audit history."""

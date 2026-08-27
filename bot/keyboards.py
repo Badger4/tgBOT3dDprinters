@@ -287,7 +287,9 @@ def get_parts_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def get_parts_inline_keyboard(parts: dict[str, dict[str, Any]]) -> InlineKeyboardMarkup:
+def get_parts_inline_keyboard(parts: dict[str, dict[str, Any]] | list) -> InlineKeyboardMarkup:
+    if isinstance(parts, list):
+        parts = {p["id"]: p for p in parts if isinstance(p, dict) and "id" in p}
     buttons = []
     for p_id, p in parts.items():
         name = p.get("name", "Деталь")
