@@ -3,7 +3,12 @@ Image optimization and compression utilities for 3D part photos and previews.
 """
 
 import io
-from PIL import Image, ImageOps
+
+try:
+    from PIL import Image, ImageOps
+except ImportError:
+    Image = None
+    ImageOps = None
 
 MAX_DIMENSION = 800       # Maximum dimension for longest side (px)
 JPEG_QUALITY = 80         # Target JPEG quality
@@ -15,6 +20,9 @@ def compress_part_photo(raw_bytes: bytes) -> bytes:
     Стискає фото деталі перед збереженням: EXIF orientation correction,
     RGB conversion, LANCZOS thumbnail to MAX_DIMENSION, and JPEG re-encoding.
     """
+    if Image is None:
+        return raw_bytes
+
     img_raw = Image.open(io.BytesIO(raw_bytes))
 
     # 1. Fix orientation from EXIF metadata
