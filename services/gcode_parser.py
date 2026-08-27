@@ -464,6 +464,16 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             except Exception:
                 return ""
 
+        # Filter out auxiliary non-printable objects like Wipe/Prime Towers
+        filtered_objects = []
+        for obj in objects_list:
+            n_low = obj.get("name", "").lower()
+            if any(k in n_low for k in ["wipe tower", "prime tower", "purge tower", "wipe_tower", "prime_tower"]):
+                continue
+            filtered_objects.append(obj)
+        if filtered_objects:
+            objects_list = filtered_objects
+
         # Clean any pre-existing tags & disambiguate duplicate object names cleanly (e.g. "Куб #1 (Ззаду Праворуч)")
         for obj in objects_list:
             raw_n = obj.get("name", "")

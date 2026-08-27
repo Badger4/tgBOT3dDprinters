@@ -166,7 +166,11 @@ async def handle_get_printer_plate_map(request: web.Request) -> web.Response:
     if not img_bytes:
         return web.Response(status=404, text="Map generation failed")
 
-    return web.Response(body=img_bytes, content_type="image/jpeg")
+    return web.Response(
+        body=img_bytes,
+        content_type="image/jpeg",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 async def handle_get_snapshot(request: web.Request) -> web.Response:

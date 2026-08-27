@@ -918,7 +918,7 @@ document.addEventListener("DOMContentLoaded", () => {
             let objects = isPrintingState ? (p.current_job_objects || []).slice() : [];
             const skipped = p.skipped_objects || [];
             if (isPrintingState && objects.length === 0) {
-                let maxId = 10;
+                let maxId = 1;
                 skipped.forEach(s => {
                     let val = parseInt(s);
                     if (!isNaN(val) && val > maxId) maxId = val;
@@ -960,7 +960,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
                         return `${base}${numStr}${posTag}`.trim();
                     };
-                    const mapHtml = `<div class="text-center mb-2"><img src="/api/printers/${p.id}/plate_map?t=${Date.now()}" class="img-fluid rounded border border-secondary shadow-sm" style="max-height: 250px; background-color: #16161a;" alt="Схема столу" /></div>`;
+                    const initDataParam = window.Telegram?.WebApp?.initData ? ('&initData=' + encodeURIComponent(window.Telegram.WebApp.initData)) : '';
+                    const tokenParam = localStorage.getItem("token") ? ('&token=' + encodeURIComponent(localStorage.getItem("token"))) : '';
+                    const mapHtml = `<div class="text-center mb-2"><img src="/api/printers/${p.id}/plate_map?t=${Date.now()}${initDataParam}${tokenParam}" class="img-fluid rounded border border-secondary shadow-sm" style="max-height: 250px; background-color: #16161a;" alt="Схема столу" /></div>`;
                     const btnsHtml = objects.map(obj => {
                         const objId = obj.id;
                         const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
