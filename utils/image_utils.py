@@ -3,12 +3,13 @@ Image optimization and compression utilities for 3D part photos and previews.
 """
 
 import io
+from typing import Any
 
 try:
     from PIL import Image, ImageOps
 except ImportError:
-    Image = None
-    ImageOps = None
+    Image = None  # type: ignore[assignment]
+    ImageOps = None  # type: ignore[assignment]
 
 MAX_DIMENSION = 800       # Maximum dimension for longest side (px)
 JPEG_QUALITY = 80         # Target JPEG quality

@@ -52,7 +52,8 @@ async def handle_skip_objects_menu(message: Message, app):
 
     if not objects:
         import json
-        cache_file = app.storage.base_dir / "last_sliced_weight.json"
+        from config import STORAGE_DIR
+        cache_file = STORAGE_DIR / "last_sliced_weight.json"
         if cache_file.exists():
             try:
                 c_data = json.loads(cache_file.read_text(encoding="utf-8"))
