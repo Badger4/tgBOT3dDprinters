@@ -27,34 +27,44 @@ BAMBU_MODEL_MAP = {
 
 
 def sanitize_object_name(name: str) -> str:
-    """Sanitizes object names, removing repetitive or stacked spatial labels and extra hashtags."""
+    """Sanitizes object names, making parsing 100% idempotent and preventing spatial word multiplication."""
     if not name or not isinstance(name, str):
         return ""
     clean = str(name).strip()
-    match_base = re.match(r"^([^#\(\)]+)(?:\s*(#\d+))?", clean)
-    if not match_base:
-        return clean
-    base_part = match_base.group(1).strip()
-    num_part = match_base.group(2) or ""
 
-    name_lower = clean.lower()
-    found_words: list[str] = []
-    for kw in ["ззаду", "спереду"]:
-        if kw in name_lower and kw.capitalize() not in found_words:
-            found_words.append(kw.capitalize())
-            break
-    for kw in ["ліворуч", "праворуч"]:
-        if kw in name_lower and kw.capitalize() not in found_words:
-            found_words.append(kw.capitalize())
-            break
-    if not found_words and "по центру" in name_lower:
-        found_words.append("По центру")
+    # Extract hashtag index if present (#1, #2)
+    m_num = re.search(r"#(\d+)", clean)
+    num_str = f" #{m_num.group(1)}" if m_num else ""
 
-    spatial_str = " ".join(found_words)
+    # Extract unique spatial keywords once from clean string
+    clean_lower = clean.lower()
+    y_word = ""
+    if "ззаду" in clean_lower:
+        y_word = "Ззаду"
+    elif "спереду" in clean_lower:
+        y_word = "Спереду"
+
+    x_word = ""
+    if "ліворуч" in clean_lower:
+        x_word = "Ліворуч"
+    elif "праворуч" in clean_lower:
+        x_word = "Праворуч"
+
+    center_word = ""
+    if not y_word and not x_word and ("по центру" in clean_lower or "центр" in clean_lower):
+        center_word = "По центру"
+
+    spatial_parts = [w for w in [y_word, x_word, center_word] if w]
+    spatial_str = " ".join(spatial_parts)
     pos_tag = f" ({spatial_str})" if spatial_str else ""
-    num_tag = f" {num_part}" if num_part else ""
 
-    return f"{base_part}{num_tag}{pos_tag}".strip()
+    # Strip ALL #N and ALL (...) from base name completely
+    base = re.sub(r"\s*#\d+.*", "", clean)
+    base = re.sub(r"\s*\(.*?\)", "", base).strip()
+    if not base:
+        base = "Об'єкт"
+
+    return f"{base}{num_str}{pos_tag}".strip()
 
 
 def parse_time_str(time_str: str) -> int:

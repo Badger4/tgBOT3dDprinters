@@ -923,19 +923,31 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (objects.length > 0) {
                     const sanitizeObjName = (nameStr) => {
                         if (!nameStr) return "";
-                        let base = nameStr.replace(/\s*#\d+.*$/, "").replace(/\s*\(.*?\)$/, "").trim();
-                        if (!base) base = nameStr;
-                        let nLow = nameStr.toLowerCase();
-                        let words = [];
-                        if (nLow.includes("ззаду")) words.push("Ззаду");
-                        else if (nLow.includes("спереду")) words.push("Спереду");
-                        if (nLow.includes("ліворуч")) words.push("Ліворуч");
-                        else if (nLow.includes("праворуч")) words.push("Праворуч");
-                        if (words.length === 0 && nLow.includes("по центру")) words.push("По центру");
-                        let mNum = nameStr.match(/#\d+/);
-                        let numStr = mNum ? (" " + mNum[0]) : "";
-                        let posStr = words.length > 0 ? (` (${words.join(" ")})`) : "";
-                        return `${base}${numStr}${posStr}`;
+                        let clean = String(nameStr).trim();
+                        let mNum = clean.match(/#(\d+)/);
+                        let numStr = mNum ? (" #" + mNum[1]) : "";
+
+                        let nLow = clean.toLowerCase();
+                        let yWord = "";
+                        if (nLow.includes("ззаду")) yWord = "Ззаду";
+                        else if (nLow.includes("спереду")) yWord = "Спереду";
+
+                        let xWord = "";
+                        if (nLow.includes("ліворуч")) xWord = "Ліворуч";
+                        else if (nLow.includes("праворуч")) xWord = "Праворуч";
+
+                        let centerWord = "";
+                        if (!yWord && !xWord && (nLow.includes("по центру") || nLow.includes("центр"))) {
+                            centerWord = "По центру";
+                        }
+
+                        let spatialParts = [yWord, xWord, centerWord].filter(w => w !== "");
+                        let posTag = spatialParts.length > 0 ? (" (" + spatialParts.join(" ") + ")") : "";
+
+                        let base = clean.replace(/\s*#\d+.*/, "").replace(/\s*\(.*?\)/g, "").trim();
+                        if (!base) base = "Об'єкт";
+
+                        return `${base}${numStr}${posTag}`.trim();
                     };
                     skipObjectsList.innerHTML = objects.map(obj => {
                         const objId = obj.id;
