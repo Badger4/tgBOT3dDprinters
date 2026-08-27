@@ -19,6 +19,7 @@ __all__ = [
     "handle_create_printer",
     "handle_delete_printer",
     "handle_get_printer_by_id",
+    "handle_get_printer_plate_map",
     "handle_get_snapshot",
     "handle_get_camera_stream",
     "handle_update_access_code",
@@ -142,6 +143,30 @@ async def handle_get_printer_by_id(request: web.Request) -> web.Response:
         return web.json_response({"error": "Printer not found"}, status=404)
 
     return web.json_response(build_printer_telemetry(p))
+
+
+async def handle_get_printer_plate_map(request: web.Request) -> web.Response:
+    """GET /api/printers/{id}/plate_map - Renders top-down 2D plate map diagram JPEG image."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    printer_id = request.match_info.get("id", "")
+    printer = app_obj.printers.get(printer_id)
+    if not printer:
+        return web.json_response({"error": "Printer not found"}, status=404)
+
+    objects = getattr(printer, "current_job_objects", [])
+    skipped = getattr(printer, "skipped_objects", [])
+    bed_size = (180, 180) if "mini" in (printer.model or "").lower() else (256, 256)
+
+    from utils.image_utils import render_plate_diagram
+
+    img_bytes = render_plate_diagram(objects, bed_size_mm=bed_size, skipped_ids=skipped)
+    if not img_bytes:
+        return web.Response(status=404, text="Map generation failed")
+
+    return web.Response(body=img_bytes, content_type="image/jpeg")
 
 
 async def handle_get_snapshot(request: web.Request) -> web.Response:

@@ -283,13 +283,20 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                             if "bbox_objects" in p_json and isinstance(p_json["bbox_objects"], list):
                                 if not bbox_list:
                                     bbox_list = p_json["bbox_objects"]
-                                if not objects_list:
-                                    for b_obj in p_json["bbox_objects"]:
-                                        if isinstance(b_obj, dict) and "id" in b_obj:
-                                            b_id = str(b_obj["id"]).strip()
-                                            b_name = str(b_obj.get("name") or f"Об'єкт {b_id}").strip()
-                                            if not any(o["id"] == b_id for o in objects_list):
-                                                objects_list.append({"id": b_id, "name": b_name})
+                                for b_obj in p_json["bbox_objects"]:
+                                    if isinstance(b_obj, dict) and "id" in b_obj:
+                                        b_id = str(b_obj["id"]).strip()
+                                        b_name = str(b_obj.get("name") or f"Об'єкт {b_id}").strip()
+                                        b_box = b_obj.get("bbox")
+                                        matching = [o for o in objects_list if o["id"] == b_id]
+                                        if matching:
+                                            if b_box and isinstance(b_box, list):
+                                                matching[0]["bbox"] = b_box
+                                        else:
+                                            obj_dict: dict[str, Any] = {"id": b_id, "name": b_name}
+                                            if b_box and isinstance(b_box, list):
+                                                obj_dict["bbox"] = b_box
+                                            objects_list.append(obj_dict)
 
                             for k in [
                                 "printer_model_id",
@@ -474,6 +481,8 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             base_name = obj["name"]
             pos_str = ""
             if i < len(bbox_list) and isinstance(bbox_list[i], dict) and "bbox" in bbox_list[i]:
+                if "bbox" not in obj:
+                    obj["bbox"] = bbox_list[i]["bbox"]
                 b_lbl = get_spatial_label(bbox_list[i]["bbox"])
                 if b_lbl:
                     pos_str = f" ({b_lbl})"

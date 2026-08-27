@@ -72,7 +72,24 @@ async def handle_skip_objects_menu(message: Message, app):
         target_printer.current_job_objects = fallback_objs
         objects = fallback_objs
 
+    from aiogram.types import BufferedInputFile
     from bot.keyboards import build_skip_objects_keyboard
+    from utils.image_utils import render_plate_diagram
+
+    bed_size = (180, 180) if "mini" in (target_printer.model or "").lower() else (256, 256)
+    diagram_bytes = render_plate_diagram(objects, bed_size_mm=bed_size, skipped_ids=getattr(target_printer, "skipped_objects", []))
+
+    if diagram_bytes:
+        try:
+            await message.answer_photo(
+                photo=BufferedInputFile(diagram_bytes, filename="plate_map.jpg"),
+                caption=f"🗺️ <b>Схема розташування об'єктів ({html.escape(target_printer.name)}):</b>\n"
+                f"🟢 <i>Зелені — активні об'єкти</i> | 🔴 <i>Червоні — пропущені</i>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            logger.warning(f"Could not send plate diagram photo for [{target_printer.name}]: {e}")
+
     await message.answer(
         f"🚫 <b>Пропуск невдалого об'єкта</b> на <b>{html.escape(target_printer.name)}</b>:\n"
         f"Оберіть об'єкт на плейті, який потрібно припинити друкувати:",

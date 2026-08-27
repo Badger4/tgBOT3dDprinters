@@ -41,3 +41,131 @@ def compress_part_photo(raw_bytes: bytes) -> bytes:
     buffer = io.BytesIO()
     img.save(buffer, format="JPEG", quality=JPEG_QUALITY, optimize=True)
     return buffer.getvalue()
+
+
+def render_plate_diagram(
+    objects: list[dict[str, Any]],
+    bed_size_mm: tuple[int, int] = (256, 256),
+    skipped_ids: list[Any] | None = None,
+) -> bytes:
+    """
+    Renders a 2D top-down visual map diagram of the print bed with bounding boxes and object IDs.
+    - Green boxes: Active objects
+    - Red boxes: Skipped objects
+    """
+    if Image is None:
+        return b""
+
+    try:
+        from PIL import ImageDraw
+
+        skipped_set = {str(s) for s in (skipped_ids or [])}
+        bed_w, bed_h = bed_size_mm
+        scale = 3.0  # 3 px per mm -> 768x768 canvas
+        margin = 45  # margin for axes labels
+
+        img_w = int(bed_w * scale + margin * 2)
+        img_h = int(bed_h * scale + margin * 2)
+
+        img = Image.new("RGB", (img_w, img_h), color="#16161a")
+        draw = ImageDraw.Draw(img)
+
+        # Bed outline
+        bx1 = margin
+        by1 = margin
+        bx2 = margin + int(bed_w * scale)
+        by2 = margin + int(bed_h * scale)
+
+        draw.rectangle([bx1, by1, bx2, by2], outline="#3a3a4c", width=3, fill="#1e1e24")
+
+        # Grid lines every 50mm
+        for mm in range(50, bed_w, 50):
+            gx = margin + int(mm * scale)
+            draw.line([gx, by1, gx, by2], fill="#282834", width=1)
+        for mm in range(50, bed_h, 50):
+            gy = margin + int(mm * scale)
+            draw.line([bx1, gy, bx2, gy], fill="#282834", width=1)
+
+        # Axes orientation labels
+        draw.text((img_w // 2 - 45, by2 + 12), "Спереду (Front)", fill="#8a8a9c")
+        draw.text((img_w // 2 - 35, by1 - 25), "Ззаду (Back)", fill="#8a8a9c")
+        draw.text((bx1 - 38, img_h // 2 - 10), "Ліворуч", fill="#8a8a9c")
+        draw.text((bx2 + 8, img_h // 2 - 10), "Праворуч", fill="#8a8a9c")
+
+        # Check grid fallback if bbox is missing
+        n_objs = len(objects)
+        cols = 3 if n_objs >= 4 else (2 if n_objs >= 2 else 1)
+        rows = (n_objs + cols - 1) // cols if cols > 0 else 1
+
+        import re
+
+        for idx, obj in enumerate(objects):
+            obj_id = str(obj.get("id", idx + 1)).strip()
+            raw_name = str(obj.get("name", f"Об'єкт #{obj_id}")).strip()
+
+            # Clean object name for display on map
+            clean_name = re.sub(r"\s*#\d+.*$", "", raw_name)
+            clean_name = re.sub(r"\s*\(.*?\)$", "", clean_name).strip()
+            if not clean_name:
+                clean_name = f"Об'єкт #{obj_id}"
+
+            is_skipped = obj_id in skipped_set or (
+                obj_id.isdigit() and int(obj_id) in [int(s) for s in skipped_set if s.isdigit()]
+            )
+
+            bbox = obj.get("bbox")
+            if not bbox or not isinstance(bbox, list) or len(bbox) < 4:
+                # Fallback 2D grid allocation on plate
+                r = idx // cols
+                c = idx % cols
+                cell_w = bed_w / cols
+                cell_h = bed_h / rows
+                xmin = c * cell_w + cell_w * 0.15
+                xmax = (c + 1) * cell_w - cell_w * 0.15
+                ymin = r * cell_h + cell_h * 0.15
+                ymax = (r + 1) * cell_h - cell_h * 0.15
+                bbox = [xmin, ymin, xmax, ymax]
+
+            try:
+                xmin, ymin, xmax, ymax = [float(v) for v in bbox[:4]]
+            except Exception:
+                xmin, ymin, xmax, ymax = 10.0, 10.0, 50.0, 50.0
+
+            # Convert to screen coordinates (Bambu Y=0 is front -> by2)
+            px1 = margin + int(xmin * scale)
+            px2 = margin + int(xmax * scale)
+            py1 = by2 - int(ymax * scale)
+            py2 = by2 - int(ymin * scale)
+
+            # Ensure minimum bounding box dimension for small objects
+            if px2 - px1 < 30:
+                px2 = px1 + 30
+            if py2 - py1 < 30:
+                py1 = py2 - 30
+
+            # Styling
+            if is_skipped:
+                fill_col = "#3d1616"
+                border_col = "#ff4444"
+                text_col = "#ff9999"
+                status_label = " ❌"
+            else:
+                fill_col = "#13382c"
+                border_col = "#00ffaa"
+                text_col = "#ffffff"
+                status_label = ""
+
+            draw.rectangle([px1, py1, px2, py2], fill=fill_col, outline=border_col, width=3)
+
+            # Text inside/above object box
+            badge_text = f"#{obj_id}: {clean_name[:14]}{status_label}"
+            draw.text((px1 + 6, py1 + 6), badge_text, fill=text_col)
+
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=88)
+        return buffer.getvalue()
+    except Exception as e:
+        import logging
+
+        logging.warning(f"Failed rendering plate diagram: {e}")
+        return b""

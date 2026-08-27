@@ -949,17 +949,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
                         return `${base}${numStr}${posTag}`.trim();
                     };
-                    skipObjectsList.innerHTML = objects.map(obj => {
+                    const mapHtml = `<div class="text-center mb-2"><img src="/api/printers/${p.id}/plate_map?t=${Date.now()}" class="img-fluid rounded border border-secondary shadow-sm" style="max-height: 250px; background-color: #16161a;" alt="Схема столу" /></div>`;
+                    const btnsHtml = objects.map(obj => {
                         const objId = obj.id;
                         const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
                         const cleanName = sanitizeObjName(obj.name || ('Об\'єкт ' + objId));
                         return `
-                            <button class="btn btn-sm ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item" 
+                            <button class="btn btn-sm ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item me-1 mb-1" 
                                     data-id="${objId}" ${isSkipped ? 'disabled' : ''}>
                                 ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban"></i> '}
                                 ${escapeHtml(cleanName)} ${isSkipped ? '(Пропущено)' : ''}
                             </button>`;
                     }).join("");
+                    skipObjectsList.innerHTML = mapHtml + btnsHtml;
 
                     skipObjectsList.querySelectorAll(".btn-skip-obj-item:not(.disabled)").forEach(b => {
                         b.addEventListener("click", async () => {
