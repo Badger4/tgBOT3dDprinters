@@ -971,12 +971,12 @@ document.addEventListener("DOMContentLoaded", () => {
                         const btnsHtml = objects.map(obj => {
                             const objId = obj.id;
                             const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
-                            const cleanName = `Об'єкт #${objId}`;
+                            const labelText = isSkipped ? `#${objId} (Пропущено)` : `#${objId}`;
                             return `
-                                <button class="btn btn-sm ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item me-1 mb-1" 
+                                <button class="btn btn-sm py-1 px-2 ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item me-1 mb-1 font-monospace fw-bold" 
                                         data-id="${objId}" ${isSkipped ? 'disabled' : ''}>
-                                    ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban"></i> '}
-                                    ${escapeHtml(cleanName)} ${isSkipped ? '(Пропущено)' : ''}
+                                    ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban me-1"></i>'}
+                                    ${escapeHtml(labelText)}
                                 </button>`;
                         }).join("");
                         skipObjectsList.innerHTML = mapHtml + btnsHtml;

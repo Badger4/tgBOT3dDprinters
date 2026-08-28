@@ -514,9 +514,11 @@ class BambuPrinter:
 
             if self.gcode_state in ["RUNNING", "PAUSE", "PREPARATION", "BUILDING"] and not self.current_job_objects:
                 skipped = getattr(self, "skipped_objects", [])
-                skipped_ids = [int(x) for x in skipped if str(x).isdigit()]
-                max_num = max(skipped_ids) if skipped_ids else 1
-                self.current_job_objects = [{"id": oid, "name": f"Об'єкт #{oid}"} for oid in range(1, max_num + 1)]
+                skipped_ids = sorted(list({int(x) for x in skipped if str(x).isdigit()}))
+                if skipped_ids:
+                    self.current_job_objects = [{"id": oid, "name": f"Об'єкт #{oid}"} for oid in skipped_ids]
+                else:
+                    self.current_job_objects = [{"id": 1, "name": "Об'єкт #1"}]
 
             if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]:
                 if not getattr(self, "_is_calibrating", False) and self._current_job_grams > 0 and not self._job_deducted:

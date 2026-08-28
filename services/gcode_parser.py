@@ -464,12 +464,26 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             except Exception:
                 return ""
 
-        # Filter out auxiliary non-printable objects like Wipe/Prime Towers
+        # Filter out auxiliary non-printable objects (towers, flush volumes, timelapses, calibration lines, phantom bboxes)
         filtered_objects = []
         for obj in objects_list:
             n_low = obj.get("name", "").lower()
-            if any(k in n_low for k in ["wipe tower", "prime tower", "purge tower", "wipe_tower", "prime_tower"]):
+            if any(k in n_low for k in [
+                "wipe tower", "prime tower", "purge tower", "wipe_tower", "prime_tower",
+                "flush", "purge", "timelapse", "calibration", "leveling", "test_line", "plate_1", "plate_2"
+            ]):
                 continue
+
+            bbox = obj.get("bbox")
+            if bbox and isinstance(bbox, list) and len(bbox) >= 4:
+                try:
+                    w = float(bbox[2]) - float(bbox[0])
+                    h = float(bbox[3]) - float(bbox[1])
+                    if w <= 2.0 or h <= 2.0:
+                        continue
+                except Exception:
+                    pass
+
             filtered_objects.append(obj)
         if filtered_objects:
             objects_list = filtered_objects

@@ -113,7 +113,8 @@ def render_plate_diagram(
     try:
         from PIL import ImageDraw
 
-        font = _load_unicode_font(14)
+        font_large = _load_unicode_font(26)
+        font_axes = _load_unicode_font(14)
         skipped_set = {str(s) for s in (skipped_ids or [])}
         bed_w, bed_h = bed_size_mm
         scale = 3.0  # 3 px per mm -> 768x768 canvas
@@ -142,10 +143,10 @@ def render_plate_diagram(
             draw.line([bx1, gy, bx2, gy], fill="#282834", width=1)
 
         # Axes orientation labels
-        _safe_draw_text(draw, (img_w // 2 - 45, by2 + 12), "Спереду (Front)", fill="#8a8a9c", font=font)
-        _safe_draw_text(draw, (img_w // 2 - 35, by1 - 25), "Ззаду (Back)", fill="#8a8a9c", font=font)
-        _safe_draw_text(draw, (bx1 - 38, img_h // 2 - 10), "Ліворуч", fill="#8a8a9c", font=font)
-        _safe_draw_text(draw, (bx2 + 8, img_h // 2 - 10), "Праворуч", fill="#8a8a9c", font=font)
+        _safe_draw_text(draw, (img_w // 2 - 45, by2 + 12), "Спереду (Front)", fill="#8a8a9c", font=font_axes)
+        _safe_draw_text(draw, (img_w // 2 - 35, by1 - 25), "Ззаду (Back)", fill="#8a8a9c", font=font_axes)
+        _safe_draw_text(draw, (bx1 - 38, img_h // 2 - 10), "Ліворуч", fill="#8a8a9c", font=font_axes)
+        _safe_draw_text(draw, (bx2 + 8, img_h // 2 - 10), "Праворуч", fill="#8a8a9c", font=font_axes)
 
         # Check grid fallback if bbox is missing
         n_objs = len(objects)
@@ -212,9 +213,11 @@ def render_plate_diagram(
 
             draw.rectangle([px1, py1, px2, py2], fill=fill_col, outline=border_col, width=3)
 
-            # Text inside/above object box - only display unique object #ID
+            # Large bold #ID badge centered inside object box
             badge_text = f"#{obj_id}{status_label}"
-            _safe_draw_text(draw, (px1 + 6, py1 + 6), badge_text, fill=text_col, font=font)
+            cx = (px1 + px2) // 2
+            cy = (py1 + py2) // 2
+            _safe_draw_text(draw, (cx - 16, cy - 14), badge_text, fill=text_col, font=font_large)
 
         buffer = io.BytesIO()
         img.save(buffer, format="JPEG", quality=88)
