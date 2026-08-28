@@ -148,10 +148,10 @@ def build_skip_objects_keyboard(printer: BambuPrinter, lang: str = "uk") -> Inli
         is_skipped = obj_id_int in skipped or str(obj_id_int) in [str(s) for s in skipped]
 
         if is_skipped:
-            btn_text = f"❌ {obj_name} (Пропущено)"
+            btn_text = f"❌ Об'єкт #{obj_id} (Пропущено)"
             callback = f"skip_obj_done:{printer.id}:{obj_id}"
         else:
-            btn_text = f"🚫 {obj_name}"
+            btn_text = f"🚫 Об'єкт #{obj_id}"
             callback = f"skip_obj_act:{printer.id}:{obj_id}"
 
         buttons.append([InlineKeyboardButton(text=btn_text, callback_data=callback)])

@@ -971,7 +971,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         const btnsHtml = objects.map(obj => {
                             const objId = obj.id;
                             const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
-                            const cleanName = sanitizeObjName(obj.name || ('Об\'єкт ' + objId));
+                            const cleanName = `Об'єкт #${objId}`;
                             return `
                                 <button class="btn btn-sm ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item me-1 mb-1" 
                                         data-id="${objId}" ${isSkipped ? 'disabled' : ''}>

@@ -212,8 +212,8 @@ def render_plate_diagram(
 
             draw.rectangle([px1, py1, px2, py2], fill=fill_col, outline=border_col, width=3)
 
-            # Text inside/above object box
-            badge_text = f"#{obj_id}: {clean_name[:14]}{status_label}"
+            # Text inside/above object box - only display unique object #ID
+            badge_text = f"#{obj_id}{status_label}"
             _safe_draw_text(draw, (px1 + 6, py1 + 6), badge_text, fill=text_col, font=font)
 
         buffer = io.BytesIO()
