@@ -156,7 +156,11 @@ async def handle_get_printer_plate_map(request: web.Request) -> web.Response:
     if not printer:
         return web.json_response({"error": "Printer not found"}, status=404)
 
-    objects = getattr(printer, "current_job_objects", [])
+    objects = (
+        printer.get_clean_job_objects()
+        if hasattr(printer, "get_clean_job_objects")
+        else getattr(printer, "current_job_objects", [])
+    )
     skipped = getattr(printer, "skipped_objects", [])
     p_model = str(getattr(printer, "printer_model", "") or getattr(printer, "name", "")).lower()
     bed_size = (180, 180) if "mini" in p_model else (256, 256)

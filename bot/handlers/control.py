@@ -41,14 +41,15 @@ async def handle_skip_objects_menu(message: Message, app):
     if not target_printer:
         return
 
-    objects = getattr(target_printer, "current_job_objects", [])
+    objects = target_printer.get_clean_job_objects()
     if not objects:
         if hasattr(target_printer, "_try_ftps_fetch"):
             target_printer._ftps_fetching = False
             target_printer._try_ftps_fetch()
             import asyncio
+
             await asyncio.sleep(1.0)
-            objects = getattr(target_printer, "current_job_objects", [])
+            objects = target_printer.get_clean_job_objects()
 
     if not objects:
         import json

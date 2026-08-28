@@ -737,6 +737,56 @@ class BambuPrinter:
         """Clears cached animated GIF for plate map."""
         self._plate_gif_cache = None
 
+    def get_clean_job_objects(self) -> list[dict[str, Any]]:
+        """
+        Returns only valid printable model objects for the current job.
+        Purges phantom/ghost objects (like Object 69) that lack a 2D bounding box when valid bbox objects exist.
+        """
+        objs = getattr(self, "current_job_objects", [])
+        if not objs:
+            return []
+
+        filtered = []
+        for o in objs:
+            n_low = str(o.get("name", "")).lower()
+            if any(k in n_low for k in [
+                "wipe tower", "prime tower", "purge tower", "wipe_tower", "prime_tower",
+                "flush", "purge", "timelapse", "calibration", "leveling", "test_line", "plate_1", "plate_2",
+                "wipe", "prime", "skirt", "brim", "raft", "support", "nozzle", "tower", "bed"
+            ]):
+                logger.info(f"🧹 Discarded auxiliary object ID={o.get('id')} Name='{o.get('name')}' for [{self.name}]")
+                continue
+
+            bbox = o.get("bbox")
+            if bbox and isinstance(bbox, list) and len(bbox) >= 4:
+                try:
+                    w = abs(float(bbox[2]) - float(bbox[0]))
+                    h = abs(float(bbox[3]) - float(bbox[1]))
+                    if w < 6.0 or h < 6.0 or (w * h) < 36.0:
+                        logger.info(f"🧹 Discarded tiny/0-area object ID={o.get('id')} BBox={bbox} for [{self.name}]")
+                        continue
+                except Exception:
+                    pass
+            filtered.append(o)
+
+        if not filtered and objs:
+            filtered = objs
+
+        # Purge objects that lack a 2D bbox if other objects DO have a 2D bbox (e.g. Object 69!)
+        objs_with_bbox = [o for o in filtered if o.get("bbox") and isinstance(o.get("bbox"), list) and len(o.get("bbox")) >= 4]
+        if objs_with_bbox and len(objs_with_bbox) < len(filtered):
+            discarded = [o for o in filtered if o not in objs_with_bbox]
+            for d in discarded:
+                logger.info(f"🧹 Purged phantom ghost object ID={d.get('id')} Name='{d.get('name')}' (lacks 2D bbox) for [{self.name}]")
+            filtered = objs_with_bbox
+
+        if len(filtered) != len(self.current_job_objects):
+            logger.info(f"✨ Purged {len(self.current_job_objects) - len(filtered)} ghost objects from [{self.name}]. Active objects: {[o.get('id') for o in filtered]}")
+            self.current_job_objects = filtered
+            self.invalidate_plate_gif_cache()
+
+        return self.current_job_objects
+
     def get_plate_gif(self) -> bytes:
         """Returns cached animated GIF of plate objects highlighting each object sequentially."""
         if getattr(self, "_plate_gif_cache", None) is None:
@@ -745,7 +795,7 @@ class BambuPrinter:
             from utils.image_utils import render_plate_gif
 
             self._plate_gif_cache = render_plate_gif(
-                getattr(self, "current_job_objects", []),
+                self.get_clean_job_objects(),
                 bed_size_mm=bed_size,
                 skipped_ids=getattr(self, "skipped_objects", []),
             )
