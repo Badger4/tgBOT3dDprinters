@@ -162,7 +162,7 @@ async def handle_get_printer_plate_map(request: web.Request) -> web.Response:
     bed_size = (180, 180) if "mini" in p_model else (256, 256)
 
     req_fmt = str(request.query.get("format") or request.query.get("gif") or "").lower()
-    if req_fmt in ["gif", "1", "true"] or (len(objects) <= 6 and req_fmt != "jpg"):
+    if req_fmt in ["gif", "1", "true"]:
         img_bytes = printer.get_plate_gif()
         c_type = "image/gif"
     else:

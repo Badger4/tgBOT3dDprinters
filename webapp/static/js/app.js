@@ -931,65 +931,70 @@ document.addEventListener("DOMContentLoaded", () => {
             if (isPrintingState) {
                 skipObjectsSection.style.display = "block";
                 if (btnSkipObject) btnSkipObject.style.display = "inline-block";
-                if (objects.length > 0) {
-                    const sanitizeObjName = (nameStr) => {
-                        if (!nameStr) return "";
-                        let clean = String(nameStr).trim();
-                        let mNum = clean.match(/#(\d+)/);
-                        let numStr = mNum ? (" #" + mNum[1]) : "";
 
-                        let nLow = clean.toLowerCase();
-                        let yWord = "";
-                        if (nLow.includes("ззаду")) yWord = "Ззаду";
-                        else if (nLow.includes("спереду")) yWord = "Спереду";
+                const stateKey = `${p.id}_${skipped.join(",")}_${objects.map(o => o.id + ":" + (o.name || "")).join(",")}`;
+                if (skipObjectsList.dataset.renderedKey !== stateKey) {
+                    skipObjectsList.dataset.renderedKey = stateKey;
 
-                        let xWord = "";
-                        if (nLow.includes("ліворуч")) xWord = "Ліворуч";
-                        else if (nLow.includes("праворуч")) xWord = "Праворуч";
+                    if (objects.length > 0) {
+                        const sanitizeObjName = (nameStr) => {
+                            if (!nameStr) return "";
+                            let clean = String(nameStr).trim();
+                            let mNum = clean.match(/#(\d+)/);
+                            let numStr = mNum ? (" #" + mNum[1]) : "";
 
-                        let centerWord = "";
-                        if (!yWord && !xWord && (nLow.includes("по центру") || nLow.includes("центр"))) {
-                            centerWord = "По центру";
-                        }
+                            let nLow = clean.toLowerCase();
+                            let yWord = "";
+                            if (nLow.includes("ззаду")) yWord = "Ззаду";
+                            else if (nLow.includes("спереду")) yWord = "Спереду";
 
-                        let spatialParts = [yWord, xWord, centerWord].filter(w => w !== "");
-                        let posTag = spatialParts.length > 0 ? (" (" + spatialParts.join(" ") + ")") : "";
+                            let xWord = "";
+                            if (nLow.includes("ліворуч")) xWord = "Ліворуч";
+                            else if (nLow.includes("праворуч")) xWord = "Праворуч";
 
-                        let base = clean.replace(/\s*#\d+.*/, "").replace(/\s*\(.*?\)/g, "").trim();
-                        if (!base) base = "Об'єкт";
-
-                        return `${base}${numStr}${posTag}`.trim();
-                    };
-                    const initDataParam = window.Telegram?.WebApp?.initData ? ('&initData=' + encodeURIComponent(window.Telegram.WebApp.initData)) : '';
-                    const tokenParam = localStorage.getItem("token") ? ('&token=' + encodeURIComponent(localStorage.getItem("token"))) : '';
-                    const mapHtml = `<div class="text-center mb-2"><img src="/api/printers/${p.id}/plate_map?t=${Date.now()}${initDataParam}${tokenParam}" class="img-fluid rounded border border-secondary shadow-sm" style="max-height: 250px; background-color: #16161a;" alt="Схема столу" /></div>`;
-                    const btnsHtml = objects.map(obj => {
-                        const objId = obj.id;
-                        const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
-                        const cleanName = sanitizeObjName(obj.name || ('Об\'єкт ' + objId));
-                        return `
-                            <button class="btn btn-sm ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item me-1 mb-1" 
-                                    data-id="${objId}" ${isSkipped ? 'disabled' : ''}>
-                                ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban"></i> '}
-                                ${escapeHtml(cleanName)} ${isSkipped ? '(Пропущено)' : ''}
-                            </button>`;
-                    }).join("");
-                    skipObjectsList.innerHTML = mapHtml + btnsHtml;
-
-                    skipObjectsList.querySelectorAll(".btn-skip-obj-item:not(.disabled)").forEach(b => {
-                        b.addEventListener("click", async () => {
-                            const objId = parseInt(b.getAttribute("data-id"));
-                            if (confirm(`Пропустити об'єкт #${objId} на плейті без зупинки друку?`)) {
-                                await sendPrinterAction({ action: "skip_objects", obj_ids: [objId] });
+                            let centerWord = "";
+                            if (!yWord && !xWord && (nLow.includes("по центру") || nLow.includes("центр"))) {
+                                centerWord = "По центру";
                             }
+
+                            let spatialParts = [yWord, xWord, centerWord].filter(w => w !== "");
+                            let posTag = spatialParts.length > 0 ? (" (" + spatialParts.join(" ") + ")") : "";
+
+                            let base = clean.replace(/\s*#\d+.*/, "").replace(/\s*\(.*?\)/g, "").trim();
+                            if (!base) base = "Об'єкт";
+
+                            return `${base}${numStr}${posTag}`.trim();
+                        };
+                        const initDataParam = window.Telegram?.WebApp?.initData ? ('&initData=' + encodeURIComponent(window.Telegram.WebApp.initData)) : '';
+                        const tokenParam = localStorage.getItem("token") ? ('&token=' + encodeURIComponent(localStorage.getItem("token"))) : '';
+                        const mapHtml = `<div class="text-center mb-2"><img src="/api/printers/${p.id}/plate_map?format=jpg&v=${encodeURIComponent(stateKey)}${initDataParam}${tokenParam}" class="img-fluid rounded border border-secondary shadow-sm" style="max-height: 260px; background-color: #16161a;" alt="Схема столу" /></div>`;
+                        const btnsHtml = objects.map(obj => {
+                            const objId = obj.id;
+                            const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
+                            const cleanName = sanitizeObjName(obj.name || ('Об\'єкт ' + objId));
+                            return `
+                                <button class="btn btn-sm ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item me-1 mb-1" 
+                                        data-id="${objId}" ${isSkipped ? 'disabled' : ''}>
+                                    ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban"></i> '}
+                                    ${escapeHtml(cleanName)} ${isSkipped ? '(Пропущено)' : ''}
+                                </button>`;
+                        }).join("");
+                        skipObjectsList.innerHTML = mapHtml + btnsHtml;
+
+                        skipObjectsList.querySelectorAll(".btn-skip-obj-item:not(.disabled)").forEach(b => {
+                            b.addEventListener("click", async () => {
+                                const objId = parseInt(b.getAttribute("data-id"));
+                                if (confirm(`Пропустити об'єкт #${objId} на плейті без зупинки друку?`)) {
+                                    await sendPrinterAction({ action: "skip_objects", obj_ids: [objId] });
+                                }
+                            });
                         });
-                    });
-                } else {
-                    skipObjectsList.innerHTML = `<div class="text-muted small"><i class="fa-solid fa-spinner fa-spin me-1"></i> Зчитування списку об'єктів...</div>`;
+                    }
                 }
             } else {
                 skipObjectsSection.style.display = "none";
                 if (btnSkipObject) btnSkipObject.style.display = "none";
+                skipObjectsList.dataset.renderedKey = "";
             }
         }
     }
