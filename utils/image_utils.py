@@ -213,11 +213,38 @@ def render_plate_diagram(
 
             draw.rectangle([px1, py1, px2, py2], fill=fill_col, outline=border_col, width=3)
 
-            # Large bold #ID badge centered inside object box
+            # Dynamic Font Scaling to fill object box width and height
             badge_text = f"#{obj_id}{status_label}"
-            cx = (px1 + px2) // 2
-            cy = (py1 + py2) // 2
-            _safe_draw_text(draw, (cx - 16, cy - 14), badge_text, fill=text_col, font=font_large)
+            bw = max(20, px2 - px1)
+            bh = max(20, py2 - py1)
+
+            target_w = max(10, int(bw * 0.85))
+            target_h = max(10, int(bh * 0.85))
+            font_sz = min(150, max(14, target_h))
+            dyn_font = _load_unicode_font(font_sz)
+
+            while font_sz > 10:
+                try:
+                    t_bbox = draw.textbbox((0, 0), badge_text, font=dyn_font)
+                    tw = t_bbox[2] - t_bbox[0]
+                    th = t_bbox[3] - t_bbox[1]
+                    if tw <= target_w and th <= target_h:
+                        break
+                except Exception:
+                    break
+                font_sz -= 2
+                dyn_font = _load_unicode_font(font_sz)
+
+            try:
+                t_bbox = draw.textbbox((0, 0), badge_text, font=dyn_font)
+                tw = t_bbox[2] - t_bbox[0]
+                th = t_bbox[3] - t_bbox[1]
+                tx = px1 + (bw - tw) // 2 - t_bbox[0]
+                ty = py1 + (bh - th) // 2 - t_bbox[1]
+            except Exception:
+                tx, ty = px1 + 6, py1 + 6
+
+            _safe_draw_text(draw, (tx, ty), badge_text, fill=text_col, font=dyn_font)
 
         buffer = io.BytesIO()
         img.save(buffer, format="JPEG", quality=88)
@@ -344,11 +371,36 @@ def render_plate_gif(
                 draw.rectangle([px1, py1, px2, py2], fill=fill_col, outline=border_col, width=border_w)
 
                 if is_highlighted:
-                    # Large centered ID tag
-                    cx = (px1 + px2) // 2
-                    cy = (py1 + py2) // 2
+                    # Dynamic font scaling to fill object box
                     tag = f"#{obj_id}"
-                    _safe_draw_text(draw, (cx - 12, cy - 10), tag, fill="#ff4444" if is_skipped else "#00ffaa", font=font_large)
+                    bw = max(20, px2 - px1)
+                    bh = max(20, py2 - py1)
+                    target_w = max(10, int(bw * 0.85))
+                    target_h = max(10, int(bh * 0.85))
+                    font_sz = min(150, max(14, target_h))
+                    dyn_font = _load_unicode_font(font_sz)
+                    while font_sz > 10:
+                        try:
+                            t_bbox = draw.textbbox((0, 0), tag, font=dyn_font)
+                            tw = t_bbox[2] - t_bbox[0]
+                            th = t_bbox[3] - t_bbox[1]
+                            if tw <= target_w and th <= target_h:
+                                break
+                        except Exception:
+                            break
+                        font_sz -= 2
+                        dyn_font = _load_unicode_font(font_sz)
+
+                    try:
+                        t_bbox = draw.textbbox((0, 0), tag, font=dyn_font)
+                        tw = t_bbox[2] - t_bbox[0]
+                        th = t_bbox[3] - t_bbox[1]
+                        tx = px1 + (bw - tw) // 2 - t_bbox[0]
+                        ty = py1 + (bh - th) // 2 - t_bbox[1]
+                    except Exception:
+                        tx, ty = px1 + 6, py1 + 6
+
+                    _safe_draw_text(draw, (tx, ty), tag, fill="#ff4444" if is_skipped else "#00ffaa", font=dyn_font)
 
             frames.append(img)
 
