@@ -72,6 +72,10 @@ async def handle_skip_objects_menu(message: Message, app):
         target_printer.current_job_objects = fallback_objs
         objects = fallback_objs
 
+    logger.info(
+        f"🚫 [Skip Menu] Rendering skip menu for [{target_printer.name}] with {len(objects)} objects: {[o.get('id') for o in objects]} (skipped: {getattr(target_printer, 'skipped_objects', [])})"
+    )
+
     from aiogram.types import BufferedInputFile
     from bot.keyboards import build_skip_objects_keyboard
     from utils.image_utils import render_plate_diagram

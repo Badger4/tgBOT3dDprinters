@@ -501,14 +501,28 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
         for obj in objects_list:
             name_counts[obj["name"]] = name_counts.get(obj["name"], 0) + 1
 
-        name_indices: dict[str, int] = {}
-        for i, obj in enumerate(objects_list):
+        # Match bbox strictly by object ID (not by arbitrary index!)
+        for obj in objects_list:
+            b_id = str(obj.get("id", "")).strip()
+            for b_item in bbox_list:
+                if isinstance(b_item, dict) and str(b_item.get("id", "")).strip() == b_id:
+                    if "bbox" in b_item and isinstance(b_item["bbox"], list):
+                        obj["bbox"] = b_item["bbox"]
+                        break
+
+        # Filter out phantom objects lacking bbox if other objects have bbox
+        objs_with_bbox = [o for o in objects_list if o.get("bbox") and isinstance(o.get("bbox"), list) and len(o.get("bbox")) >= 4]
+        if objs_with_bbox and len(objs_with_bbox) < len(objects_list):
+            discarded = [o for o in objects_list if o not in objs_with_bbox]
+            for d in discarded:
+                logger.info(f"🧹 [3MF Parser] Discarded phantom object ID={d.get('id')} Name='{d.get('name')}' (lacks 2D bbox)")
+            objects_list = objs_with_bbox
+
+        for obj in objects_list:
             base_name = obj["name"]
             pos_str = ""
-            if i < len(bbox_list) and isinstance(bbox_list[i], dict) and "bbox" in bbox_list[i]:
-                if "bbox" not in obj:
-                    obj["bbox"] = bbox_list[i]["bbox"]
-                b_lbl = get_spatial_label(bbox_list[i]["bbox"])
+            if "bbox" in obj and isinstance(obj["bbox"], list):
+                b_lbl = get_spatial_label(obj["bbox"])
                 if b_lbl:
                     pos_str = f" ({b_lbl})"
 
@@ -521,6 +535,8 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                     obj["name"] = f"{base_name}{pos_str}"
                 else:
                     obj["name"] = base_name
+
+        logger.info(f"🧩 [3MF Parser] Final parsed objects ({len(objects_list)}): {[(o.get('id'), o.get('name'), o.get('bbox')) for o in objects_list]}")
 
         result["objects"] = objects_list
         result["valid"] = True
