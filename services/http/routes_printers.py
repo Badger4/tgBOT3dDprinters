@@ -161,15 +161,26 @@ async def handle_get_printer_plate_map(request: web.Request) -> web.Response:
     p_model = str(getattr(printer, "printer_model", "") or getattr(printer, "name", "")).lower()
     bed_size = (180, 180) if "mini" in p_model else (256, 256)
 
-    from utils.image_utils import render_plate_diagram
+    req_fmt = str(request.query.get("format") or request.query.get("gif") or "").lower()
+    if req_fmt in ["gif", "1", "true"] or (len(objects) <= 6 and req_fmt != "jpg"):
+        img_bytes = printer.get_plate_gif()
+        c_type = "image/gif"
+    else:
+        img_bytes = b""
+        c_type = "image/jpeg"
 
-    img_bytes = render_plate_diagram(objects, bed_size_mm=bed_size, skipped_ids=skipped)
+    if not img_bytes:
+        from utils.image_utils import render_plate_diagram
+
+        img_bytes = render_plate_diagram(objects, bed_size_mm=bed_size, skipped_ids=skipped)
+        c_type = "image/jpeg"
+
     if not img_bytes:
         return web.Response(status=404, text="Map generation failed")
 
     return web.Response(
         body=img_bytes,
-        content_type="image/jpeg",
+        content_type=c_type,
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 

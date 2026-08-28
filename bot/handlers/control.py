@@ -78,18 +78,49 @@ async def handle_skip_objects_menu(message: Message, app):
 
     p_model = str(getattr(target_printer, "printer_model", "") or getattr(target_printer, "name", "")).lower()
     bed_size = (180, 180) if "mini" in p_model else (256, 256)
-    diagram_bytes = render_plate_diagram(objects, bed_size_mm=bed_size, skipped_ids=getattr(target_printer, "skipped_objects", []))
+    # Hybrid approach: For <= 6 objects, send animated GIF highlighting each object ID; for > 6, send static diagram
+    if len(objects) <= 6:
+        gif_bytes = target_printer.get_plate_gif()
+        if gif_bytes:
+            try:
+                await message.answer_animation(
+                    animation=BufferedInputFile(gif_bytes, filename="plate_map.gif"),
+                    caption=f"💡 <b>Анімована схема об'єктів ({html.escape(target_printer.name)}):</b>\n"
+                    f"Кожен об'єкт по черзі підсвічується зеленим з номером <b>#ID</b>.",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.warning(f"Could not send plate diagram animation for [{target_printer.name}]: {e}")
+                gif_bytes = b""
 
-    if diagram_bytes:
-        try:
-            await message.answer_photo(
-                photo=BufferedInputFile(diagram_bytes, filename="plate_map.jpg"),
-                caption=f"🗺️ <b>Схема розташування об'єктів ({html.escape(target_printer.name)}):</b>\n"
-                f"🟢 <i>Зелені — активні об'єкти</i> | 🔴 <i>Червоні — пропущені</i>",
-                parse_mode=ParseMode.HTML,
+        if not gif_bytes:
+            diagram_bytes = render_plate_diagram(
+                objects, bed_size_mm=bed_size, skipped_ids=getattr(target_printer, "skipped_objects", [])
             )
-        except Exception as e:
-            logger.warning(f"Could not send plate diagram photo for [{target_printer.name}]: {e}")
+            if diagram_bytes:
+                try:
+                    await message.answer_photo(
+                        photo=BufferedInputFile(diagram_bytes, filename="plate_map.jpg"),
+                        caption=f"🗺️ <b>Схема розташування об'єктів ({html.escape(target_printer.name)}):</b>\n"
+                        f"🟢 <i>Зелені — активні об'єкти</i> | 🔴 <i>Червоні — пропущені</i>",
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not send plate diagram photo for [{target_printer.name}]: {e}")
+    else:
+        diagram_bytes = render_plate_diagram(
+            objects, bed_size_mm=bed_size, skipped_ids=getattr(target_printer, "skipped_objects", [])
+        )
+        if diagram_bytes:
+            try:
+                await message.answer_photo(
+                    photo=BufferedInputFile(diagram_bytes, filename="plate_map.jpg"),
+                    caption=f"🗺️ <b>Схема розташування об'єктів ({html.escape(target_printer.name)}):</b>\n"
+                    f"🟢 <i>Зелені — активні об'єкти</i> | 🔴 <i>Червоні — пропущені</i>",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.warning(f"Could not send plate diagram photo for [{target_printer.name}]: {e}")
 
     await message.answer(
         f"🚫 <b>Пропуск невдалого об'єкта</b> на <b>{html.escape(target_printer.name)}</b>:\n"

@@ -649,6 +649,7 @@ class BambuPrinter:
                     self.job_start_time = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self.job_start_time
                     self.current_job_objects = []
                     self.skipped_objects = []
+                    self._plate_gif_cache = None
                     self._is_printing = False
                     self._was_running = False
                     self._job_started_from_app = False
@@ -730,6 +731,24 @@ class BambuPrinter:
     def set_chamber_light(self, mode: str = "toggle") -> bool:
         return self.toggle_chamber_light(mode)
 
+    def invalidate_plate_gif_cache(self) -> None:
+        """Clears cached animated GIF for plate map."""
+        self._plate_gif_cache = None
+
+    def get_plate_gif(self) -> bytes:
+        """Returns cached animated GIF of plate objects highlighting each object sequentially."""
+        if getattr(self, "_plate_gif_cache", None) is None:
+            p_model = str(getattr(self, "printer_model", "") or getattr(self, "name", "")).lower()
+            bed_size = (180, 180) if "mini" in p_model else (256, 256)
+            from utils.image_utils import render_plate_gif
+
+            self._plate_gif_cache = render_plate_gif(
+                getattr(self, "current_job_objects", []),
+                bed_size_mm=bed_size,
+                skipped_ids=getattr(self, "skipped_objects", []),
+            )
+        return self._plate_gif_cache or b""
+
     def start_calibration(self) -> bool:
         """
         Triggers full automatic Bambu Lab calibration (vibration frequency calibration + auto bed leveling).
@@ -785,6 +804,7 @@ class BambuPrinter:
         for oid in int_obj_ids:
             if oid not in self.skipped_objects:
                 self.skipped_objects.append(oid)
+        self.invalidate_plate_gif_cache()
 
         logger.info(f"🚫 Sent skip_objects {int_obj_ids} to printer [{self.name}] ({self.serial_number})")
         return True, f"Об'єкт(и) {int_obj_ids} успішно пропущено"
