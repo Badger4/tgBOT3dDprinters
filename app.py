@@ -100,10 +100,29 @@ class PrinterBotApp:
         await asyncio.sleep(5)
 
         main_loop = asyncio.get_running_loop()
+        from utils.spool_fingerprint import build_spool_fingerprint, delete_active_print_context, load_active_print_context
+
         for p_id, p in list(self.printers.items()):
             p._main_loop = main_loop
             if not getattr(p, "storage", None):
                 p.storage = self.storage
+
+            # Step 5: Active print context recovery check on bot startup
+            saved_context = load_active_print_context(p.id)
+            if saved_context and p.gcode_state in ("RUNNING", "PAUSE", "PREPARATION", "PREPARING", "BUILDING"):
+                current_fp = build_spool_fingerprint(p)
+                if (
+                    saved_context.get("subtask_name") == p.subtask_name
+                    and saved_context.get("spool_fingerprint") == current_fp
+                    and p.layer_num >= saved_context.get("saved_layer", 0)
+                ):
+                    p._current_job_grams = float(saved_context.get("job_grams", 0.0))
+                    p._job_deducted = bool(saved_context.get("job_deducted", True))
+                    logger.info(f"✅ Відновлено сесію друку для {p.name} (вага: {p._current_job_grams}g)")
+                else:
+                    logger.warning(f"⚠️ Контекст друку не збігається для {p.name}, видаляю застарілий запис")
+                    delete_active_print_context(p.id)
+
             self.printer_states[p_id] = {
                 "lastState": p.gcode_state,
                 "notifiedStart": (p.gcode_state == "RUNNING"),

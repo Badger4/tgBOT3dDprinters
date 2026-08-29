@@ -216,6 +216,16 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
                             result["ams_humidity_idx"] = int(unit["humidity"])
                         except (ValueError, TypeError):
                             pass
+                    if "humidity_raw" in unit:
+                        try:
+                            result["ams_humidity_raw"] = int(unit["humidity_raw"])
+                        except (ValueError, TypeError):
+                            pass
+                    elif "humidity_raw" in ams_info:
+                        try:
+                            result["ams_humidity_raw"] = int(ams_info["humidity_raw"])
+                        except (ValueError, TypeError):
+                            pass
                     if "temp" in unit:
                         try:
                             result["ams_temp"] = float(unit["temp"])

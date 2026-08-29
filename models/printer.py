@@ -95,6 +95,7 @@ class BambuPrinter:
             AMSSlot.EXTERNAL.value: 1000.0,
         }
         self.ams_slots: dict[str, float] = {k: float(v) for k, v in {**default_slots, **raw_ams_slots}.items()}
+        self._previous_ams_slots: dict[str, float] = dict(self.ams_slots)
 
         self.storage = storage
         self.save_callback = save_callback
@@ -147,6 +148,7 @@ class BambuPrinter:
         self.job_start_time: float = 0.0
         self.ams_units: list = []
         self.ams_humidity_idx: int = 1
+        self.ams_humidity_raw: int = int(config.get("ams_humidity_raw", 0))
         self.ams_temp: float = 0.0
         self.active_ams_tray: int = 255
         self.ams_exist_bits: str = str(config.get("ams_exist_bits", "0"))
@@ -413,8 +415,20 @@ class BambuPrinter:
                 self.ams_trays_info.update(parsed["ams_trays_info"])
             if "ams_humidity_idx" in parsed:
                 self.ams_humidity_idx = parsed["ams_humidity_idx"]
+            if "ams_humidity_raw" in parsed:
+                self.ams_humidity_raw = parsed["ams_humidity_raw"]
             if "ams_temp" in parsed:
                 self.ams_temp = parsed["ams_temp"]
+
+            # Step 1: Delta-detection of AMS slot changes (spool insertion / removal)
+            old_slots = dict(getattr(self, "_previous_ams_slots", {}) or dict(self.ams_slots))
+            for slot_key, new_weight in self.ams_slots.items():
+                old_weight = old_slots.get(slot_key, 0.0)
+                if old_weight == 0.0 and new_weight > 0.0:
+                    logger.info(f"[AMS] Нова котушка вставлена в слот {slot_key} на {self.name} ({new_weight}g)")
+                elif old_weight > 0.0 and new_weight == 0.0:
+                    logger.info(f"[AMS] Котушку витягнуто зі слоту {slot_key} на {self.name}")
+            self._previous_ams_slots = dict(self.ams_slots)
 
             if "vt_tray_info" in parsed:
                 self.ams_trays_info["255"] = parsed["vt_tray_info"]
@@ -533,6 +547,22 @@ class BambuPrinter:
                     )
                     self._trigger_save()
 
+                if self.subtask_name and not getattr(self, "_is_calibrating", False):
+                    from utils.spool_fingerprint import build_spool_fingerprint, save_active_print_context
+
+                    active_print_context = {
+                        "printer_id": self.id,
+                        "subtask_name": self.subtask_name,
+                        "total_layers": self.total_layer_num,
+                        "saved_layer": self.layer_num,
+                        "saved_progress": self.mc_percent,
+                        "spool_fingerprint": build_spool_fingerprint(self),
+                        "job_grams": self._current_job_grams,
+                        "job_deducted": self._job_deducted,
+                        "timestamp": time.time(),
+                    }
+                    save_active_print_context(self.id, active_print_context)
+
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
                 if getattr(self, "_is_calibrating", False):
                     self._job_deducted = True
@@ -572,22 +602,22 @@ class BambuPrinter:
                             )
                             if m_fname:
                                 try:
-                                    w_fname = float(m_fname.group(1).replace(",", "."))
-                                    if 0 < w_fname < 5000:
-                                        self._current_job_grams = w_fname
-                                except ValueError:
+                                    val = float(m_fname.group(1).replace(",", "."))
+                                    if 0.0 < val < 5000.0:
+                                        self._current_job_grams = val
+                                except Exception:
                                     pass
 
-                        deduct_w = self._current_job_grams
-                        if deduct_w > 0:
+                        if self._current_job_grams > 0:
                             active_key = self.get_active_slot_key()
                             old_w = self.get_slot_grams(active_key)
-                            new_w = max(0.0, round(old_w - deduct_w, 2))
+                            final_weight = self._current_job_grams
+                            new_w = max(0.0, round(old_w - final_weight, 2))
                             self.set_slot_grams(new_w, active_key)
                             self._job_deducted = True
-                            self.last_job_grams = deduct_w
+                            self.last_job_grams = final_weight
                             logger.info(
-                                f"💾 Auto-deducted {deduct_w}g on FINISH from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
+                                f"💾 Auto-deducted {final_weight}g from AMS Slot {active_key} for [{self.name}] on job completion. Old: {old_w}g -> New: {new_w}g"
                             )
                             self._trigger_save()
 
@@ -596,7 +626,7 @@ class BambuPrinter:
 
                     if should_record_history:
                         logger.info(f"🎉 Print finished/completed on [{self.name}] (state: {self.gcode_state})!")
-                        final_weight = self._current_job_grams or getattr(self, "last_job_grams", 0.0) or 0.0
+                        final_weight = getattr(self, "last_job_grams", 0.0) or getattr(self, "_current_job_grams", 0.0) or 0.0
                         if final_weight == 0.0 and self.subtask_name:
                             final_weight = extract_subtask_weight(self.subtask_name)
 
@@ -646,6 +676,9 @@ class BambuPrinter:
                     self._is_printing = False
 
                 if self.gcode_state in ["IDLE", "FAILED", "FINISH", "SUCCESS", "CANCEL"]:
+                    from utils.spool_fingerprint import delete_active_print_context
+
+                    delete_active_print_context(self.id)
                     # Reset state counters & job objects for next job
                     self.finish_timestamp = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self.finish_timestamp
                     self.job_start_time = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self.job_start_time
