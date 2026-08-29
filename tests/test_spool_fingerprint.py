@@ -5,6 +5,7 @@ Unit tests for spool fingerprinting, active print context persistence, AMS delta
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import config
 from models.printer import BambuPrinter
@@ -32,7 +33,8 @@ class TestSpoolFingerprintAndContext(unittest.TestCase):
                 "access_code": "12345678",
                 "serial_number": "01P00A123456",
                 "ams_slots": {"0": 1000.0, "1": 500.0, "2": 0.0, "3": 750.0, "255": 1000.0},
-            }
+            },
+            storage=MagicMock(),
         )
 
     def tearDown(self):

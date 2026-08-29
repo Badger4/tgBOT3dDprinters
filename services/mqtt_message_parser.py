@@ -19,17 +19,17 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
     if isinstance(payload_data, bytes):
         try:
             payload_str = payload_data.decode("utf-8")
-        except UnicodeDecodeError:
+            payload = json.loads(payload_str)
+        except Exception:
             return None
     elif isinstance(payload_data, str):
-        payload_str = payload_data
+        try:
+            payload = json.loads(payload_data)
+        except Exception:
+            return None
+    elif isinstance(payload_data, dict):
+        payload = payload_data
     else:
-        return None
-
-    try:
-        payload = json.loads(payload_str)
-    except Exception as e:
-        logger.warning(f"Failed to parse MQTT JSON payload: {e}")
         return None
 
     if not isinstance(payload, dict):
