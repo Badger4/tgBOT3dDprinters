@@ -277,68 +277,15 @@
                     <h2><i class="fa-solid fa-sliders"></i> <span data-i18n="settings_title">Налаштування та сповіщення</span></h2>
                 </div>
 
-                <!-- 1. Notification Settings Card -->
+                <!-- 1. Interface Language Card -->
                 <div class="glass-card mb-4">
-                    <h3><i class="fa-solid fa-bell color-orange"></i> <span data-i18n="notification_settings_card">Повноцінні налаштування сповіщень</span></h3>
-                    <div class="settings-group">
-                        <label class="switch-row">
-                            <span><i class="fa-solid fa-play color-green"></i> <span data-i18n="notify_start_label">Сповіщення про початок друку</span></span>
-                            <input type="checkbox" id="setting-notify-start" checked>
-                            <span class="slider"></span>
-                        </label>
-                        <label class="switch-row">
-                            <span><i class="fa-solid fa-flag-checkered color-blue"></i> <span data-i18n="notify_finish_label">Сповіщення про завершення друку</span></span>
-                            <input type="checkbox" id="setting-notify-finish" checked>
-                            <span class="slider"></span>
-                        </label>
-                        <label class="switch-row">
-                            <span><i class="fa-solid fa-pause color-amber"></i> <span data-i18n="notify_pause_label">Сповіщення про паузу друку</span></span>
-                            <input type="checkbox" id="setting-notify-pause" checked>
-                            <span class="slider"></span>
-                        </label>
-                        <label class="switch-row">
-                            <span><i class="fa-solid fa-triangle-exclamation color-red"></i> <span data-i18n="notify_hms_label">HMS Помилки та тривоги</span></span>
-                            <input type="checkbox" id="setting-notify-hms" checked>
-                            <span class="slider"></span>
-                        </label>
-                        <label class="switch-row">
-                            <span><i class="fa-solid fa-hand-holding-hand color-purple"></i> <span data-i18n="notify_remind_clear_label">Нагадування зняти деталь з підкладки</span></span>
-                            <input type="checkbox" id="setting-notify-remind-clear" checked>
-                            <span class="slider"></span>
-                        </label>
+                    <h3><i class="fa-solid fa-globe color-blue"></i> <span data-i18n="lang_select_label">Мова інтерфейсу / Language</span></h3>
+                    <div class="form-group mb-0">
+                        <select id="setting-app-language" class="form-control font-weight-bold">
+                            <option value="uk">🇺🇦 Українська</option>
+                            <option value="en">🇬🇧 English</option>
+                        </select>
                     </div>
-
-                    <div class="form-row mt-3">
-                        <div class="form-group col">
-                            <label><i class="fa-solid fa-hourglass-half"></i> <span data-i18n="notify_before_end_label">Сповіщення за N хв до кінця</span></label>
-                            <select id="setting-notify-min-time" class="form-control">
-                                <option value="0" data-i18n="opt_timer_off">❌ Вимкнути таймер</option>
-                                <option value="5" data-i18n="opt_timer_5">⏳ 5 хвилин до кінця</option>
-                                <option value="10" data-i18n="opt_timer_10">⏳ 10 хвилин до кінця</option>
-                                <option value="15" data-i18n="opt_timer_15">⏳ 15 хвилин до кінця</option>
-                            </select>
-                        </div>
-                        <div class="form-group col">
-                            <label><i class="fa-solid fa-weight-hanging"></i> <span data-i18n="notify_filament_threshold">Поріг залишку нитки</span></label>
-                            <select id="setting-notify-min-filament" class="form-control">
-                                <option value="0" data-i18n="opt_limit_off">❌ Вимкнути ліміт</option>
-                                <option value="50" data-i18n="opt_limit_50">📦 Менше 50г</option>
-                                <option value="100" data-i18n="opt_limit_100">📦 Менше 100г</option>
-                                <option value="200" data-i18n="opt_limit_200">📦 Менше 200г</option>
-                            </select>
-                        </div>
-                        <div class="form-group col">
-                            <label><i class="fa-solid fa-globe"></i> <span data-i18n="lang_select_label">Мова / Language</span></label>
-                            <select id="setting-app-language" class="form-control">
-                                <option value="uk">🇺🇦 Українська</option>
-                                <option value="en">🇬🇧 English</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <button id="save-settings-btn" class="btn btn-primary mt-3 w-100">
-                        <i class="fa-solid fa-floppy-disk"></i> <span data-i18n="save_settings_btn">Зберегти налаштування</span>
-                    </button>
                 </div>
 
                 <!-- 2. Per-Printer Individual Settings Card -->

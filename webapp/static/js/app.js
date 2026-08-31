@@ -2694,34 +2694,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const savedLang = localStorage.getItem("app_lang") || "uk";
     window.setAppLanguage(savedLang);
 
-    document.getElementById("setting-app-language")?.addEventListener("change", (e) => {
-        window.setAppLanguage(e.target.value);
-    });
-
-    document.getElementById("save-settings-btn")?.addEventListener("click", async () => {
-        triggerHaptic("medium");
-        const notify = {
-            start: document.getElementById("setting-notify-start")?.checked ?? true,
-            finish: document.getElementById("setting-notify-finish")?.checked ?? true,
-            pause: document.getElementById("setting-notify-pause")?.checked ?? true,
-            hms: document.getElementById("setting-notify-hms")?.checked ?? true,
-            remind_clear: document.getElementById("setting-notify-remind-clear")?.checked ?? true,
-            min_time_to_end: parseInt(document.getElementById("setting-notify-min-time")?.value || 0),
-            min_filament: parseInt(document.getElementById("setting-notify-min-filament")?.value || 0),
-        };
-        const language = document.getElementById("setting-app-language")?.value || "uk";
-
+    document.getElementById("setting-app-language")?.addEventListener("change", async (e) => {
+        const language = e.target.value;
+        window.setAppLanguage(language);
         try {
             await fetch("/api/user/settings", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ notify, language })
+                body: JSON.stringify({ language })
             });
-            window.setAppLanguage(language);
-            alert(language === "en" ? "✅ Settings saved successfully!" : "✅ Налаштування успішно збережено!");
-        } catch (e) {
-            console.error("Failed saving settings:", e);
-            alert("⚠️ Помилка збереження налаштувань: " + e);
+        } catch (err) {
+            console.error("Failed saving language preference:", err);
         }
     });
 
