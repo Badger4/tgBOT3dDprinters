@@ -482,8 +482,23 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    function populatePrinterSettingsSelect(printers) {
+        const sel = document.getElementById("printer-settings-select");
+        if (!sel) return;
+        const curVal = sel.value;
+        const opts = `<option value="">-- Оберіть принтер --</option>` +
+            (printers || []).map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)} (${p.ip || 'no IP'})</option>`).join("");
+        if (sel.innerHTML !== opts) {
+            sel.innerHTML = opts;
+            if (curVal && (printers || []).some(p => p.id === curVal)) {
+                sel.value = curVal;
+            }
+        }
+    }
+
     function renderPrinters(printers) {
         updateFilterBadges(printers);
+        populatePrinterSettingsSelect(printers);
 
         if (!printers || printers.length === 0) {
             printersGrid.innerHTML = `
@@ -2709,11 +2724,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     async function loadPrinterSettings(printerId) {
-        if (!printerId) return;
+        const container = document.getElementById("printer-settings-form-container");
+        if (!printerId) {
+            if (container) container.style.display = "none";
+            return;
+        }
         try {
             const res = await fetch(`/api/printers/${printerId}/settings`);
             if (!res.ok) return;
             const p = await res.json();
+
+            if (container) container.style.display = "block";
 
             if (document.getElementById("p-setting-name")) document.getElementById("p-setting-name").value = p.name || "";
             if (document.getElementById("p-setting-ip")) document.getElementById("p-setting-ip").value = p.ip || "";
