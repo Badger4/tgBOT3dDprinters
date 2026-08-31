@@ -246,23 +246,24 @@
                             <span class="stat-label" data-i18n="total_filament_label">Витрачено нитки</span>
                             <span id="stat-total-weight" class="stat-value">0 kg</span>
                         </div>
+                    </div>
                 </div>
 
                 <!-- History Filters Bar -->
-                <div class="glass-card mt-4 mb-3 p-3">
-                    <div class="form-row align-items-center">
-                        <div class="form-group col-md-4 mb-2 mb-md-0">
-                            <label class="small text-muted mb-1"><i class="fa-solid fa-magnifying-glass color-blue"></i> Пошук за назвою деталі</label>
-                            <input type="text" id="history-filter-search" class="form-control" placeholder="Пошук за назвою деталі..." autocomplete="off">
+                <div class="history-filters-card">
+                    <div class="history-filters-grid">
+                        <div class="history-filter-item">
+                            <label><i class="fa-solid fa-magnifying-glass color-blue"></i> Пошук за назвою деталі</label>
+                            <input type="text" id="history-filter-search" class="form-control" placeholder="Пошук за назвою моделі/файла..." autocomplete="off">
                         </div>
-                        <div class="form-group col-md-4 mb-2 mb-md-0">
-                            <label class="small text-muted mb-1"><i class="fa-solid fa-print color-green"></i> Фільтр за принтером</label>
+                        <div class="history-filter-item">
+                            <label><i class="fa-solid fa-print color-green"></i> Фільтр за принтером</label>
                             <select id="history-filter-printer" class="form-control">
                                 <option value="">🌐 Усі принтери</option>
                             </select>
                         </div>
-                        <div class="form-group col-md-4 mb-0">
-                            <label class="small text-muted mb-1"><i class="fa-solid fa-calendar-days color-amber"></i> Фільтр за датою</label>
+                        <div class="history-filter-item">
+                            <label><i class="fa-solid fa-calendar-days color-amber"></i> Фільтр за датою</label>
                             <input type="date" id="history-filter-date" class="form-control">
                         </div>
                     </div>
