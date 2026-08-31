@@ -75,11 +75,11 @@ def get_edit_printer_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
 
 def get_printer_models_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text="🖨️ A1 mini"), KeyboardButton(text="🖨️ A1")],
-        [KeyboardButton(text="🖨️ P1P"), KeyboardButton(text="🖨️ P1S")],
-        [KeyboardButton(text="🖨️ X1"), KeyboardButton(text="🖨️ X1-Carbon"), KeyboardButton(text="🖨️ X1E")],
-        [KeyboardButton(text="🖨️ H1"), KeyboardButton(text="🖨️ H2")],
-        [KeyboardButton(text="🖨️ Інша модель Bambu Lab")],
+        [KeyboardButton(text="🖨️ A1 mini"), KeyboardButton(text="🖨️ A1"), KeyboardButton(text="🖨️ A2L")],
+        [KeyboardButton(text="🖨️ P1P"), KeyboardButton(text="🖨️ P1S"), KeyboardButton(text="🖨️ P2S")],
+        [KeyboardButton(text="🖨️ X1"), KeyboardButton(text="🖨️ X1 Carbon (X1C)"), KeyboardButton(text="🖨️ X1E")],
+        [KeyboardButton(text="🖨️ X2D"), KeyboardButton(text="🖨️ H2S"), KeyboardButton(text="🖨️ H2D")],
+        [KeyboardButton(text="🖨️ H2D Pro"), KeyboardButton(text="🖨️ H2C")],
         [KeyboardButton(text=t("btn_back", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
