@@ -292,6 +292,29 @@ async def handle_get_printer_settings(request: web.Request) -> web.Response:
     if not p:
         return web.json_response({"error": "Printer not found"}, status=404)
 
+    raw_notify = getattr(p, "notify", True)
+    if isinstance(raw_notify, dict):
+        notify_dict = {
+            "start": bool(raw_notify.get("start", True)),
+            "finish": bool(raw_notify.get("finish", True)),
+            "pause": bool(raw_notify.get("pause", True)),
+            "hms": bool(raw_notify.get("hms", True)),
+            "remind_clear": bool(raw_notify.get("remind_clear", True)),
+            "min_time_to_end": int(raw_notify.get("min_time_to_end", 0)),
+            "min_filament": int(raw_notify.get("min_filament", 0)),
+        }
+    else:
+        is_on = bool(raw_notify)
+        notify_dict = {
+            "start": is_on,
+            "finish": is_on,
+            "pause": is_on,
+            "hms": is_on,
+            "remind_clear": is_on,
+            "min_time_to_end": 0,
+            "min_filament": 0,
+        }
+
     settings = {
         "id": p.id,
         "name": p.name,
@@ -300,7 +323,7 @@ async def handle_get_printer_settings(request: web.Request) -> web.Response:
         "serialNumber": p.serial_number,
         "printer_model": getattr(p, "printer_model", "A1"),
         "ams_enabled": getattr(p, "ams_enabled", None),
-        "notify": getattr(p, "notify", True),
+        "notify": notify_dict,
         "spd_lvl": getattr(p, "spd_lvl", 2),
         "maintenance_interval_hours": getattr(p, "maintenance_interval_hours", 100),
         "maintenance_hours_counter": round(getattr(p, "maintenance_hours_counter", 0.0), 1),
@@ -354,7 +377,19 @@ async def handle_update_printer_settings(request: web.Request) -> web.Response:
             else:
                 p.ams_enabled = None
         if "notify" in data:
-            p.notify = bool(data["notify"])
+            raw_n = data["notify"]
+            if isinstance(raw_n, dict):
+                p.notify = {
+                    "start": bool(raw_n.get("start", True)),
+                    "finish": bool(raw_n.get("finish", True)),
+                    "pause": bool(raw_n.get("pause", True)),
+                    "hms": bool(raw_n.get("hms", True)),
+                    "remind_clear": bool(raw_n.get("remind_clear", True)),
+                    "min_time_to_end": int(raw_n.get("min_time_to_end", 0)),
+                    "min_filament": int(raw_n.get("min_filament", 0)),
+                }
+            else:
+                p.notify = bool(raw_n)
         if "spd_lvl" in data:
             p.spd_lvl = int(data["spd_lvl"])
         if "maintenance_interval_hours" in data:
@@ -379,7 +414,7 @@ async def handle_update_printer_settings(request: web.Request) -> web.Response:
                     "serialNumber": p.serial_number,
                     "printer_model": getattr(p, "printer_model", "A1"),
                     "ams_enabled": getattr(p, "ams_enabled", None),
-                    "notify": getattr(p, "notify", True),
+                    "notify": p.notify,
                     "spd_lvl": getattr(p, "spd_lvl", 2),
                     "maintenance_interval_hours": getattr(p, "maintenance_interval_hours", 100),
                     "maintenance_hours_counter": round(getattr(p, "maintenance_hours_counter", 0.0), 1),

@@ -410,17 +410,64 @@
                             </div>
                         </div>
 
-                        <div class="settings-group mb-3">
-                            <label class="switch-row">
-                                <span><i class="fa-solid fa-bell color-green"></i> <span>Сповіщення для цього принтера</span></span>
-                                <input type="checkbox" id="p-setting-notify" checked>
-                                <span class="slider"></span>
-                            </label>
+                        <!-- Detailed Per-Printer Notification Controls -->
+                        <div class="p-3 mb-3 rounded" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);">
+                            <h4 class="mb-3" style="font-size: 14px; color: #ff9f43;"><i class="fa-solid fa-bell color-orange"></i> Сповіщення для цього принтера</h4>
+                            <div class="settings-group">
+                                <label class="switch-row mb-2">
+                                    <span><i class="fa-solid fa-play color-green"></i> Сповіщення про початок друку</span>
+                                    <input type="checkbox" id="p-setting-notify-start" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <label class="switch-row mb-2">
+                                    <span><i class="fa-solid fa-flag-checkered color-blue"></i> Сповіщення про завершення друку</span>
+                                    <input type="checkbox" id="p-setting-notify-finish" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <label class="switch-row mb-2">
+                                    <span><i class="fa-solid fa-pause color-amber"></i> Сповіщення про паузу друку</span>
+                                    <input type="checkbox" id="p-setting-notify-pause" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <label class="switch-row mb-2">
+                                    <span><i class="fa-solid fa-triangle-exclamation color-red"></i> HMS Помилки та тривоги</span>
+                                    <input type="checkbox" id="p-setting-notify-hms" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <label class="switch-row mb-2">
+                                    <span><i class="fa-solid fa-hand-holding-hand color-purple"></i> Нагадування зняти деталь з підкладки</span>
+                                    <input type="checkbox" id="p-setting-notify-remind-clear" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+
+                            <div class="form-row mt-3">
+                                <div class="form-group col-md-6 mb-2">
+                                    <label><i class="fa-solid fa-hourglass-half"></i> Таймер до кінця друку</label>
+                                    <select id="p-setting-notify-min-time" class="form-control">
+                                        <option value="0">❌ Вимкнути таймер</option>
+                                        <option value="5">⏳ 5 хвилин до кінця</option>
+                                        <option value="10">⏳ 10 хвилин до кінця</option>
+                                        <option value="15">⏳ 15 хвилин до кінця</option>
+                                    </select>
+                                </div>
+                                <div class="form-group col-md-6 mb-2">
+                                    <label><i class="fa-solid fa-weight-hanging"></i> Поріг залишку нитки</label>
+                                    <select id="p-setting-notify-min-filament" class="form-control">
+                                        <option value="0">❌ Вимкнути ліміт</option>
+                                        <option value="50">📦 Менше 50г</option>
+                                        <option value="100">📦 Менше 100г</option>
+                                        <option value="200">📦 Менше 200г</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="d-flex align-items-center justify-content-between p-3 rounded mb-3" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
+                        <!-- Maintenance Block & Reset Button -->
+                        <div class="p-3 mb-3 rounded d-flex align-items-center justify-content-between flex-wrap gap-2" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);">
                             <div>
-                                <span><i class="fa-solid fa-clock-rotate-left color-amber"></i> Напрацьовано годин: <strong id="p-setting-maint-counter-val">0.0 год</strong></span>
+                                <div class="text-muted small"><i class="fa-solid fa-clock-rotate-left color-amber"></i> Напрацьовано годин ТО:</div>
+                                <strong id="p-setting-maint-counter-val" style="font-size: 16px; color: #fff;">0.0 год</strong>
                             </div>
                             <button type="button" id="p-setting-reset-maint-btn" class="btn btn-sm btn-outline-warning">
                                 <i class="fa-solid fa-rotate-left"></i> Скинути лічильник
@@ -743,20 +790,67 @@
                         </div>
                     </div>
 
-                    <div class="settings-group mb-3">
-                        <label class="switch-row">
-                            <span><i class="fa-solid fa-bell color-green"></i> <span>Сповіщення для цього принтера</span></span>
-                            <input type="checkbox" id="ps-modal-notify" checked>
-                            <span class="slider"></span>
-                        </label>
+                    <!-- Detailed Per-Printer Notification Controls -->
+                    <div class="p-3 mb-3 rounded" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);">
+                        <h4 class="mb-3" style="font-size: 14px; color: #ff9f43;"><i class="fa-solid fa-bell color-orange"></i> Сповіщення для цього принтера</h4>
+                        <div class="settings-group">
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-play color-green"></i> Сповіщення про початок друку</span>
+                                <input type="checkbox" id="ps-modal-notify-start" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-flag-checkered color-blue"></i> Сповіщення про завершення друку</span>
+                                <input type="checkbox" id="ps-modal-notify-finish" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-pause color-amber"></i> Сповіщення про паузу друку</span>
+                                <input type="checkbox" id="ps-modal-notify-pause" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-triangle-exclamation color-red"></i> HMS Помилки та тривоги</span>
+                                <input type="checkbox" id="ps-modal-notify-hms" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-hand-holding-hand color-purple"></i> Нагадування зняти деталь з підкладки</span>
+                                <input type="checkbox" id="ps-modal-notify-remind-clear" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="form-row mt-3">
+                            <div class="form-group col-md-6 mb-2">
+                                <label><i class="fa-solid fa-hourglass-half"></i> Таймер до кінця друку</label>
+                                <select id="ps-modal-notify-min-time" class="form-control">
+                                    <option value="0">❌ Вимкнути таймер</option>
+                                    <option value="5">⏳ 5 хвилин до кінця</option>
+                                    <option value="10">⏳ 10 хвилин до кінця</option>
+                                    <option value="15">⏳ 15 хвилин до кінця</option>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-6 mb-2">
+                                <label><i class="fa-solid fa-weight-hanging"></i> Поріг залишку нитки</label>
+                                <select id="ps-modal-notify-min-filament" class="form-control">
+                                    <option value="0">❌ Вимкнути ліміт</option>
+                                    <option value="50">📦 Менше 50г</option>
+                                    <option value="100">📦 Менше 100г</option>
+                                    <option value="200">📦 Менше 200г</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="d-flex align-items-center justify-content-between p-3 rounded mb-3" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
+                    <!-- Maintenance Block & Reset Button -->
+                    <div class="p-3 mb-3 rounded d-flex align-items-center justify-content-between flex-wrap gap-2" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);">
                         <div>
-                            <span><i class="fa-solid fa-clock-rotate-left color-amber"></i> Напрацьовано годин: <strong id="ps-modal-maint-counter">0.0 год</strong></span>
+                            <div class="text-muted small"><i class="fa-solid fa-clock-rotate-left color-amber"></i> Напрацьовано годин ТО:</div>
+                            <strong id="ps-modal-maint-counter" style="font-size: 16px; color: #fff;">0.0 год</strong>
                         </div>
                         <button type="button" id="ps-modal-reset-maint-btn" class="btn btn-sm btn-outline-warning">
-                            <i class="fa-solid fa-rotate-left"></i> Скинути
+                            <i class="fa-solid fa-rotate-left"></i> Скинути лічильник
                         </button>
                     </div>
 

@@ -2725,6 +2725,38 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    async function loadPrinterSettings(printerId) {
+        if (!printerId) return;
+        try {
+            const res = await fetch(`/api/printers/${printerId}/settings`);
+            if (!res.ok) return;
+            const p = await res.json();
+
+            if (document.getElementById("p-setting-name")) document.getElementById("p-setting-name").value = p.name || "";
+            if (document.getElementById("p-setting-ip")) document.getElementById("p-setting-ip").value = p.ip || "";
+            if (document.getElementById("p-setting-access-code")) document.getElementById("p-setting-access-code").value = p.accessCode || "";
+            if (document.getElementById("p-setting-sn")) document.getElementById("p-setting-sn").value = p.serialNumber || "";
+            if (document.getElementById("p-setting-model")) document.getElementById("p-setting-model").value = p.printer_model || "A1";
+            if (document.getElementById("p-setting-ams")) document.getElementById("p-setting-ams").value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");
+            if (document.getElementById("p-setting-maint-interval")) document.getElementById("p-setting-maint-interval").value = p.maintenance_interval_hours || 100;
+            if (document.getElementById("p-setting-maint-counter-val")) document.getElementById("p-setting-maint-counter-val").textContent = `${(p.maintenance_hours_counter || 0.0).toFixed(1)} год`;
+
+            const n = typeof p.notify === "object" && p.notify !== null ? p.notify : {};
+            const isAllOn = p.notify !== false;
+
+            if (document.getElementById("p-setting-notify-start")) document.getElementById("p-setting-notify-start").checked = n.start ?? isAllOn;
+            if (document.getElementById("p-setting-notify-finish")) document.getElementById("p-setting-notify-finish").checked = n.finish ?? isAllOn;
+            if (document.getElementById("p-setting-notify-pause")) document.getElementById("p-setting-notify-pause").checked = n.pause ?? isAllOn;
+            if (document.getElementById("p-setting-notify-hms")) document.getElementById("p-setting-notify-hms").checked = n.hms ?? isAllOn;
+            if (document.getElementById("p-setting-notify-remind-clear")) document.getElementById("p-setting-notify-remind-clear").checked = n.remind_clear ?? isAllOn;
+            if (document.getElementById("p-setting-notify-min-time")) document.getElementById("p-setting-notify-min-time").value = n.min_time_to_end ?? 0;
+            if (document.getElementById("p-setting-notify-min-filament")) document.getElementById("p-setting-notify-min-filament").value = n.min_filament ?? 0;
+        } catch (e) {
+            console.error("Failed loading printer settings:", e);
+        }
+    }
+    window.loadPrinterSettings = loadPrinterSettings;
+
     // Per-Printer Individual Settings Event Handlers
     document.getElementById("printer-settings-select")?.addEventListener("change", (e) => {
         loadPrinterSettings(e.target.value);
@@ -2735,6 +2767,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const printerId = document.getElementById("printer-settings-select")?.value;
         if (!printerId) return;
 
+        const notifyObj = {
+            start: document.getElementById("p-setting-notify-start")?.checked ?? true,
+            finish: document.getElementById("p-setting-notify-finish")?.checked ?? true,
+            pause: document.getElementById("p-setting-notify-pause")?.checked ?? true,
+            hms: document.getElementById("p-setting-notify-hms")?.checked ?? true,
+            remind_clear: document.getElementById("p-setting-notify-remind-clear")?.checked ?? true,
+            min_time_to_end: parseInt(document.getElementById("p-setting-notify-min-time")?.value || 0),
+            min_filament: parseInt(document.getElementById("p-setting-notify-min-filament")?.value || 0),
+        };
+
         const payload = {
             name: document.getElementById("p-setting-name")?.value || "",
             ip: document.getElementById("p-setting-ip")?.value || "",
@@ -2743,7 +2785,7 @@ document.addEventListener("DOMContentLoaded", () => {
             printer_model: document.getElementById("p-setting-model")?.value || "A1",
             ams_enabled: document.getElementById("p-setting-ams")?.value === "true" ? true : (document.getElementById("p-setting-ams")?.value === "false" ? false : "auto"),
             maintenance_interval_hours: parseInt(document.getElementById("p-setting-maint-interval")?.value || 100),
-            notify: document.getElementById("p-setting-notify")?.checked ?? true,
+            notify: notifyObj,
         };
 
         try {
@@ -2806,8 +2848,18 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("ps-modal-model").value = p.printer_model || "A1";
             document.getElementById("ps-modal-ams").value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");
             document.getElementById("ps-modal-maint-interval").value = p.maintenance_interval_hours || 100;
-            document.getElementById("ps-modal-notify").checked = p.notify !== false;
             document.getElementById("ps-modal-maint-counter").textContent = `${(p.maintenance_hours_counter || 0.0).toFixed(1)} год`;
+
+            const n = typeof p.notify === "object" && p.notify !== null ? p.notify : {};
+            const isAllOn = p.notify !== false;
+
+            if (document.getElementById("ps-modal-notify-start")) document.getElementById("ps-modal-notify-start").checked = n.start ?? isAllOn;
+            if (document.getElementById("ps-modal-notify-finish")) document.getElementById("ps-modal-notify-finish").checked = n.finish ?? isAllOn;
+            if (document.getElementById("ps-modal-notify-pause")) document.getElementById("ps-modal-notify-pause").checked = n.pause ?? isAllOn;
+            if (document.getElementById("ps-modal-notify-hms")) document.getElementById("ps-modal-notify-hms").checked = n.hms ?? isAllOn;
+            if (document.getElementById("ps-modal-notify-remind-clear")) document.getElementById("ps-modal-notify-remind-clear").checked = n.remind_clear ?? isAllOn;
+            if (document.getElementById("ps-modal-notify-min-time")) document.getElementById("ps-modal-notify-min-time").value = n.min_time_to_end ?? 0;
+            if (document.getElementById("ps-modal-notify-min-filament")) document.getElementById("ps-modal-notify-min-filament").value = n.min_filament ?? 0;
 
             modal.classList.add("active");
         } catch (e) {
@@ -2833,6 +2885,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const pId = document.getElementById("ps-modal-printer-id")?.value;
         if (!pId) return;
 
+        const notifyObj = {
+            start: document.getElementById("ps-modal-notify-start")?.checked ?? true,
+            finish: document.getElementById("ps-modal-notify-finish")?.checked ?? true,
+            pause: document.getElementById("ps-modal-notify-pause")?.checked ?? true,
+            hms: document.getElementById("ps-modal-notify-hms")?.checked ?? true,
+            remind_clear: document.getElementById("ps-modal-notify-remind-clear")?.checked ?? true,
+            min_time_to_end: parseInt(document.getElementById("ps-modal-notify-min-time")?.value || 0),
+            min_filament: parseInt(document.getElementById("ps-modal-notify-min-filament")?.value || 0),
+        };
+
         const payload = {
             name: document.getElementById("ps-modal-name")?.value || "",
             ip: document.getElementById("ps-modal-ip")?.value || "",
@@ -2841,7 +2903,7 @@ document.addEventListener("DOMContentLoaded", () => {
             printer_model: document.getElementById("ps-modal-model")?.value || "A1",
             ams_enabled: document.getElementById("ps-modal-ams")?.value === "true" ? true : (document.getElementById("ps-modal-ams")?.value === "false" ? false : "auto"),
             maintenance_interval_hours: parseInt(document.getElementById("ps-modal-maint-interval")?.value || 100),
-            notify: document.getElementById("ps-modal-notify")?.checked ?? true,
+            notify: notifyObj,
         };
 
         try {
