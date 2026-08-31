@@ -448,7 +448,20 @@ async def handle_select_printer_by_name(message: Message, app):
         )
 
 
-@router.message(F.text.lower().in_(["✏️ редагувати принтер", "редагувати принтер", "✏️ edit printer", "edit printer"]))
+@router.message(
+    F.text.lower().in_(
+        [
+            "⚙️ налаштування принтера",
+            "налаштування принтера",
+            "✏️ редагувати принтер",
+            "редагувати принтер",
+            "⚙️ printer settings",
+            "printer settings",
+            "✏️ edit printer",
+            "edit printer",
+        ]
+    )
+)
 async def handle_edit_printer_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)

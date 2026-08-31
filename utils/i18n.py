@@ -101,8 +101,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "🧹 Reset Maintenance",
     },
     "btn_edit_printer": {
-        "uk": "✏️ Редагувати принтер",
-        "en": "✏️ Edit Printer",
+        "uk": "⚙️ Налаштування принтера",
+        "en": "⚙️ Printer Settings",
     },
     "btn_edit_p_name": {
         "uk": "✏️ Назва принтера",

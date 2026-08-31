@@ -570,7 +570,10 @@ document.addEventListener("DOMContentLoaded", () => {
                             <h3>${escapeHtml(p.name)}</h3>
                             <div class="printer-model-sub"><i class="fa-solid fa-file-code"></i> ${escapeHtml(modelName)}</div>
                         </div>
-                        <span class="status-pill ${statusInfo.badgeClass}">${statusInfo.label}</span>
+                        <div class="d-flex align-items-center">
+                            <span class="status-pill ${statusInfo.badgeClass}">${statusInfo.label}</span>
+                            <button type="button" class="btn-card-gear" data-id="${p.id}" title="Налаштування принтера"><i class="fa-solid fa-gear"></i></button>
+                        </div>
                     </div>
 
                     <div class="progress-container">
@@ -592,11 +595,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 </div>`;
         }).join("");
 
-        // Attach click listeners to cards
+        // Attach click listeners to cards & settings gear buttons
         document.querySelectorAll(".printer-card").forEach(card => {
             card.addEventListener("click", () => {
                 const pId = card.getAttribute("data-id");
                 openPrinterModal(pId);
+            });
+        });
+
+        document.querySelectorAll(".btn-card-gear").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const pId = btn.getAttribute("data-id");
+                openPrinterSettingsModal(pId);
             });
         });
 
@@ -2768,6 +2779,105 @@ document.addEventListener("DOMContentLoaded", () => {
             if (res.ok) {
                 alert("✅ Лічильник обслуговування скинуто на 0.0 год!");
                 loadPrinterSettings(printerId);
+            }
+        } catch (e) {
+            console.error("Failed resetting maintenance counter:", e);
+        }
+    });
+
+    async function openPrinterSettingsModal(pId) {
+        triggerHaptic("medium");
+        const modal = document.getElementById("printer-settings-modal");
+        if (!modal || !pId) return;
+
+        try {
+            const res = await fetch(`/api/printers/${pId}/settings`);
+            if (!res.ok) return;
+            const p = await res.json();
+
+            document.getElementById("ps-modal-printer-id").value = pId;
+            document.getElementById("ps-modal-title").textContent = `Налаштування: ${p.name || pId}`;
+            document.getElementById("ps-modal-name").value = p.name || "";
+            document.getElementById("ps-modal-ip").value = p.ip || "";
+            document.getElementById("ps-modal-access-code").value = p.accessCode || "";
+            document.getElementById("ps-modal-sn").value = p.serialNumber || "";
+            document.getElementById("ps-modal-model").value = p.printer_model || "A1";
+            document.getElementById("ps-modal-ams").value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");
+            document.getElementById("ps-modal-maint-interval").value = p.maintenance_interval_hours || 100;
+            document.getElementById("ps-modal-notify").checked = p.notify !== false;
+            document.getElementById("ps-modal-maint-counter").textContent = `${(p.maintenance_hours_counter || 0.0).toFixed(1)} год`;
+
+            modal.classList.add("active");
+        } catch (e) {
+            console.error("Failed opening printer settings modal:", e);
+        }
+    }
+    window.openPrinterSettingsModal = openPrinterSettingsModal;
+
+    document.getElementById("close-printer-settings-modal")?.addEventListener("click", () => {
+        document.getElementById("printer-settings-modal")?.classList.remove("active");
+    });
+
+    document.getElementById("btn-printer-settings")?.addEventListener("click", () => {
+        const modalControl = document.getElementById("printer-modal");
+        if (modalControl) modalControl.classList.remove("active");
+        if (selectedPrinterId) {
+            openPrinterSettingsModal(selectedPrinterId);
+        }
+    });
+
+    document.getElementById("save-printer-settings-modal-btn")?.addEventListener("click", async () => {
+        triggerHaptic("medium");
+        const pId = document.getElementById("ps-modal-printer-id")?.value;
+        if (!pId) return;
+
+        const payload = {
+            name: document.getElementById("ps-modal-name")?.value || "",
+            ip: document.getElementById("ps-modal-ip")?.value || "",
+            accessCode: document.getElementById("ps-modal-access-code")?.value || "",
+            serialNumber: document.getElementById("ps-modal-sn")?.value || "",
+            printer_model: document.getElementById("ps-modal-model")?.value || "A1",
+            ams_enabled: document.getElementById("ps-modal-ams")?.value === "true" ? true : (document.getElementById("ps-modal-ams")?.value === "false" ? false : "auto"),
+            maintenance_interval_hours: parseInt(document.getElementById("ps-modal-maint-interval")?.value || 100),
+            notify: document.getElementById("ps-modal-notify")?.checked ?? true,
+        };
+
+        try {
+            const res = await fetch(`/api/printers/${pId}/settings`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                alert("✅ Налаштування принтера успішно збережено!");
+                document.getElementById("printer-settings-modal")?.classList.remove("active");
+                fetchPrinters();
+            } else {
+                const err = await res.json();
+                alert("⚠️ Помилка збереження: " + (err.error || "Невідома помилка"));
+            }
+        } catch (e) {
+            console.error("Failed saving printer settings via modal:", e);
+            alert("⚠️ Помилка зв'язку із сервером: " + e);
+        }
+    });
+
+    document.getElementById("ps-modal-reset-maint-btn")?.addEventListener("click", async () => {
+        triggerHaptic("heavy");
+        const pId = document.getElementById("ps-modal-printer-id")?.value;
+        if (!pId) return;
+
+        if (!confirm("Ви дійсно бажаєте скинути лічильник напрацьованих годин для цього принтера?")) return;
+
+        try {
+            const res = await fetch(`/api/printers/${pId}/settings`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reset_maintenance: true })
+            });
+            if (res.ok) {
+                alert("✅ Лічильник обслуговування скинуто на 0.0 год!");
+                openPrinterSettingsModal(pId);
             }
         } catch (e) {
             console.error("Failed resetting maintenance counter:", e);

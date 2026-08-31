@@ -640,6 +640,7 @@
                         <button id="btn-action-light" class="btn btn-neutral"><i class="fa-solid fa-lightbulb"></i> Світло</button>
                         <button id="btn-action-calibrate" class="btn btn-info"><i class="fa-solid fa-sliders"></i> Калібрувати</button>
                         <button id="btn-action-notify" class="btn btn-neutral"><i class="fa-solid fa-bell"></i> Сповіщення</button>
+                        <button id="btn-printer-settings" class="btn btn-primary"><i class="fa-solid fa-gear"></i> Налаштування</button>
                     </div>
 
                     <!-- Skip Objects Section -->
@@ -660,6 +661,90 @@
                         </div>
                     </div>
                     <button id="btn-action-delete" class="btn btn-outline-danger w-100 mt-3"><i class="fa-solid fa-trash"></i> Видалити принтер</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- PER-PRINTER INDIVIDUAL SETTINGS MODAL -->
+        <div id="printer-settings-modal" class="modal-backdrop">
+            <div class="modal-window">
+                <div class="modal-header">
+                    <div class="modal-title-wrap">
+                        <h3><i class="fa-solid fa-gear color-blue"></i> <span id="ps-modal-title">Налаштування принтера</span></h3>
+                    </div>
+                    <button id="close-printer-settings-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="ps-modal-printer-id">
+
+                    <div class="form-group mb-3">
+                        <label><i class="fa-solid fa-pen"></i> Назва принтера</label>
+                        <input type="text" id="ps-modal-name" class="form-control" placeholder="Bambu Lab A1">
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group col-md-6 mb-3">
+                            <label><i class="fa-solid fa-network-wired"></i> IP-адреса</label>
+                            <input type="text" id="ps-modal-ip" class="form-control" placeholder="192.168.1.XX">
+                        </div>
+                        <div class="form-group col-md-6 mb-3">
+                            <label><i class="fa-solid fa-key"></i> Код доступу (Access Code)</label>
+                            <input type="text" id="ps-modal-access-code" class="form-control" placeholder="12345678">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group col-md-6 mb-3">
+                            <label><i class="fa-solid fa-barcode"></i> Серійний номер (SN)</label>
+                            <input type="text" id="ps-modal-sn" class="form-control" placeholder="01P00A123456">
+                        </div>
+                        <div class="form-group col-md-6 mb-3">
+                            <label><i class="fa-solid fa-cube"></i> Модель принтера</label>
+                            <select id="ps-modal-model" class="form-control">
+                                <option value="A1 mini">A1 mini</option>
+                                <option value="A1">A1</option>
+                                <option value="P1S">P1S</option>
+                                <option value="P1P">P1P</option>
+                                <option value="X1C">X1C</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group col-md-6 mb-3">
+                            <label><i class="fa-solid fa-gears"></i> Модуль AMS</label>
+                            <select id="ps-modal-ams" class="form-control">
+                                <option value="auto">🤖 Авто (Визначати автоматично)</option>
+                                <option value="true">✅ Увімкнено (AMS активний)</option>
+                                <option value="false">❌ Вимкнути (Без AMS)</option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-6 mb-3">
+                            <label><i class="fa-solid fa-wrench"></i> Інтервал обслуговування (год)</label>
+                            <input type="number" id="ps-modal-maint-interval" class="form-control" value="100" min="10" max="1000">
+                        </div>
+                    </div>
+
+                    <div class="settings-group mb-3">
+                        <label class="switch-row">
+                            <span><i class="fa-solid fa-bell color-green"></i> <span>Сповіщення для цього принтера</span></span>
+                            <input type="checkbox" id="ps-modal-notify" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="d-flex align-items-center justify-content-between p-3 rounded mb-3" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
+                        <div>
+                            <span><i class="fa-solid fa-clock-rotate-left color-amber"></i> Напрацьовано годин: <strong id="ps-modal-maint-counter">0.0 год</strong></span>
+                        </div>
+                        <button type="button" id="ps-modal-reset-maint-btn" class="btn btn-sm btn-outline-warning">
+                            <i class="fa-solid fa-rotate-left"></i> Скинути
+                        </button>
+                    </div>
+
+                    <button id="save-printer-settings-modal-btn" class="btn btn-success w-100">
+                        <i class="fa-solid fa-floppy-disk"></i> Зберегти налаштування принтера
+                    </button>
                 </div>
             </div>
         </div>

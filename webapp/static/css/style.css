@@ -266,6 +266,27 @@ body {
     margin-bottom: 12px;
 }
 
+.btn-card-gear {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #cbd5e1;
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+}
+
+.btn-card-gear:hover {
+    background: rgba(99, 102, 241, 0.3);
+    color: #ffffff;
+    border-color: #6366f1;
+}
+
 .printer-name-group h3 {
     font-size: 17px;
     font-weight: 600;
