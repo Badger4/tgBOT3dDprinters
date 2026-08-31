@@ -1223,14 +1223,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const ipInput = document.getElementById("new-p-ip");
         const codeInput = document.getElementById("new-p-code");
         const snInput = document.getElementById("new-p-sn");
+        const modelInput = document.getElementById("new-p-model");
 
         const name = nameInput ? nameInput.value.trim() : "";
         const ip = ipInput ? ipInput.value.trim() : "";
         const accessCode = codeInput ? codeInput.value.trim() : "";
         const serialNumber = snInput ? snInput.value.trim() : "";
+        const printer_model = modelInput ? modelInput.value.trim() : "P1S";
 
         if (!name || !ip || !accessCode || !serialNumber) {
-            alert("Будь ласка, заповніть всі 4 поля (Назва, IP, Код доступу, Серійний номер)!");
+            alert("Будь ласка, заповніть всі поля (Назва, Модель, IP, Код доступу, Серійний номер)!");
             return;
         }
 
@@ -1247,7 +1249,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const res = await fetch("/api/printers", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, ip, accessCode, serialNumber }),
+                body: JSON.stringify({ name, ip, accessCode, serialNumber, printer_model }),
                 signal: controller.signal
             });
             clearTimeout(timeoutId);

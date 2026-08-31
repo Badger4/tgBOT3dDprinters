@@ -87,6 +87,7 @@ async def handle_create_printer(request: web.Request) -> web.Response:
         ip = str(data.get("ip", "")).strip()
         access_code = str(data.get("accessCode", "")).strip()
         serial_number = str(data.get("serialNumber", "")).strip()
+        printer_model = str(data.get("printer_model") or data.get("model") or "A1").strip()
 
         if not name or not ip or not access_code or not serial_number:
             return web.json_response({"error": "Всі поля (Назва, IP, Access Code, SN) обов'язкові!"}, status=400)
@@ -97,6 +98,7 @@ async def handle_create_printer(request: web.Request) -> web.Response:
             "ip": ip,
             "accessCode": access_code,
             "serialNumber": serial_number,
+            "printer_model": printer_model,
             "filament_grams": float(data.get("filament_grams", 1000.0)),
             "notify": True,
         }

@@ -73,6 +73,18 @@ def get_edit_printer_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+def get_printer_models_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton(text="🖨️ A1 mini"), KeyboardButton(text="🖨️ A1 mini Combo")],
+        [KeyboardButton(text="🖨️ A1"), KeyboardButton(text="🖨️ A1 Combo")],
+        [KeyboardButton(text="🖨️ P1P"), KeyboardButton(text="🖨️ P1S"), KeyboardButton(text="🖨️ P1S Combo")],
+        [KeyboardButton(text="🖨️ X1-Carbon"), KeyboardButton(text="🖨️ X1-Carbon Combo")],
+        [KeyboardButton(text="🖨️ X1E"), KeyboardButton(text="🖨️ H2 / Інша модель")],
+        [KeyboardButton(text=t("btn_back", lang))],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
 def get_notification_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
     """Builds interactive inline buttons attached to live printer notifications."""
     buttons = [

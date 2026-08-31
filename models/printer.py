@@ -52,6 +52,7 @@ class BambuPrinter:
         raw_code = config.get("accessCode") or config.get("code") or ""
         self.access_code = str(raw_code).strip() if isinstance(raw_code, (str, int, float)) else ""
         self.serial_number = str(config.get("serialNumber") or config.get("serial") or "")
+        self.printer_model = str(config.get("printer_model") or config.get("model") or "A1").strip()
         self.spool_db_file = config.get("spoolDbFile", f"./spool_{self.id}.json")
         self.filament_grams = float(config.get("filament_grams", 1000.0))
         self.notify = config.get("notify", True)
@@ -1140,6 +1141,7 @@ class BambuPrinter:
             "ip": self.ip,
             "accessCode": self.access_code if for_storage else ("••••••••" if self.access_code else ""),
             "serialNumber": self.serial_number,
+            "printer_model": getattr(self, "printer_model", "A1"),
             "spoolDbFile": self.spool_db_file,
             "filament_grams": self.filament_grams,
             "notify": self.notify,

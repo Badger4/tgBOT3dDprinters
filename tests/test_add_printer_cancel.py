@@ -66,6 +66,20 @@ class TestAddPrinterCancel(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.user_data["state"], "idle")
         self.assertNotIn("new_printer", self.user_data.get("context_data", {}))
 
+    async def test_cancel_at_add_p_model(self):
+        self.user_data["state"] = "add_p_model"
+        msg = MagicMock(spec=Message)
+        msg.chat = MagicMock(spec=Chat)
+        msg.chat.id = 12345
+        msg.text = "скасувати"
+        msg.answer = AsyncMock()
+
+        handled = await handle_printer_states(msg, self.app)
+
+        self.assertTrue(handled)
+        self.assertEqual(self.user_data["state"], "idle")
+        self.assertNotIn("new_printer", self.user_data.get("context_data", {}))
+
     async def test_cancel_at_add_p_sn(self):
         self.user_data["state"] = "add_p_sn"
         msg = MagicMock(spec=Message)
@@ -79,6 +93,26 @@ class TestAddPrinterCancel(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(handled)
         self.assertEqual(self.user_data["state"], "idle")
         self.assertNotIn("new_printer", self.user_data.get("context_data", {}))
+
+    async def test_add_printer_flow(self):
+        self.user_data["state"] = "add_p_name"
+        self.user_data["context_data"] = {"new_printer": {}}
+        msg = MagicMock(spec=Message)
+        msg.chat = MagicMock(spec=Chat)
+        msg.chat.id = 12345
+        msg.text = "My Printer"
+        msg.answer = AsyncMock()
+
+        handled = await handle_printer_states(msg, self.app)
+        self.assertTrue(handled)
+        self.assertEqual(self.user_data["state"], "add_p_model")
+        self.assertEqual(self.user_data["context_data"]["new_printer"]["name"], "My Printer")
+
+        msg.text = "🖨️ P1S Combo"
+        handled = await handle_printer_states(msg, self.app)
+        self.assertTrue(handled)
+        self.assertEqual(self.user_data["state"], "add_p_ip")
+        self.assertEqual(self.user_data["context_data"]["new_printer"]["printer_model"], "P1S Combo")
 
 
 if __name__ == "__main__":

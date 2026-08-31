@@ -14,6 +14,7 @@ from bot.keyboards import (
     get_edit_printer_keyboard,
     get_printer_control_keyboard,
     get_printer_menu_keyboard,
+    get_printer_models_keyboard,
     get_printers_keyboard,
 )
 from models.printer import BambuPrinter
@@ -495,6 +496,7 @@ async def handle_edit_printer_start(message: Message, app):
 
 PRINTER_STATES = {
     "add_p_name",
+    "add_p_model",
     "add_p_ip",
     "add_p_code",
     "add_p_sn",
@@ -717,9 +719,22 @@ async def handle_printer_states(message: Message, app):
 
     if state == "add_p_name":
         user["context_data"]["new_printer"]["name"] = text
+        user["state"] = "add_p_model"
+        await app.storage.save_user(user)
+        msg_txt = "<b>Оберіть модель принтера Bambu Lab:</b>" if u_lang != "en" else "<b>Select Bambu Lab printer model:</b>"
+        await message.answer(msg_txt, parse_mode=ParseMode.HTML, reply_markup=get_printer_models_keyboard(lang=u_lang))
+        return True
+
+    if state == "add_p_model":
+        clean_model = text.replace("🖨️", "").strip()
+        user["context_data"]["new_printer"]["printer_model"] = clean_model
         user["state"] = "add_p_ip"
         await app.storage.save_user(user)
-        await message.answer("Введіть *IP адресу* принтера (наприклад 192.168.1.50):", parse_mode=ParseMode.MARKDOWN)
+        await message.answer(
+            "Введіть *IP адресу* принтера (наприклад 192.168.1.50):" if u_lang != "en" else "Enter printer *IP address* (e.g. 192.168.1.50):",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=types.ReplyKeyboardRemove(),
+        )
         return True
 
     if state == "add_p_ip":
