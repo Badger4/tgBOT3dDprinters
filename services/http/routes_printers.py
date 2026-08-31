@@ -277,3 +277,112 @@ async def handle_update_access_code(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
+
+
+async def handle_get_printer_settings(request: web.Request) -> web.Response:
+    """GET /api/printers/{id}/settings - Returns individual settings for a specific printer."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    p_id = request.match_info.get("id", "")
+    p = app_obj.printers.get(p_id)
+    if not p:
+        return web.json_response({"error": "Printer not found"}, status=404)
+
+    settings = {
+        "id": p.id,
+        "name": p.name,
+        "ip": p.ip,
+        "accessCode": p.access_code,
+        "serialNumber": p.serial_number,
+        "printer_model": getattr(p, "printer_model", "A1"),
+        "ams_enabled": getattr(p, "ams_enabled", None),
+        "notify": getattr(p, "notify", True),
+        "spd_lvl": getattr(p, "spd_lvl", 2),
+        "maintenance_interval_hours": getattr(p, "maintenance_interval_hours", 100),
+        "maintenance_hours_counter": round(getattr(p, "maintenance_hours_counter", 0.0), 1),
+        "ams_slots": getattr(p, "ams_slots", {}),
+        "filament_type": getattr(p, "filament_type", "PLA"),
+        "nozzle_diameter": getattr(p, "nozzle_diameter", "0.4"),
+    }
+    return web.json_response(settings)
+
+
+async def handle_update_printer_settings(request: web.Request) -> web.Response:
+    """POST /api/printers/{id}/settings - Updates individual settings for a specific printer."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    p_id = request.match_info.get("id", "")
+    p = app_obj.printers.get(p_id)
+    if not p:
+        return web.json_response({"error": "Printer not found"}, status=404)
+
+    try:
+        data = await request.json()
+        reconnect_mqtt = False
+
+        if "name" in data and str(data["name"]).strip():
+            p.name = str(data["name"]).strip()
+        if "ip" in data and str(data["ip"]).strip():
+            new_ip = str(data["ip"]).strip()
+            if new_ip != p.ip:
+                p.ip = new_ip
+                reconnect_mqtt = True
+        if "accessCode" in data and str(data["accessCode"]).strip():
+            new_ac = str(data["accessCode"]).strip()
+            if new_ac != p.access_code:
+                p.access_code = new_ac
+                reconnect_mqtt = True
+        if "serialNumber" in data and str(data["serialNumber"]).strip():
+            new_sn = str(data["serialNumber"]).strip()
+            if new_sn != p.serial_number:
+                p.serial_number = new_sn
+                reconnect_mqtt = True
+        if "printer_model" in data:
+            p.printer_model = str(data["printer_model"]).strip()
+        if "ams_enabled" in data:
+            raw_ams = data["ams_enabled"]
+            if raw_ams in [True, "true", "True"]:
+                p.ams_enabled = True
+            elif raw_ams in [False, "false", "False"]:
+                p.ams_enabled = False
+            else:
+                p.ams_enabled = None
+        if "notify" in data:
+            p.notify = bool(data["notify"])
+        if "spd_lvl" in data:
+            p.spd_lvl = int(data["spd_lvl"])
+        if "maintenance_interval_hours" in data:
+            p.maintenance_interval_hours = int(data["maintenance_interval_hours"])
+        if data.get("reset_maintenance") is True:
+            p.maintenance_hours_counter = 0.0
+
+        if reconnect_mqtt:
+            p.destroy()
+            p.init_mqtt(asyncio.get_running_loop())
+
+        await app_obj.save_printers_config()
+        logger.info(f"⚙️ Updated per-printer settings for [{p.name}] via REST API")
+        return web.json_response(
+            {
+                "status": "ok",
+                "settings": {
+                    "id": p.id,
+                    "name": p.name,
+                    "ip": p.ip,
+                    "accessCode": p.access_code,
+                    "serialNumber": p.serial_number,
+                    "printer_model": getattr(p, "printer_model", "A1"),
+                    "ams_enabled": getattr(p, "ams_enabled", None),
+                    "notify": getattr(p, "notify", True),
+                    "spd_lvl": getattr(p, "spd_lvl", 2),
+                    "maintenance_interval_hours": getattr(p, "maintenance_interval_hours", 100),
+                    "maintenance_hours_counter": round(getattr(p, "maintenance_hours_counter", 0.0), 1),
+                },
+            }
+        )
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)

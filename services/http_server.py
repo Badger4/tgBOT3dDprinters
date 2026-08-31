@@ -19,9 +19,11 @@ from services.http.routes_printers import (
     handle_get_camera_stream,
     handle_get_printer_by_id,
     handle_get_printer_plate_map,
+    handle_get_printer_settings,
     handle_get_printers,
     handle_get_snapshot,
     handle_update_access_code,
+    handle_update_printer_settings,
 )
 from services.http.routes_settings import (
     WEBAPP_DIR,
@@ -121,6 +123,8 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_get("/api/printers/{id}/stream", handle_get_camera_stream)
     web_app.router.add_post("/api/printers/{id}/control", handle_printer_control)
     web_app.router.add_post("/api/printers/{id}/access_code", handle_update_access_code)
+    web_app.router.add_get("/api/printers/{id}/settings", handle_get_printer_settings)
+    web_app.router.add_post("/api/printers/{id}/settings", handle_update_printer_settings)
 
     # File Upload & Print Job API
     web_app.router.add_post("/api/files/upload", handle_file_upload)

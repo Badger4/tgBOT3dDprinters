@@ -341,7 +341,90 @@
                     </button>
                 </div>
 
-                <!-- 2. Admin User Access Control Card -->
+                <!-- 2. Per-Printer Individual Settings Card -->
+                <div class="glass-card mb-4">
+                    <h3><i class="fa-solid fa-print color-blue"></i> <span>Окремі налаштування принтерів</span></h3>
+                    <p class="text-muted small mb-3">Оберіть принтер зі списку для перегляду та редагування його персональних параметрів.</p>
+                    
+                    <div class="form-group mb-3">
+                        <label><i class="fa-solid fa-list-check"></i> <span>Оберіть принтер для налаштування</span></label>
+                        <select id="printer-settings-select" class="form-control font-weight-bold">
+                            <option value="">-- Оберіть принтер --</option>
+                        </select>
+                    </div>
+
+                    <div id="printer-settings-form-container" style="display: none;">
+                        <div class="form-row">
+                            <div class="form-group col-md-6 mb-3">
+                                <label><i class="fa-solid fa-pen"></i> Назва принтера</label>
+                                <input type="text" id="p-setting-name" class="form-control" placeholder="Bambu Lab A1">
+                            </div>
+                            <div class="form-group col-md-6 mb-3">
+                                <label><i class="fa-solid fa-network-wired"></i> IP-адреса</label>
+                                <input type="text" id="p-setting-ip" class="form-control" placeholder="192.168.1.XX">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-md-6 mb-3">
+                                <label><i class="fa-solid fa-key"></i> Код доступу (Access Code)</label>
+                                <input type="text" id="p-setting-access-code" class="form-control" placeholder="12345678">
+                            </div>
+                            <div class="form-group col-md-6 mb-3">
+                                <label><i class="fa-solid fa-barcode"></i> Серійний номер (SN)</label>
+                                <input type="text" id="p-setting-sn" class="form-control" placeholder="01P00A123456">
+                            </div>
+                        </div>
+
+                        <div class="form-row mb-3">
+                            <div class="form-group col-md-4 mb-3">
+                                <label><i class="fa-solid fa-cube"></i> Модель принтера</label>
+                                <select id="p-setting-model" class="form-control">
+                                    <option value="A1 mini">A1 mini</option>
+                                    <option value="A1">A1</option>
+                                    <option value="P1S">P1S</option>
+                                    <option value="P1P">P1P</option>
+                                    <option value="X1C">X1C</option>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-4 mb-3">
+                                <label><i class="fa-solid fa-gears"></i> Модуль AMS</label>
+                                <select id="p-setting-ams" class="form-control">
+                                    <option value="auto">🤖 Авто (Автовизначення)</option>
+                                    <option value="true">✅ Увімкнено (AMS є)</option>
+                                    <option value="false">❌ Вимкнути (Без AMS)</option>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-4 mb-3">
+                                <label><i class="fa-solid fa-wrench"></i> Інтервал обслуговування (год)</label>
+                                <input type="number" id="p-setting-maint-interval" class="form-control" value="100" min="10" max="1000">
+                            </div>
+                        </div>
+
+                        <div class="settings-group mb-3">
+                            <label class="switch-row">
+                                <span><i class="fa-solid fa-bell color-green"></i> <span>Сповіщення для цього принтера</span></span>
+                                <input type="checkbox" id="p-setting-notify" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="d-flex align-items-center justify-content-between p-3 rounded mb-3" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
+                            <div>
+                                <span><i class="fa-solid fa-clock-rotate-left color-amber"></i> Напрацьовано годин: <strong id="p-setting-maint-counter-val">0.0 год</strong></span>
+                            </div>
+                            <button type="button" id="p-setting-reset-maint-btn" class="btn btn-sm btn-outline-warning">
+                                <i class="fa-solid fa-rotate-left"></i> Скинути лічильник
+                            </button>
+                        </div>
+
+                        <button id="save-printer-settings-btn" class="btn btn-success w-100">
+                            <i class="fa-solid fa-floppy-disk"></i> Зберегти налаштування цього принтера
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 3. Admin User Access Control Card -->
                 <div id="admin-users-card" class="glass-card mb-4" style="display: none;">
                     <h3><i class="fa-solid fa-users-gear color-blue"></i> <span data-i18n="user_access_control_title">Управління доступом користувачів (Адмінка)</span></h3>
                     <div class="table-responsive mt-2">

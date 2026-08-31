@@ -2367,8 +2367,58 @@ document.addEventListener("DOMContentLoaded", () => {
             } else {
                 if (adminUsersCard) adminUsersCard.style.display = "none";
             }
+
+            // Populate Printer Settings Selector Dropdown
+            const printerSel = document.getElementById("printer-settings-select");
+            if (printerSel) {
+                const printersRes = await fetch("/api/printers");
+                const printersList = printersRes.ok ? await printersRes.json() : [];
+                const curVal = printerSel.value;
+                printerSel.innerHTML = '<option value="">-- Оберіть принтер для налаштування --</option>' +
+                    printersList.map(p => `<option value="${p.id}">${p.name || p.id} (${p.printer_model || "3D"})</option>`).join("");
+                if (curVal && printersList.some(p => p.id === curVal)) {
+                    printerSel.value = curVal;
+                }
+            }
         } catch (e) {
             console.error("Failed loading settings:", e);
+        }
+    }
+
+    async function loadPrinterSettings(printerId) {
+        const formContainer = document.getElementById("printer-settings-form-container");
+        if (!printerId) {
+            if (formContainer) formContainer.style.display = "none";
+            return;
+        }
+        try {
+            const res = await fetch(`/api/printers/${printerId}/settings`);
+            if (!res.ok) return;
+            const p = await res.json();
+            
+            if (formContainer) formContainer.style.display = "block";
+
+            const elName = document.getElementById("p-setting-name");
+            const elIp = document.getElementById("p-setting-ip");
+            const elAc = document.getElementById("p-setting-access-code");
+            const elSn = document.getElementById("p-setting-sn");
+            const elModel = document.getElementById("p-setting-model");
+            const elAms = document.getElementById("p-setting-ams");
+            const elMaintInt = document.getElementById("p-setting-maint-interval");
+            const elNotify = document.getElementById("p-setting-notify");
+            const elMaintVal = document.getElementById("p-setting-maint-counter-val");
+
+            if (elName) elName.value = p.name || "";
+            if (elIp) elIp.value = p.ip || "";
+            if (elAc) elAc.value = p.accessCode || "";
+            if (elSn) elSn.value = p.serialNumber || "";
+            if (elModel) elModel.value = p.printer_model || "A1";
+            if (elAms) elAms.value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");
+            if (elMaintInt) elMaintInt.value = p.maintenance_interval_hours || 100;
+            if (elNotify) elNotify.checked = p.notify !== false;
+            if (elMaintVal) elMaintVal.textContent = `${(p.maintenance_hours_counter || 0.0).toFixed(1)} год`;
+        } catch (e) {
+            console.error("Failed loading printer settings:", e);
         }
     }
 
@@ -2659,6 +2709,68 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (e) {
             console.error("Failed saving settings:", e);
             alert("⚠️ Помилка збереження налаштувань: " + e);
+        }
+    });
+
+    // Per-Printer Individual Settings Event Handlers
+    document.getElementById("printer-settings-select")?.addEventListener("change", (e) => {
+        loadPrinterSettings(e.target.value);
+    });
+
+    document.getElementById("save-printer-settings-btn")?.addEventListener("click", async () => {
+        triggerHaptic("medium");
+        const printerId = document.getElementById("printer-settings-select")?.value;
+        if (!printerId) return;
+
+        const payload = {
+            name: document.getElementById("p-setting-name")?.value || "",
+            ip: document.getElementById("p-setting-ip")?.value || "",
+            accessCode: document.getElementById("p-setting-access-code")?.value || "",
+            serialNumber: document.getElementById("p-setting-sn")?.value || "",
+            printer_model: document.getElementById("p-setting-model")?.value || "A1",
+            ams_enabled: document.getElementById("p-setting-ams")?.value === "true" ? true : (document.getElementById("p-setting-ams")?.value === "false" ? false : "auto"),
+            maintenance_interval_hours: parseInt(document.getElementById("p-setting-maint-interval")?.value || 100),
+            notify: document.getElementById("p-setting-notify")?.checked ?? true,
+        };
+
+        try {
+            const res = await fetch(`/api/printers/${printerId}/settings`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                alert("✅ Налаштування принтера успішно збережено!");
+                loadPrinterSettings(printerId);
+            } else {
+                const err = await res.json();
+                alert("⚠️ Помилка збереження: " + (err.error || "Невідома помилка"));
+            }
+        } catch (e) {
+            console.error("Failed saving printer settings:", e);
+            alert("⚠️ Помилка зв'язку із сервером: " + e);
+        }
+    });
+
+    document.getElementById("p-setting-reset-maint-btn")?.addEventListener("click", async () => {
+        triggerHaptic("heavy");
+        const printerId = document.getElementById("printer-settings-select")?.value;
+        if (!printerId) return;
+
+        if (!confirm("Ви дійсно бажаєте скинути лічильник напрацьованих годин для цього принтера?")) return;
+
+        try {
+            const res = await fetch(`/api/printers/${printerId}/settings`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reset_maintenance: true })
+            });
+            if (res.ok) {
+                alert("✅ Лічильник обслуговування скинуто на 0.0 год!");
+                loadPrinterSettings(printerId);
+            }
+        } catch (e) {
+            console.error("Failed resetting maintenance counter:", e);
         }
     });
 

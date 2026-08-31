@@ -289,6 +289,32 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
     async def test_control_reset_maint(self):
         mock_p = MockPrinter()
         self.dummy_app.printers = {"p1": mock_p}
+        resp = await self.client.post("/api/printers/p1/control", json={"action": "reset_maint"})
+        self.assertEqual(resp.status, 200)
+
+    async def test_get_printer_settings(self):
+        mock_p = MockPrinter()
+        self.dummy_app.printers = {"p1": mock_p}
+        resp = await self.client.get("/api/printers/p1/settings")
+        self.assertEqual(resp.status, 200)
+        data = await resp.json()
+        self.assertEqual(data["id"], "p1")
+        self.assertEqual(data["name"], "Test Printer")
+
+    async def test_update_printer_settings(self):
+        mock_p = MockPrinter()
+        self.dummy_app.printers = {"p1": mock_p}
+        resp = await self.client.post(
+            "/api/printers/p1/settings",
+            json={"name": "New Name", "maintenance_interval_hours": 150, "notify": False},
+        )
+        self.assertEqual(resp.status, 200)
+        data = await resp.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(mock_p.name, "New Name")
+        self.assertEqual(mock_p.maintenance_interval_hours, 150)
+        self.assertFalse(mock_p.notify)
+        self.dummy_app.printers = {"p1": mock_p}
         resp = await self.client.post(
             "/api/printers/p1/control", json={"action": "reset_maint", "item_key": "lead_screws"}
         )
