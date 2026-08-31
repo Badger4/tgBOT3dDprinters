@@ -1765,152 +1765,249 @@ document.addEventListener("DOMContentLoaded", () => {
         return String(ts);
     }
 
+    let cachedHistoryEntries = [];
+
+    function populateHistoryPrinterSelect(history) {
+        const sel = document.getElementById("history-filter-printer");
+        if (!sel) return;
+        const curVal = sel.value;
+        const printersMap = new Map();
+
+        (history || []).forEach(item => {
+            const pId = item.printer_id || item.printer_sn || item.printer || "";
+            const pName = item.printer_name || item.printer || pId || "Принтер";
+            if (pId || pName) {
+                printersMap.set(pId || pName, pName);
+            }
+        });
+
+        if (window.printersData && Array.isArray(window.printersData)) {
+            window.printersData.forEach(p => {
+                printersMap.set(p.id, p.name || p.id);
+            });
+        }
+
+        let optionsHtml = `<option value="">🌐 Усі принтери</option>`;
+        printersMap.forEach((name, id) => {
+            optionsHtml += `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`;
+        });
+
+        if (sel.innerHTML !== optionsHtml) {
+            sel.innerHTML = optionsHtml;
+            if (curVal && printersMap.has(curVal)) {
+                sel.value = curVal;
+            }
+        }
+    }
+
+    function renderHistoryList(history) {
+        const tbody = document.getElementById("history-table-body");
+        if (!tbody) return;
+
+        const statJobsEl = document.getElementById("stat-total-jobs");
+        const statWeightEl = document.getElementById("stat-total-weight");
+
+        let totalGrams = 0;
+        history.forEach(item => {
+            const g = item.weight_g !== undefined ? item.weight_g : (item.weight ? Math.round(item.weight) : 0);
+            totalGrams += g;
+        });
+
+        if (statJobsEl) statJobsEl.textContent = history.length;
+        if (statWeightEl) {
+            const formattedGrams = totalGrams > 0 && totalGrams < 10 ? (Math.round(totalGrams * 10) / 10) : Math.round(totalGrams);
+            statWeightEl.textContent = `${formattedGrams} g`;
+        }
+
+        if (!history || history.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center">Записи історії за обраними фільтрами не знайдені</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = history.slice(-100).reverse().map(item => {
+            const dateFormatted = formatHistoryDate(item.timestamp, item.datetime);
+            const printerName = escapeHtml(item.printer_name || item.printer || "Принтер");
+            const taskName = escapeHtml(item.subtask_name || item.task || "Модель");
+            const printerId = escapeHtml(item.printer_id || item.printer_sn || "");
+            const weightVal = item.weight_g !== undefined ? item.weight_g : (item.weight ? Math.round(item.weight) : 0);
+
+            return `
+            <tr>
+                <td>${dateFormatted}</td>
+                <td><strong>${printerName}</strong></td>
+                <td>
+                    <div class="d-flex align-items-center justify-content-between gap-2">
+                        <code>${taskName}</code>
+                        <button type="button" class="icon-btn btn-reprint-history" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" title="Повторно кинути на друк">
+                            <i class="fa-solid fa-rotate-right"></i>
+                        </button>
+                    </div>
+                </td>
+                <td>${weightVal}g</td>
+                <td class="text-center">
+                    <button class="btn btn-xs btn-outline-danger btn-delete-history-entry" data-ts="${item.timestamp}" title="Видалити запис">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </td>
+            </tr>`;
+        }).join("");
+
+        tbody.querySelectorAll(".btn-reprint-history").forEach(btn => {
+            btn.addEventListener("click", async (e) => {
+                e.preventDefault();
+                const taskName = btn.getAttribute("data-task") || "Модель";
+                const origPrinterName = btn.getAttribute("data-printer") || "Принтер";
+                const origPrinterId = btn.getAttribute("data-printer-id") || "";
+
+                if (!printersData || printersData.length === 0) {
+                    alert("⚠️ Немає підключених принтерів у фермі!");
+                    return;
+                }
+
+                const targetPrinter = printersData.find(p => p.id === origPrinterId || p.name === origPrinterName || (p.name && origPrinterName && p.name.toLowerCase().includes(origPrinterName.toLowerCase()))) || printersData[0];
+
+                const confirmed = confirm(`🚀 Повторно кинути на друк модель "${taskName}"?\n\nПринтер: ${targetPrinter.name}`);
+                if (!confirmed) return;
+
+                triggerHaptic("medium");
+
+                try {
+                    let partsList = [];
+                    try {
+                        const partsRes = await fetch("/api/parts");
+                        const partsData = await partsRes.json();
+                        partsList = Object.values(partsData || {});
+                    } catch (e) {
+                        console.error("Failed fetching parts for reprint:", e);
+                    }
+
+                    const normTask = taskName.trim().toLowerCase();
+                    const matchedPart = partsList.find(p => {
+                        if (!p.name) return false;
+                        const normP = p.name.trim().toLowerCase();
+                        return normP === normTask || normTask.includes(normP) || normP.includes(normTask);
+                    });
+
+                    if (matchedPart && matchedPart.id) {
+                        const res = await fetch(`/api/parts/${matchedPart.id}/print/${targetPrinter.id}`, { method: "POST" });
+                        const result = await res.json().catch(() => ({}));
+                        if (res.ok && result.status === "ok") {
+                            alert(`✅ Модель "${taskName}" успішно відправлено на друк на принтер ${targetPrinter.name}!`);
+                        } else {
+                            alert(`⚠️ Помилка запуску друку: ${result.error || `HTTP ${res.status}`}`);
+                        }
+                    } else {
+                        let filesList = [];
+                        try {
+                            const filesRes = await fetch("/api/files");
+                            const filesData = await filesRes.json();
+                            filesList = Array.isArray(filesData.files) ? filesData.files : [];
+                        } catch (e) {}
+
+                        const matchedFile = filesList.find(f => {
+                            const fName = (f.filename || f.name || "").trim().toLowerCase();
+                            return fName === normTask || normTask.includes(fName) || fName.includes(normTask);
+                        });
+
+                        if (matchedFile && (matchedFile.file_token || matchedFile.filename)) {
+                            const fileToken = matchedFile.file_token || matchedFile.filename;
+                            const res = await fetch(`/api/printers/${targetPrinter.id}/print_file`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ file_token: fileToken, filename: matchedFile.filename || taskName })
+                            });
+                            const result = await res.json().catch(() => ({}));
+                            if (res.ok && result.status === "ok") {
+                                alert(`✅ Файл "${taskName}" успішно відправлено на друк на принтер ${targetPrinter.name}!`);
+                            } else {
+                                alert(`⚠️ Помилка запуску друку: ${result.error || `HTTP ${res.status}`}`);
+                            }
+                        } else {
+                            alert(`⚠️ Модель або файл "${taskName}" не знайдено в Складі деталей чи Завантаженнях. Неможливо заново запустити друк.`);
+                        }
+                    }
+                } catch (err) {
+                    console.error("Reprint error:", err);
+                    alert("⚠️ Помилка зв'язку при запуску повторного друку.");
+                }
+            });
+        });
+
+        tbody.querySelectorAll(".btn-delete-history-entry").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const ts = btn.getAttribute("data-ts");
+                if (ts && confirm("Видалити цей запис із історії?")) {
+                    await fetch(`/api/history?timestamp=${encodeURIComponent(ts)}`, { method: "DELETE" });
+                    loadHistory();
+                }
+            });
+        });
+    }
+
+    function applyHistoryFilters() {
+        if (!cachedHistoryEntries) return;
+
+        const searchQuery = (document.getElementById("history-filter-search")?.value || "").toLowerCase().trim();
+        const selectedPrinter = (document.getElementById("history-filter-printer")?.value || "").toLowerCase().trim();
+        const selectedDate = document.getElementById("history-filter-date")?.value || "";
+
+        const filtered = cachedHistoryEntries.filter(item => {
+            const taskName = String(item.subtask_name || item.task || "").toLowerCase();
+            const printerName = String(item.printer_name || item.printer || "").toLowerCase();
+            const printerId = String(item.printer_id || item.printer_sn || "").toLowerCase();
+
+            // 1. Search Query filter (task name or printer name)
+            if (searchQuery && !taskName.includes(searchQuery) && !printerName.includes(searchQuery)) {
+                return false;
+            }
+
+            // 2. Printer filter
+            if (selectedPrinter) {
+                if (printerId !== selectedPrinter && printerName !== selectedPrinter && !printerName.includes(selectedPrinter)) {
+                    return false;
+                }
+            }
+
+            // 3. Date filter
+            if (selectedDate) {
+                let itemDate = "";
+                if (item.timestamp) {
+                    const rawTs = typeof item.timestamp === "number" && item.timestamp < 10000000000 ? item.timestamp * 1000 : item.timestamp;
+                    const d = new Date(rawTs);
+                    if (!isNaN(d.getTime())) {
+                        const yyyy = d.getFullYear();
+                        const mm = String(d.getMonth() + 1).padStart(2, '0');
+                        const dd = String(d.getDate()).padStart(2, '0');
+                        itemDate = `${yyyy}-${mm}-${dd}`;
+                    }
+                }
+                if (!itemDate && item.datetime) {
+                    itemDate = String(item.datetime).slice(0, 10);
+                }
+                if (itemDate && itemDate !== selectedDate) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        renderHistoryList(filtered);
+    }
+
+    // Attach listeners for history filter bar
+    document.getElementById("history-filter-search")?.addEventListener("input", applyHistoryFilters);
+    document.getElementById("history-filter-printer")?.addEventListener("change", applyHistoryFilters);
+    document.getElementById("history-filter-date")?.addEventListener("change", applyHistoryFilters);
+
     async function loadHistory() {
         try {
             const res = await fetch("/api/history");
             const data = await res.json();
 
-            const statJobsEl = document.getElementById("stat-total-jobs");
-            const statWeightEl = document.getElementById("stat-total-weight");
-            const statCostEl = document.getElementById("stat-total-cost");
-
-            if (statJobsEl) statJobsEl.textContent = data.total_jobs || 0;
-            if (statWeightEl) {
-                let g = 0;
-                if (data.total_weight_g !== undefined) {
-                    g = data.total_weight_g;
-                } else if (data.total_weight_kg !== undefined) {
-                    g = data.total_weight_kg * 1000;
-                }
-                const formattedGrams = g > 0 && g < 10 ? (Math.round(g * 10) / 10) : Math.round(g);
-                statWeightEl.textContent = `${formattedGrams} g`;
-            }
-
-            const tbody = document.getElementById("history-table-body");
-            if (!tbody) return;
-            const history = data.history || [];
-            if (history.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" class="text-center">Журнал історії порожній</td></tr>`;
-            } else {
-                tbody.innerHTML = history.slice(-50).reverse().map(item => {
-                    const dateFormatted = formatHistoryDate(item.timestamp, item.datetime);
-                    const printerName = escapeHtml(item.printer_name || item.printer || "Принтер");
-                    const taskName = escapeHtml(item.subtask_name || item.task || "Модель");
-                    const printerId = escapeHtml(item.printer_id || item.printer_sn || "");
-                    const weightVal = item.weight_g !== undefined ? item.weight_g : (item.weight ? Math.round(item.weight) : 0);
-
-                    return `
-                    <tr>
-                        <td>${dateFormatted}</td>
-                        <td><strong>${printerName}</strong></td>
-                        <td>
-                            <div class="d-flex align-items-center justify-content-between gap-2">
-                                <code>${taskName}</code>
-                                <button type="button" class="icon-btn btn-reprint-history" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" title="Повторно кинути на друк">
-                                    <i class="fa-solid fa-rotate-right"></i>
-                                </button>
-                            </div>
-                        </td>
-                        <td>${weightVal}g</td>
-                        <td class="text-center">
-                            <button class="btn btn-xs btn-outline-danger btn-delete-history-entry" data-ts="${item.timestamp}" title="Видалити запис">
-                                <i class="fa-solid fa-xmark"></i>
-                            </button>
-                        </td>
-                    </tr>`;
-                }).join("");
-
-                tbody.querySelectorAll(".btn-reprint-history").forEach(btn => {
-                    btn.addEventListener("click", async (e) => {
-                        e.preventDefault();
-                        const taskName = btn.getAttribute("data-task") || "Модель";
-                        const origPrinterName = btn.getAttribute("data-printer") || "Принтер";
-                        const origPrinterId = btn.getAttribute("data-printer-id") || "";
-
-                        if (!printersData || printersData.length === 0) {
-                            alert("⚠️ Немає підключених принтерів у фермі!");
-                            return;
-                        }
-
-                        const targetPrinter = printersData.find(p => p.id === origPrinterId || p.name === origPrinterName || (p.name && origPrinterName && p.name.toLowerCase().includes(origPrinterName.toLowerCase()))) || printersData[0];
-
-                        const confirmed = confirm(`🚀 Повторно кинути на друк модель "${taskName}"?\n\nПринтер: ${targetPrinter.name}`);
-                        if (!confirmed) return;
-
-                        triggerHaptic("medium");
-
-                        try {
-                            let partsList = [];
-                            try {
-                                const partsRes = await fetch("/api/parts");
-                                const partsData = await partsRes.json();
-                                partsList = Object.values(partsData || {});
-                            } catch (e) {
-                                console.error("Failed fetching parts for reprint:", e);
-                            }
-
-                            const normTask = taskName.trim().toLowerCase();
-                            const matchedPart = partsList.find(p => {
-                                if (!p.name) return false;
-                                const normP = p.name.trim().toLowerCase();
-                                return normP === normTask || normTask.includes(normP) || normP.includes(normTask);
-                            });
-
-                            if (matchedPart && matchedPart.id) {
-                                const res = await fetch(`/api/parts/${matchedPart.id}/print/${targetPrinter.id}`, { method: "POST" });
-                                const result = await res.json().catch(() => ({}));
-                                if (res.ok && result.status === "ok") {
-                                    alert(`✅ Модель "${taskName}" успішно відправлено на друк на принтер ${targetPrinter.name}!`);
-                                } else {
-                                    alert(`⚠️ Помилка запуску друку: ${result.error || `HTTP ${res.status}`}`);
-                                }
-                            } else {
-                                let filesList = [];
-                                try {
-                                    const filesRes = await fetch("/api/files");
-                                    const filesData = await filesRes.json();
-                                    filesList = Array.isArray(filesData.files) ? filesData.files : [];
-                                } catch (e) {}
-
-                                const matchedFile = filesList.find(f => {
-                                    const fName = (f.filename || f.name || "").trim().toLowerCase();
-                                    return fName === normTask || normTask.includes(fName) || fName.includes(normTask);
-                                });
-
-                                if (matchedFile && (matchedFile.file_token || matchedFile.filename)) {
-                                    const fileToken = matchedFile.file_token || matchedFile.filename;
-                                    const res = await fetch(`/api/printers/${targetPrinter.id}/print_file`, {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ file_token: fileToken, filename: matchedFile.filename || taskName })
-                                    });
-                                    const result = await res.json().catch(() => ({}));
-                                    if (res.ok && result.status === "ok") {
-                                        alert(`✅ Файл "${taskName}" успішно відправлено на друк на принтер ${targetPrinter.name}!`);
-                                    } else {
-                                        alert(`⚠️ Помилка запуску друку: ${result.error || `HTTP ${res.status}`}`);
-                                    }
-                                } else {
-                                    alert(`⚠️ Модель або файл "${taskName}" не знайдено в Складі деталей чи Завантаженнях. Неможливо заново запустити друк.`);
-                                }
-                            }
-                        } catch (err) {
-                            console.error("Reprint error:", err);
-                            alert("⚠️ Помилка зв'язку при запуску повторного друку.");
-                        }
-                    });
-                });
-
-                tbody.querySelectorAll(".btn-delete-history-entry").forEach(btn => {
-                    btn.addEventListener("click", async () => {
-                        const ts = btn.getAttribute("data-ts");
-                        if (ts && confirm("Видалити цей запис із історії?")) {
-                            await fetch(`/api/history?timestamp=${encodeURIComponent(ts)}`, { method: "DELETE" });
-                            loadHistory();
-                        }
-                    });
-                });
-            }
+            cachedHistoryEntries = data.history || [];
+            populateHistoryPrinterSelect(cachedHistoryEntries);
+            applyHistoryFilters();
         } catch (e) {
             console.error("Failed loading history:", e);
         }
