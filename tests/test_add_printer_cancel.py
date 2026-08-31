@@ -108,11 +108,11 @@ class TestAddPrinterCancel(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.user_data["state"], "add_p_model")
         self.assertEqual(self.user_data["context_data"]["new_printer"]["name"], "My Printer")
 
-        msg.text = "🖨️ P1S Combo"
+        msg.text = "🖨️ P1S"
         handled = await handle_printer_states(msg, self.app)
         self.assertTrue(handled)
         self.assertEqual(self.user_data["state"], "add_p_ip")
-        self.assertEqual(self.user_data["context_data"]["new_printer"]["printer_model"], "P1S Combo")
+        self.assertEqual(self.user_data["context_data"]["new_printer"]["printer_model"], "P1S")
 
 
 if __name__ == "__main__":
