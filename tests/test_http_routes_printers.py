@@ -299,7 +299,7 @@ class TestHTTPRoutesControl(BaseHTTPTestCase):
         self.assertEqual(resp.status, 200)
         data = await resp.json()
         self.assertEqual(data["id"], "p1")
-        self.assertEqual(data["name"], "Test Printer")
+        self.assertEqual(data["name"], "Test P1S")
 
     async def test_update_printer_settings(self):
         mock_p = MockPrinter()
