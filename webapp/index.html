@@ -166,7 +166,7 @@
                         <a href="/api/spools/export_pdf" id="btn-export-spools-pdf" class="btn btn-primary btn-sm" target="_blank">
                             <i class="fa-solid fa-file-pdf"></i> <span data-i18n="export_pdf_btn">Звіт (PDF)</span>
                         </a>
-                        <button id="add-spool-btn" class="btn btn-primary btn-sm">
+                        <button type="button" id="add-spool-btn" class="btn btn-primary btn-sm" onclick="window.openAddSpoolModal()">
                             <i class="fa-solid fa-plus"></i> <span data-i18n="new_spool_btn">Нова котушка</span>
                         </button>
                     </div>
@@ -956,7 +956,7 @@
                                 <input type="color" id="spool-color" class="form-control" value="#3b82f6" style="height: 38px; padding: 2px;">
                             </div>
                         </div>
-                        <button id="save-spool-submit" class="btn btn-primary w-100 mt-2">Зберегти котушку</button>
+                        <button type="button" id="save-spool-submit" class="btn btn-primary w-100 mt-2" onclick="window.submitSaveSpool(event)">Зберегти котушку</button>
                     </form>
                 </div>
             </div>

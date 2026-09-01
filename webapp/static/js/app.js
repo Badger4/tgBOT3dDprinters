@@ -1559,18 +1559,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         const id = b.getAttribute("data-id");
                         const s = spools[id];
                         if (s) {
-                            editingSpoolId = s.id;
-                            const titleEl = document.getElementById("spool-modal-title");
-                            if (titleEl) titleEl.textContent = "✏️ Редагувати котушку";
-                            document.getElementById("spool-name").value = s.name || "";
-                            document.getElementById("spool-type").value = s.type || "PLA";
-                            document.getElementById("spool-grams").value = s.remaining_grams || 1000;
-                            const qtyEl = document.getElementById("spool-quantity");
-                            if (qtyEl) qtyEl.value = s.quantity || 1;
-                            document.getElementById("spool-price").value = s.price_per_kg || s.price_uah || 650;
-                            const colEl = document.getElementById("spool-color");
-                            if (colEl) colEl.value = s.color || "#3b82f6";
-                            if (spoolModal) spoolModal.classList.add("active");
+                            window.openAddSpoolModal(s);
                         }
                     });
                 });
@@ -1707,70 +1696,139 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // Add / Edit Spool Form Modal
-    if (addSpoolBtn) {
-        addSpoolBtn.addEventListener("click", () => {
+    window.openAddSpoolModal = function(spoolToEdit) {
+        if (spoolToEdit && spoolToEdit.id) {
+            editingSpoolId = spoolToEdit.id;
+            const titleEl = document.getElementById("spool-modal-title");
+            if (titleEl) titleEl.textContent = "✏️ Редагувати котушку";
+            const nameEl = document.getElementById("spool-name");
+            if (nameEl) nameEl.value = spoolToEdit.name || "";
+            const typeEl = document.getElementById("spool-type");
+            if (typeEl) typeEl.value = spoolToEdit.type || "PLA";
+            const gramsEl = document.getElementById("spool-grams");
+            if (gramsEl) gramsEl.value = spoolToEdit.remaining_grams || 1000;
+            const qtyEl = document.getElementById("spool-quantity");
+            if (qtyEl) qtyEl.value = spoolToEdit.quantity || 1;
+            const priceEl = document.getElementById("spool-price");
+            if (priceEl) priceEl.value = spoolToEdit.price_per_kg || spoolToEdit.price_uah || 650;
+            const colEl = document.getElementById("spool-color");
+            if (colEl) colEl.value = spoolToEdit.color || "#3b82f6";
+        } else {
             editingSpoolId = null;
             const titleEl = document.getElementById("spool-modal-title");
             if (titleEl) titleEl.textContent = "➕ Додати котушку";
-            document.getElementById("spool-name").value = "";
-            document.getElementById("spool-type").value = "PLA";
-            document.getElementById("spool-grams").value = "1000";
+            const nameEl = document.getElementById("spool-name");
+            if (nameEl) nameEl.value = "";
+            const typeEl = document.getElementById("spool-type");
+            if (typeEl) typeEl.value = "PLA";
+            const gramsEl = document.getElementById("spool-grams");
+            if (gramsEl) gramsEl.value = "1000";
             const qtyEl = document.getElementById("spool-quantity");
             if (qtyEl) qtyEl.value = "1";
-            document.getElementById("spool-price").value = "650";
+            const priceEl = document.getElementById("spool-price");
+            if (priceEl) priceEl.value = "650";
             const colEl = document.getElementById("spool-color");
             if (colEl) colEl.value = "#3b82f6";
+        }
 
-            triggerHaptic("medium");
-            if (spoolModal) spoolModal.classList.add("active");
-            if (tg?.expand) tg.expand();
-            setTimeout(() => {
-                const nameEl = document.getElementById("spool-name");
-                if (nameEl) nameEl.focus();
-            }, 150);
+        triggerHaptic("medium");
+        const modal = document.getElementById("spool-modal");
+        if (modal) modal.classList.add("active");
+        if (tg?.expand) tg.expand();
+        setTimeout(() => {
+            const nameEl = document.getElementById("spool-name");
+            if (nameEl) nameEl.focus();
+        }, 150);
+    };
+
+    window.submitSaveSpool = async function(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        const nameEl = document.getElementById("spool-name");
+        const name = nameEl ? nameEl.value.trim() : "";
+        const type = document.getElementById("spool-type")?.value || "PLA";
+        const grams = parseFloat(document.getElementById("spool-grams")?.value) || 1000;
+        const qtyEl = document.getElementById("spool-quantity");
+        const quantity = qtyEl ? (parseInt(qtyEl.value, 10) || 1) : 1;
+        const price = parseFloat(document.getElementById("spool-price")?.value) || 650;
+        const colEl = document.getElementById("spool-color");
+        const color = colEl ? colEl.value : "#3b82f6";
+
+        if (!name) {
+            alert("Будь ласка, введіть назву котушки!");
+            if (nameEl) nameEl.focus();
+            return;
+        }
+
+        const payload = {
+            id: editingSpoolId || undefined,
+            name,
+            type,
+            remaining_grams: grams,
+            quantity: Math.max(1, quantity),
+            price_per_kg: price,
+            color
+        };
+
+        const submitBtn = document.getElementById("save-spool-submit");
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Збереження...";
+        }
+
+        try {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const sessionToken = localStorage.getItem("web_session_token") || "";
+            const headers = { "Content-Type": "application/json" };
+            if (initData) headers["X-Telegram-Init-Data"] = initData;
+            if (sessionToken) headers["Authorization"] = `Bearer ${sessionToken}`;
+
+            const res = await fetch("/api/spools", {
+                method: "POST",
+                headers,
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                alert("Помилка збереження котушки: " + (errData.error || res.statusText));
+                return;
+            }
+
+            const modal = document.getElementById("spool-modal");
+            if (modal) modal.classList.remove("active");
+            triggerHaptic("success");
+            await loadMaterials();
+        } catch (err) {
+            console.error("Failed saving spool:", err);
+            alert("Помилка збереження котушки: " + (err.message || err));
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Зберегти котушку";
+            }
+        }
+    };
+
+    if (addSpoolBtn) {
+        addSpoolBtn.addEventListener("click", (e) => {
+            if (e) e.preventDefault();
+            window.openAddSpoolModal();
         });
     }
 
     if (closeSpoolModalBtn) {
         closeSpoolModalBtn.addEventListener("click", () => {
-            if (spoolModal) spoolModal.classList.remove("active");
+            const modal = document.getElementById("spool-modal");
+            if (modal) modal.classList.remove("active");
         });
     }
 
     if (saveSpoolSubmitBtn) {
-        saveSpoolSubmitBtn.addEventListener("click", async () => {
-            const name = document.getElementById("spool-name").value.trim();
-            const type = document.getElementById("spool-type").value;
-            const grams = parseFloat(document.getElementById("spool-grams").value) || 1000;
-            const qtyEl = document.getElementById("spool-quantity");
-            const quantity = qtyEl ? (parseInt(qtyEl.value) || 1) : 1;
-            const price = parseFloat(document.getElementById("spool-price").value) || 650;
-            const colEl = document.getElementById("spool-color");
-            const color = colEl ? colEl.value : "#3b82f6";
-
-            if (!name) { alert("Введіть назву котушки!"); return; }
-
-            const payload = {
-                id: editingSpoolId || undefined,
-                name,
-                type,
-                remaining_grams: grams,
-                quantity: Math.max(1, quantity),
-                price_per_kg: price,
-                color
-            };
-
-            try {
-                await fetch("/api/spools", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                if (spoolModal) spoolModal.classList.remove("active");
-                loadMaterials();
-            } catch (e) {
-                console.error("Failed saving spool:", e);
-            }
+        saveSpoolSubmitBtn.addEventListener("click", (e) => {
+            window.submitSaveSpool(e);
         });
     }
 
