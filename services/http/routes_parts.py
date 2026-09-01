@@ -310,13 +310,13 @@ async def handle_export_parts_pdf(request: web.Request) -> web.Response:
 
                     rows_html += f"""
                     <tr>
-                        <td><strong>{name}</strong></td>
+                        <td style="font-weight:600;">{name}</td>
                         <td>{model}</td>
-                        <td>{fil_type}</td>
-                        <td style="text-align:right;">{weight_g:.1f} г</td>
+                        <td style="text-align:center;">{fil_type}</td>
+                        <td style="text-align:right;">{weight_g:.1f}г</td>
                         <td style="text-align:center;">{qty}</td>
                         <td style="text-align:right;">{price:.2f} ₴</td>
-                        <td style="text-align:right; font-weight:bold;">{row_val:.2f} ₴</td>
+                        <td style="text-align:right; font-weight:700; color:#4f46e5;">{row_val:.2f} ₴</td>
                     </tr>
                     """
 
@@ -327,52 +327,63 @@ async def handle_export_parts_pdf(request: web.Request) -> web.Response:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Звіт складу деталей</title>
 <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 20px; }}
-    .card {{ background: #fff; border-radius: 12px; padding: 24px; max-width: 900px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
-    .header {{ border-bottom: 2px solid #6366f1; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }}
-    h2 {{ margin: 0; color: #4f46e5; font-size: 20px; }}
-    .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; background: #f1f5f9; padding: 14px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; text-align: center; }}
-    .summary-item strong {{ display: block; font-size: 18px; color: #4f46e5; margin-top: 4px; }}
-    table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }}
-    th {{ background: #4f46e5; color: #fff; padding: 8px 10px; text-align: left; }}
-    td {{ padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }}
+    @page {{ size: A4 portrait; margin: 8mm; }}
+    * {{ box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 12px; font-size: 11px; }}
+    .container {{ width: 100%; max-width: 800px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }}
+    .header {{ border-bottom: 2px solid #4f46e5; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }}
+    h2 {{ margin: 0; color: #4f46e5; font-size: 16px; display: flex; align-items: center; gap: 6px; }}
+    .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 12px; text-align: center; }}
+    .summary-item {{ font-size: 11px; color: #475569; }}
+    .summary-item strong {{ display: block; font-size: 14px; color: #1e293b; margin-top: 2px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10.5px; table-layout: fixed; }}
+    th, td {{ padding: 5px 6px; border: 1px solid #cbd5e1; word-wrap: break-word; overflow-wrap: break-word; }}
+    th {{ background: #4f46e5 !important; color: #fff !important; font-weight: 600; text-align: left; }}
     tr:nth-child(even) {{ background: #f8fafc; }}
-    @media print {{ body {{ background: #fff; padding: 0; }} .card {{ box-shadow: none; max-width: 100%; border: none; }} }}
+    .btn-print {{ display: block; width: 100%; max-width: 240px; margin: 0 auto 12px; padding: 8px 16px; background: #4f46e5; color: #fff; text-align: center; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; }}
+    @media print {{
+        body {{ background: #fff; padding: 0; }}
+        .container {{ box-shadow: none; border: none; padding: 0; max-width: 100%; }}
+        .no-print {{ display: none !important; }}
+    }}
 </style>
 </head>
 <body>
-<div class="card">
+<div class="container">
+    <div class="no-print">
+        <button onclick="window.print()" class="btn-print">🖨️ Зберегти як PDF / Друк</button>
+    </div>
     <div class="header">
         <div>
             <h2>🧩 Звіт складу готових деталей</h2>
             <small style="color: #64748b;">3D Farm Hub — Інвентар деталей</small>
         </div>
-        <div style="font-size: 12px; color: #64748b; text-align: right;"><strong>Дата:</strong><br>{date_str}</div>
+        <div style="font-size: 11px; color: #64748b; text-align: right;"><strong>Дата:</strong> {date_str}</div>
     </div>
     <div class="summary-grid">
         <div class="summary-item">Деталей усього: <strong>{total_parts} шт</strong></div>
-        <div class="summary-item">Загальна вага: <strong>{(total_weight_g/1000.0):.2f} кг</strong> ({total_weight_g:.0f} г)</div>
+        <div class="summary-item">Загальна вага: <strong>{(total_weight_g/1000.0):.2f} кг</strong> ({total_weight_g:.0f}г)</div>
         <div class="summary-item">Загальна вартість: <strong>{total_val_uah:.2f} ₴</strong></div>
     </div>
     <table>
         <thead>
             <tr>
-                <th>Назва деталі</th>
-                <th>Модель принтера</th>
-                <th>Тип</th>
-                <th style="text-align:right;">Вага 1 шт</th>
-                <th style="text-align:center;">К-сть</th>
-                <th style="text-align:right;">Ціна/шт</th>
-                <th style="text-align:right;">Сума</th>
+                <th style="width: 28%;">Назва деталі</th>
+                <th style="width: 20%;">Модель принтера</th>
+                <th style="width: 10%; text-align:center;">Тип</th>
+                <th style="width: 12%; text-align:right;">Вага 1 шт</th>
+                <th style="width: 8%; text-align:center;">К-сть</th>
+                <th style="width: 10%; text-align:right;">Ціна/шт</th>
+                <th style="width: 12%; text-align:right;">Сума</th>
             </tr>
         </thead>
         <tbody>
-            {rows_html if rows_html else '<tr><td colspan="7" style="text-align:center; padding:20px; color:#64748b;">Склад порожній</td></tr>'}
+            {rows_html if rows_html else '<tr><td colspan="7" style="text-align:center; padding:15px; color:#64748b;">Склад порожній</td></tr>'}
         </tbody>
     </table>
 </div>
 <script>
-    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 300); }};
+    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 400); }};
 </script>
 </body>
 </html>"""

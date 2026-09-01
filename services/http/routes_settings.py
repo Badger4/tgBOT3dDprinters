@@ -351,52 +351,60 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Звіт розрахунку вартості друку</title>
 <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 20px; }}
-    .card {{ background: #fff; border-radius: 12px; padding: 24px; max-width: 600px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
-    .header {{ border-bottom: 2px solid #6366f1; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }}
-    h2 {{ margin: 0; color: #4f46e5; font-size: 20px; }}
-    .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #f1f5f9; padding: 14px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }}
-    table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }}
-    th {{ background: #4f46e5; color: #fff; padding: 10px 12px; text-align: left; border-radius: 4px 4px 0 0; }}
-    td {{ padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }}
-    .total {{ background: #eef2ff; border: 2px solid #6366f1; border-radius: 8px; padding: 16px; text-align: right; font-size: 18px; font-weight: bold; color: #4f46e5; }}
-    @media print {{ body {{ background: #fff; padding: 0; }} .card {{ box-shadow: none; max-width: 100%; border: none; }} }}
+    @page {{ size: A4 portrait; margin: 8mm; }}
+    * {{ box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 12px; font-size: 11px; }}
+    .container {{ width: 100%; max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }}
+    .header {{ border-bottom: 2px solid #4f46e5; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }}
+    h2 {{ margin: 0; color: #4f46e5; font-size: 16px; display: flex; align-items: center; gap: 6px; }}
+    .summary-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-size: 11px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11px; table-layout: fixed; }}
+    th, td {{ padding: 6px 8px; border: 1px solid #cbd5e1; word-wrap: break-word; }}
+    th {{ background: #4f46e5 !important; color: #fff !important; font-weight: 600; text-align: left; }}
+    .total-box {{ background: #eef2ff; border: 2px solid #4f46e5; border-radius: 6px; padding: 12px; text-align: right; font-size: 16px; font-weight: bold; color: #4f46e5; }}
+    .btn-print {{ display: block; width: 100%; max-width: 240px; margin: 0 auto 12px; padding: 8px 16px; background: #4f46e5; color: #fff; text-align: center; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; }}
+    @media print {{
+        body {{ background: #fff; padding: 0; }}
+        .container {{ box-shadow: none; border: none; padding: 0; max-width: 100%; }}
+        .no-print {{ display: none !important; }}
+    }}
 </style>
 </head>
 <body>
-<div class="card">
+<div class="container">
+    <div class="no-print">
+        <button onclick="window.print()" class="btn-print">🖨️ Зберегти як PDF / Друк</button>
+    </div>
     <div class="header">
         <div>
-            <h2>📊 Звіт розрахунку вартості друку</h2>
+            <h2>📊 Розрахунок вартості друку</h2>
             <small style="color: #64748b;">3D Farm Hub — Комерційне ціноутворення</small>
         </div>
-        <div style="font-size: 12px; color: #64748b; text-align: right;"><strong>Дата:</strong><br>{date_str}</div>
+        <div style="font-size: 11px; color: #64748b; text-align: right;"><strong>Дата:</strong> {date_str}</div>
     </div>
-    <div class="grid">
+    <div class="summary-grid">
         <div><strong>Пресет:</strong> {preset_name}</div>
         <div><strong>Вага нитки:</strong> {weight_g:.1f} г</div>
         <div><strong>Час друку:</strong> {time_mins} хв</div>
         <div><strong>Маржа:</strong> {calc.get("profit_margin_pct", 0)}%</div>
     </div>
     <table>
-        <thead><tr><th>Стаття витрат</th><th style="text-align:right;">Сума</th></tr></thead>
+        <thead><tr><th style="width: 70%;">Стаття витрат</th><th style="width: 30%; text-align:right;">Сума</th></tr></thead>
         <tbody>
             <tr><td>Пластик (матеріал)</td><td style="text-align:right;">{calc.get("filament_cost", 0):.2f} ₴</td></tr>
             <tr><td>Електроенергія</td><td style="text-align:right;">{calc.get("electricity_cost", 0):.2f} ₴</td></tr>
             <tr><td>Амортизація обладнання</td><td style="text-align:right;">{calc.get("depreciation_cost", 0):.2f} ₴</td></tr>
             <tr><td>Витратні матеріали</td><td style="text-align:right;">{calc.get("consumables_cost", 0):.2f} ₴</td></tr>
             <tr style="font-weight:bold; background:#f8fafc;"><td>Собівартість (прямі витрати)</td><td style="text-align:right;">{calc.get("direct_cost", 0):.2f} ₴</td></tr>
-            <tr style="font-weight:bold; color:#16a34a; background:#f8fafc;"><td>Прибуток (Маржа)</td><td style="text-align:right;">{calc.get("profit_amount", 0):.2f} ₴</td></tr>
+            <tr style="font-weight:bold; color:#16a34a; background:#f8fafc;"><td>Прибуток (Маржа)</td><td style="text-align:right; color:#16a34a;">{calc.get("profit_amount", 0):.2f} ₴</td></tr>
         </tbody>
     </table>
-    <div class="total">
+    <div class="total-box">
         Підсумкова ціна: {calc.get("total_price", 0):.2f} ₴
     </div>
 </div>
 <script>
-    window.onload = function() {{
-        setTimeout(function() {{ window.print(); }}, 300);
-    }};
+    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 400); }};
 </script>
 </body>
 </html>"""
@@ -437,10 +445,10 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
             <tr>
                 <td style="text-align:center;">{idx}</td>
                 <td>{dt}</td>
-                <td><strong>{p_name}</strong></td>
+                <td style="font-weight:600;">{p_name}</td>
                 <td>{subtask}</td>
-                <td>{filament}</td>
-                <td style="text-align:right;">{weight_g:.1f} г</td>
+                <td style="text-align:center;">{filament}</td>
+                <td style="text-align:right;">{weight_g:.1f}г</td>
                 <td>{note}</td>
             </tr>
             """
@@ -452,51 +460,62 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Звіт історії друку</title>
 <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 20px; }}
-    .card {{ background: #fff; border-radius: 12px; padding: 24px; max-width: 900px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
-    .header {{ border-bottom: 2px solid #6366f1; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }}
-    h2 {{ margin: 0; color: #4f46e5; font-size: 20px; }}
-    .summary-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: #f1f5f9; padding: 14px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; text-align: center; }}
-    .summary-item strong {{ display: block; font-size: 18px; color: #4f46e5; margin-top: 4px; }}
-    table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }}
-    th {{ background: #4f46e5; color: #fff; padding: 8px 10px; text-align: left; }}
-    td {{ padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }}
+    @page {{ size: A4 portrait; margin: 8mm; }}
+    * {{ box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 12px; font-size: 11px; }}
+    .container {{ width: 100%; max-width: 800px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }}
+    .header {{ border-bottom: 2px solid #4f46e5; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }}
+    h2 {{ margin: 0; color: #4f46e5; font-size: 16px; display: flex; align-items: center; gap: 6px; }}
+    .summary-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 12px; text-align: center; }}
+    .summary-item {{ font-size: 11px; color: #475569; }}
+    .summary-item strong {{ display: block; font-size: 14px; color: #1e293b; margin-top: 2px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10.5px; table-layout: fixed; }}
+    th, td {{ padding: 5px 6px; border: 1px solid #cbd5e1; word-wrap: break-word; overflow-wrap: break-word; }}
+    th {{ background: #4f46e5 !important; color: #fff !important; font-weight: 600; text-align: left; }}
     tr:nth-child(even) {{ background: #f8fafc; }}
-    @media print {{ body {{ background: #fff; padding: 0; }} .card {{ box-shadow: none; max-width: 100%; border: none; }} }}
+    .btn-print {{ display: block; width: 100%; max-width: 240px; margin: 0 auto 12px; padding: 8px 16px; background: #4f46e5; color: #fff; text-align: center; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; }}
+    @media print {{
+        body {{ background: #fff; padding: 0; }}
+        .container {{ box-shadow: none; border: none; padding: 0; max-width: 100%; }}
+        .no-print {{ display: none !important; }}
+    }}
 </style>
 </head>
 <body>
-<div class="card">
+<div class="container">
+    <div class="no-print">
+        <button onclick="window.print()" class="btn-print">🖨️ Зберегти як PDF / Друк</button>
+    </div>
     <div class="header">
         <div>
             <h2>📊 Звіт історії друку</h2>
             <small style="color: #64748b;">3D Farm Hub — Журнал виконаних робіт</small>
         </div>
-        <div style="font-size: 12px; color: #64748b; text-align: right;"><strong>Дата:</strong><br>{date_str}</div>
+        <div style="font-size: 11px; color: #64748b; text-align: right;"><strong>Дата:</strong> {date_str}</div>
     </div>
     <div class="summary-grid">
         <div class="summary-item">Всього виконано завдань: <strong>{total_prints}</strong></div>
-        <div class="summary-item">Витрачено пластику: <strong>{(total_weight_g/1000.0):.2f} кг</strong> ({total_weight_g:.1f} г)</div>
+        <div class="summary-item">Витрачено пластику: <strong>{(total_weight_g/1000.0):.2f} кг</strong> ({total_weight_g:.1f}г)</div>
     </div>
     <table>
         <thead>
             <tr>
-                <th style="text-align:center;">№</th>
-                <th>Дата</th>
-                <th>Принтер</th>
-                <th>Модель</th>
-                <th>Пластик</th>
-                <th style="text-align:right;">Вага</th>
-                <th>Результат</th>
+                <th style="width: 6%; text-align:center;">№</th>
+                <th style="width: 18%;">Дата</th>
+                <th style="width: 18%;">Принтер</th>
+                <th style="width: 26%;">Модель</th>
+                <th style="width: 10%; text-align:center;">Пластик</th>
+                <th style="width: 10%; text-align:right;">Вага</th>
+                <th style="width: 12%;">Результат</th>
             </tr>
         </thead>
         <tbody>
-            {rows_html if rows_html else '<tr><td colspan="7" style="text-align:center; padding:20px; color:#64748b;">Історія порожня</td></tr>'}
+            {rows_html if rows_html else '<tr><td colspan="7" style="text-align:center; padding:15px; color:#64748b;">Історія порожня</td></tr>'}
         </tbody>
     </table>
 </div>
 <script>
-    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 300); }};
+    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 400); }};
 </script>
 </body>
 </html>"""
