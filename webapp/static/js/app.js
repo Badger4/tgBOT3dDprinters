@@ -1126,28 +1126,118 @@ document.addEventListener("DOMContentLoaded", () => {
 
                             return `${base}${numStr}${posTag}`.trim();
                         };
+                        const pModel = String(p.printer_model || p.name || "").toLowerCase();
+                        const bedW = pModel.includes("mini") ? 180 : 256;
+                        const bedH = pModel.includes("mini") ? 180 : 256;
+                        const scale = 3.0;
+                        const margin = 45;
+                        const imgW = bedW * scale + margin * 2;
+                        const imgH = bedH * scale + margin * 2;
+                        const by2 = margin + bedH * scale;
+
+                        const nObjs = objects.length;
+                        const cols = nObjs >= 4 ? 3 : (nObjs >= 2 ? 2 : 1);
+                        const rows = Math.ceil(nObjs / cols);
+
+                        const hotspotsHtml = objects.map((obj, idx) => {
+                            const objId = obj.id;
+                            const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
+                            const cleanObjName = sanitizeObjName(obj.name || `Об'єкт #${objId}`);
+
+                            let bbox = obj.bbox;
+                            if (!bbox || !Array.isArray(bbox) || bbox.length < 4) {
+                                const r = Math.floor(idx / cols);
+                                const c = idx % cols;
+                                const cellW = bedW / cols;
+                                const cellH = bedH / rows;
+                                const xmin = c * cellW + cellW * 0.15;
+                                const xmax = (c + 1) * cellW - cellW * 0.15;
+                                const ymin = r * cellH + cellH * 0.15;
+                                const ymax = (r + 1) * cellH - cellH * 0.15;
+                                bbox = [xmin, ymin, xmax, ymax];
+                            }
+
+                            let xmin = parseFloat(bbox[0]) || 10;
+                            let ymin = parseFloat(bbox[1]) || 10;
+                            let xmax = parseFloat(bbox[2]) || 50;
+                            let ymax = parseFloat(bbox[3]) || 50;
+
+                            let px1 = margin + xmin * scale;
+                            let px2 = margin + xmax * scale;
+                            let py1 = by2 - ymax * scale;
+                            let py2 = by2 - ymin * scale;
+
+                            if (px2 - px1 < 30) px2 = px1 + 30;
+                            if (py2 - py1 < 30) py1 = py2 - 30;
+
+                            const leftPct = ((px1 / imgW) * 100).toFixed(2);
+                            const topPct = ((py1 / imgH) * 100).toFixed(2);
+                            const widthPct = (((px2 - px1) / imgW) * 100).toFixed(2);
+                            const heightPct = (((py2 - py1) / imgH) * 100).toFixed(2);
+
+                            return `
+                                <div class="plate-obj-hotspot ${isSkipped ? 'is-skipped' : 'is-active'}"
+                                     data-id="${objId}"
+                                     data-name="${escapeHtml(cleanObjName)}"
+                                     style="left: ${leftPct}%; top: ${topPct}%; width: ${widthPct}%; height: ${heightPct}%;"
+                                     title="${isSkipped ? `Об'єкт #${objId} (Пропущено)` : `Натисніть, щоб пропустити #${objId} (${escapeHtml(cleanObjName)})`}">
+                                    <span class="plate-obj-badge">${isSkipped ? '❌' : `#${objId}`}</span>
+                                </div>`;
+                        }).join("");
+
                         const initDataParam = window.Telegram?.WebApp?.initData ? ('&initData=' + encodeURIComponent(window.Telegram.WebApp.initData)) : '';
                         const tokenParam = localStorage.getItem("token") ? ('&token=' + encodeURIComponent(localStorage.getItem("token"))) : '';
-                        const mapHtml = `<div class="text-center mb-2"><img src="/api/printers/${p.id}/plate_map?format=jpg&v=${encodeURIComponent(stateKey)}${initDataParam}${tokenParam}" class="img-fluid rounded border border-secondary shadow-sm" style="max-height: 260px; background-color: #16161a;" alt="Схема столу" /></div>`;
-                        const btnsHtml = objects.map(obj => {
+                        const mapHtml = `
+                            <div class="text-center mb-2">
+                                <div class="plate-map-container position-relative d-inline-block rounded overflow-hidden shadow-sm border border-secondary" style="max-width: 100%; background: #16161a;">
+                                    <img src="/api/printers/${p.id}/plate_map?format=jpg&v=${encodeURIComponent(stateKey)}${initDataParam}${tokenParam}" 
+                                         class="img-fluid d-block" 
+                                         style="max-height: 270px; width: auto; object-fit: contain;" 
+                                         alt="Схема столу" />
+                                    <div class="plate-map-overlay position-absolute top-0 start-0 w-100 h-100">
+                                        ${hotspotsHtml}
+                                    </div>
+                                </div>
+                                <div class="small text-muted mt-1 mb-2">
+                                    <i class="fa-solid fa-hand-pointer text-warning me-1"></i> Натисніть на об'єкт на схемі або кнопку нижче для пропуску
+                                </div>
+                            </div>`;
+                        const btnsHtml = `<div class="d-flex flex-wrap gap-1 justify-content-center">` + objects.map(obj => {
                             const objId = obj.id;
                             const isSkipped = skipped.includes(parseInt(objId)) || skipped.includes(String(objId));
                             const labelText = isSkipped ? `#${objId} (Пропущено)` : `#${objId}`;
                             return `
-                                <button class="btn btn-sm py-1 px-2 ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item me-1 mb-1 font-monospace fw-bold" 
+                                <button class="btn btn-sm py-1 px-2 ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item font-monospace fw-bold" 
                                         data-id="${objId}" ${isSkipped ? 'disabled' : ''}>
                                     ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban me-1"></i>'}
                                     ${escapeHtml(labelText)}
                                 </button>`;
-                        }).join("");
+                        }).join("") + `</div>`;
                         skipObjectsList.innerHTML = mapHtml + btnsHtml;
 
-                        skipObjectsList.querySelectorAll(".btn-skip-obj-item:not(.disabled)").forEach(b => {
-                            b.addEventListener("click", async () => {
-                                const objId = parseInt(b.getAttribute("data-id"));
-                                if (confirm(`Пропустити об'єкт #${objId} на плейті без зупинки друку?`)) {
-                                    await sendPrinterAction({ action: "skip_objects", obj_ids: [objId] });
+                        const handleSkipObj = async (objId, objName) => {
+                            const displayName = objName ? `Об'єкт #${objId} (${objName})` : `Об'єкт #${objId}`;
+                            if (confirm(`Пропустити ${displayName} на плейті без зупинки друку?`)) {
+                                if (window.Telegram?.WebApp?.HapticFeedback) {
+                                    window.Telegram.WebApp.HapticFeedback.notificationOccurred("warning");
                                 }
+                                await sendPrinterAction({ action: "skip_objects", obj_ids: [objId] });
+                            }
+                        };
+
+                        skipObjectsList.querySelectorAll(".plate-obj-hotspot.is-active").forEach(hotspot => {
+                            hotspot.addEventListener("click", (e) => {
+                                e.stopPropagation();
+                                const objId = parseInt(hotspot.getAttribute("data-id"));
+                                const objName = hotspot.getAttribute("data-name") || "";
+                                handleSkipObj(objId, objName);
+                            });
+                        });
+
+                        skipObjectsList.querySelectorAll(".btn-skip-obj-item:not(.disabled)").forEach(b => {
+                            b.addEventListener("click", () => {
+                                const objId = parseInt(b.getAttribute("data-id"));
+                                handleSkipObj(objId, "");
                             });
                         });
                     }
