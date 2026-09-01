@@ -698,19 +698,34 @@ document.addEventListener("DOMContentLoaded", () => {
             modalProgBar.className = `progress-bar ${st === 'PAUSE' || st === 'PAUSED' ? 'amber' : st === 'FAILED' ? 'red' : ''}`;
         }
 
-        // Speed buttons
+        const isActivelyPrintingOrPaused = ["RUNNING", "PREPARE", "PREPARATION", "BUILDING", "PRINTING", "CHANGING_FILAMENT", "PAUSE", "PAUSED"].includes(st);
+
+        // Speed Controls Section Visibility
+        const speedSection = document.querySelector(".speed-selector")?.closest(".control-section");
+        if (speedSection) {
+            speedSection.style.display = isActivelyPrintingOrPaused ? "block" : "none";
+        }
+
+        // Speed buttons active state
         speedBtns.forEach(btn => {
             const lvl = parseInt(btn.getAttribute("data-level"));
             btn.classList.toggle("active", lvl === p.spd_lvl);
         });
 
-        // Action buttons state
-        if (p.state === "PAUSE") {
-            btnPause.style.display = "none";
-            btnResume.style.display = "inline-flex";
+        // Action buttons state: Pause, Resume, Stop
+        if (isActivelyPrintingOrPaused) {
+            if (st === "PAUSE" || st === "PAUSED") {
+                btnPause.style.display = "none";
+                btnResume.style.display = "inline-flex";
+            } else {
+                btnPause.style.display = "inline-flex";
+                btnResume.style.display = "none";
+            }
+            btnStop.style.display = "inline-flex";
         } else {
-            btnPause.style.display = "inline-flex";
+            btnPause.style.display = "none";
             btnResume.style.display = "none";
+            btnStop.style.display = "none";
         }
 
         // Framework Button Class Toggling: Light & Notifications (btn-warning = ON, btn-neutral = OFF)
