@@ -189,8 +189,8 @@ class BambuPrinter:
         if self.ams_enabled is True:
             return True
 
-        exist_bits = str(getattr(self, "ams_exist_bits", ""))
-        if exist_bits in ["0", "0000"]:
+        exist_bits = str(getattr(self, "ams_exist_bits", "")).strip()
+        if exist_bits in ["0", "0000", ""]:
             return False
 
         if not self.ams_units or not isinstance(self.ams_units, list):
@@ -198,12 +198,17 @@ class BambuPrinter:
 
         total_trays = 0
         for unit in self.ams_units:
-            if isinstance(unit, dict):
+            if isinstance(unit, dict) and unit:
                 trays = unit.get("tray", [])
                 if isinstance(trays, list):
                     for t in trays:
-                        if isinstance(t, dict) and (t.get("tray_type") or t.get("id") is not None):
-                            total_trays += 1
+                        if isinstance(t, dict):
+                            if t.get("tray_type") or not t.get("empty", True) or t.get("tag_uid") or t.get("tray_color"):
+                                total_trays += 1
+
+                t_bits = str(getattr(self, "tray_exist_bits", "")).strip()
+                if t_bits and t_bits not in ["0", "0000"]:
+                    total_trays += 1
 
         return total_trays > 0
 
