@@ -15,6 +15,7 @@ from bot.keyboards import (
     get_main_keyboard,
     get_printer_menu_keyboard,
     get_printers_keyboard,
+    get_single_printer_filament_keyboard,
     get_spool_presets_inline_keyboard,
     get_spools_keyboard,
 )
@@ -69,6 +70,85 @@ async def handle_filament_menu(message: Message, app):
     spool_list = list(spools.values())
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
+
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid and hasattr(app, "printers") else None
+    msg_low = message.text.strip().lower() if message.text else ""
+    is_printer_filament_btn = msg_low in ["🧵 філамент", "філамент", "🧵 filament", "filament"]
+
+    if target_printer and is_printer_filament_btn:
+        txt = (
+            f"<b>🧵 Філамент & AMS — {html.escape(target_printer.name)}</b>\n\n"
+            f"📦 <b>Залишок нитки на бабіні:</b> <code>{target_printer.filament_grams}g</code>\n"
+            f"🎨 <b>Тип пластику:</b> <code>{target_printer.filament_type}</code>\n\n"
+        ) if u_lang != "en" else (
+            f"<b>🧵 Filament & AMS — {html.escape(target_printer.name)}</b>\n\n"
+            f"📦 <b>Spool Remaining:</b> <code>{target_printer.filament_grams}g</code>\n"
+            f"🎨 <b>Filament Type:</b> <code>{target_printer.filament_type}</code>\n\n"
+        )
+
+        has_ams = getattr(target_printer, "has_ams", False) or bool(getattr(target_printer, "ams_units", []))
+        if has_ams:
+            ams_hum = getattr(target_printer, "ams_humidity_idx", 0)
+            ams_temp_val = getattr(target_printer, "ams_temp", 0.0)
+            hum_map = {
+                5: "🟢 5/5 (Ідеально сухо)" if u_lang != "en" else "🟢 5/5 (Perfectly Dry)",
+                4: "🟢 4/5 (Оптимально сухо)" if u_lang != "en" else "🟢 4/5 (Optimal)",
+                3: "🟡 3/5 (Помірна вологість)" if u_lang != "en" else "🟡 3/5 (Moderate)",
+                2: "🟠 2/5 (Волого)" if u_lang != "en" else "🟠 2/5 (Humid)",
+                1: "🔴 1/5 (Критично волого)" if u_lang != "en" else "🔴 1/5 (Critical)",
+            }
+            hum_text = hum_map.get(ams_hum, "—")
+            temp_str = f" | 🌡️ {ams_temp_val:.1f}°C" if isinstance(ams_temp_val, (int, float)) and ams_temp_val > 0 else ""
+            txt += (
+                f"💧 <b>Вологість AMS:</b> {hum_text}{temp_str}\n"
+                f"-----------------------------------\n"
+                f"<b>🌈 Слоти AMS:</b>\n\n"
+            ) if u_lang != "en" else (
+                f"💧 <b>AMS Humidity:</b> {hum_text}{temp_str}\n"
+                f"-----------------------------------\n"
+                f"<b>🌈 AMS Slots:</b>\n\n"
+            )
+
+            active_key = target_printer.get_active_slot_key() if hasattr(target_printer, "get_active_slot_key") else "255"
+            slots = getattr(target_printer, "ams_slots", {})
+            slot_keys = ["0", "1", "2", "3", "255"]
+            slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": "VT"}
+
+            for k in slot_keys:
+                s_name = slot_names[k]
+                assigned = next(
+                    (s for s in spool_list if s.get("assigned_printer_id") == target_printer.id and str(s.get("assigned_slot_key")) == str(k)),
+                    None,
+                )
+                tray_info = (getattr(target_printer, "ams_trays_info", {}) or {}).get(str(k), {})
+                is_empty_tray = tray_info.get("empty", True) if tray_info else True
+                has_filament = bool(assigned) or (not is_empty_tray and bool(tray_info.get("type")))
+
+                if assigned:
+                    sp_title = f"{html.escape(assigned.get('name', ''))} ({html.escape(assigned.get('type', ''))})"
+                    raw_g = float(assigned.get("remaining_grams", slots.get(k, 1000.0)))
+                elif not is_empty_tray and tray_info.get("type"):
+                    t_type = html.escape(str(tray_info.get("type", "")))
+                    t_sub = html.escape(str(tray_info.get("sub_brands", "")))
+                    sp_title = f"Bambu {t_type} {t_sub}".strip()
+                    raw_g = slots.get(k, 1000.0)
+                else:
+                    sp_title = "Порожньо" if u_lang != "en" else "Empty"
+                    raw_g = 0.0
+
+                is_act = (str(k) == str(active_key)) and has_filament
+                act_str = (" ⚡ [АКТИВНИЙ]" if u_lang != "en" else " ⚡ [ACTIVE]") if is_act else ""
+
+                if has_filament:
+                    pct = min(100, max(0, int((raw_g / 1000.0) * 100)))
+                    txt += f"   • <b>{s_name}</b>: {sp_title} — <b>{raw_g}g</b> ({pct}%){act_str}\n"
+                else:
+                    empty_label = "Порожньо" if u_lang != "en" else "Empty"
+                    txt += f"   • <b>{s_name}</b>: {empty_label}\n"
+
+        await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_single_printer_filament_keyboard(lang=u_lang))
+        return
 
     txt = (
         "<b>📦 Склад Матеріалів & AMS 3D Ферми</b>\n" if u_lang != "en" else "<b>📦 Materials Stock & AMS Farm</b>\n"
@@ -241,7 +321,7 @@ async def handle_rfid_sync(message: Message, app):
     await message.answer(msg_txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard(lang=u_lang))
 
 
-@router.message(F.text.lower().in_(["🔗 встановити на принтер", "встановити на принтер", "🔗 монтаж / зняття", "монтаж / зняття", "🔗 mount / unmount", "mount / unmount", "🔗 mount to printer", "mount to printer"]))
+@router.message(F.text.lower().in_(["🔗 встановити на принтер", "встановити на принтер", "🔗 монтаж / зняття", "монтаж / зняття", "🔗 mount / unmount", "mount / unmount", "🔗 mount to printer", "mount to printer", "🔗 поставити котушку", "поставити котушку", "🔗 mount spool", "mount spool"]))
 async def handle_mount_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -261,7 +341,7 @@ async def handle_mount_spool_start(message: Message, app):
     )
 
 
-@router.message(F.text.lower().in_(["🔓 зняти з принтера", "зняти з принтера", "🔓 unmount spool", "unmount spool"]))
+@router.message(F.text.lower().in_(["🔓 зняти з принтера", "зняти з принтера", "🔓 unmount spool", "unmount spool", "🔓 зняти котушку", "зняти котушку"]))
 async def handle_unmount_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -339,16 +419,13 @@ async def handle_ams_slots(message: Message, app):
             try:
                 slot_num = (int(t_id) % 4) + 1
             except (ValueError, TypeError):
-                slot_num = t_id
+                slot_num = 1
 
-            is_active = str(t_id) == str(target_printer.active_ams_tray)
-            active_mark = " <b>[⚡ АКТИВНИЙ]</b>" if is_active else ""
-
-            slot_w = target_printer.get_slot_grams(t_id)
+            active_mark = " ⚡" if t.get("is_active") else ""
             if t_rem >= 0:
-                rem_str = f"~{slot_w}g ({t_rem}%)"
+                rem_str = f"{t_rem}%"
             else:
-                rem_str = f"~{slot_w}g"
+                rem_str = f"~{target_printer.filament_grams}g"
 
             ams_txt += (
                 f"<b>Слот {ams_letter}{slot_num}:</b> 🧵 <b>{html.escape(str(t_type))}</b> {html.escape(str(t_sub))}{active_mark}\n"
@@ -383,7 +460,7 @@ async def handle_select_spool_warehouse(message: Message, app):
     F.text.lower().in_(
         [
             "⚖️ змінити залишок ваги", "змінити залишок ваги", "✏️ ручне введення ваги", "ручне введення ваги",
-            "✏️ manual weight input", "manual weight input"
+            "✏️ manual weight input", "manual weight input", "✏️ змінити вагу", "змінити вагу", "✏️ edit weight", "edit weight"
         ]
     )
 )

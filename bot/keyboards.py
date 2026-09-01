@@ -207,6 +207,21 @@ def get_filament_menu_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+def get_single_printer_filament_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    keyboard = [
+        [
+            KeyboardButton(text="🔗 Поставити котушку" if not is_en else "🔗 Mount Spool"),
+            KeyboardButton(text="🔓 Зняти котушку" if not is_en else "🔓 Unmount Spool"),
+        ],
+        [
+            KeyboardButton(text="✏️ Змінити вагу" if not is_en else "✏️ Edit Weight"),
+            KeyboardButton(text="⬅️ Назад" if not is_en else "⬅️ Back"),
+        ],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
 def get_spools_keyboard(spools: dict[str, dict[str, Any]], lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard = []
     for s_id, s in spools.items():
