@@ -149,21 +149,23 @@ async def handle_delete_spool(request: web.Request) -> web.Response:
 
 
 async def handle_export_warehouse_csv(request: web.Request) -> web.Response:
-    """GET /api/warehouse/export_csv - Download structured CSV report of spools warehouse."""
+    """GET /api/warehouse/export_csv - Download structured CSV report of spools/parts warehouse."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     try:
         app_obj = request.app["app_obj"]
         spools = await app_obj.storage.load_spools()
-        parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+        parts = await app_obj.storage.load_parts()
+        report_type = request.query.get("type", "spools")
 
         from services.report_generator import generate_warehouse_csv_report
-        csv_bytes = generate_warehouse_csv_report(spools, parts)
+        csv_bytes = generate_warehouse_csv_report(spools, parts, report_type=report_type)
 
+        filename = "parts_report.csv" if report_type == "parts" else "spools_report.csv"
         headers = {
-            "Content-Disposition": 'attachment; filename="warehouse_report.csv"',
-            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+            "Content-Type": "text/csv; charset=utf-8-sig",
         }
         return web.Response(body=csv_bytes, headers=headers)
     except Exception as e:
@@ -183,8 +185,8 @@ async def handle_export_movements_csv(request: web.Request) -> web.Response:
         csv_bytes = generate_movements_csv_report(movements)
 
         headers = {
-            "Content-Disposition": 'attachment; filename="spool_movements_audit.csv"',
-            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": 'attachment; filename="spool_movements_audit.csv"; filename*=UTF-8\'\'spool_movements_audit.csv',
+            "Content-Type": "text/csv; charset=utf-8-sig",
         }
         return web.Response(body=csv_bytes, headers=headers)
     except Exception as e:

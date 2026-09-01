@@ -137,6 +137,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_get("/api/spools/movements/export_csv", handle_export_movements_csv)
     web_app.router.add_post("/api/spools", handle_save_spool)
     web_app.router.add_delete("/api/spools/{id}", handle_delete_spool)
+    web_app.router.add_get("/api/spools/export_csv", handle_export_warehouse_csv)
     web_app.router.add_get("/api/warehouse/export_csv", handle_export_warehouse_csv)
 
     # Parts Warehouse API

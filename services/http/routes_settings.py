@@ -315,9 +315,10 @@ async def handle_export_history_csv(request: web.Request) -> web.Response:
     filename = f"farm_history_{int(time.time())}.csv"
     return web.Response(
         body=csv_bytes,
-        content_type="text/csv",
-        charset="utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+            "Content-Type": "text/csv; charset=utf-8-sig",
+        },
     )
 
 

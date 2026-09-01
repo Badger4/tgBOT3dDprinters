@@ -8,13 +8,20 @@ import time
 from typing import Any
 
 
+def _encode_csv_with_bom(output_stringio: io.StringIO) -> bytes:
+    """Encodes StringIO content to UTF-8 and ensures UTF-8 BOM (0xEF 0xBB 0xBF) is present for Excel."""
+    raw_bytes = output_stringio.getvalue().encode("utf-8")
+    if not raw_bytes.startswith(b"\xef\xbb\xbf"):
+        raw_bytes = b"\xef\xbb\xbf" + raw_bytes
+    return raw_bytes
+
+
 def generate_csv_report(history: list[dict[str, Any]]) -> bytes:
     """
     Generates a UTF-8-BOM encoded CSV file from print history list.
     BOM ensures Microsoft Excel opens Ukrainian text without character corruption.
     """
     output = io.StringIO()
-    # Write UTF-8 BOM header explicitly
     output.write("\ufeff")
 
     writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
@@ -51,7 +58,7 @@ def generate_csv_report(history: list[dict[str, Any]]) -> bytes:
 
         writer.writerow([idx, dt_str, p_name, subtask, filament, f"{weight_g:.1f}", note])
 
-    return output.getvalue().encode("utf-8")
+    return _encode_csv_with_bom(output)
 
 
 def generate_spools_csv_report(spools: dict[str, Any]) -> bytes:
@@ -158,7 +165,7 @@ def generate_spools_csv_report(spools: dict[str, Any]) -> bytes:
             f"Загальна вартість: {total_value_uah:.2f} грн",
         ])
 
-    return output.getvalue().encode("utf-8")
+    return _encode_csv_with_bom(output)
 
 
 def generate_parts_csv_report(parts: dict[str, Any]) -> bytes:
@@ -206,7 +213,7 @@ def generate_parts_csv_report(parts: dict[str, Any]) -> bytes:
                     f"{total_val:.2f}",
                 ])
 
-    return output.getvalue().encode("utf-8")
+    return _encode_csv_with_bom(output)
 
 
 def generate_warehouse_csv_report(spools: dict[str, Any], parts: dict[str, Any] | None = None, report_type: str = "spools") -> bytes:
@@ -253,4 +260,4 @@ def generate_movements_csv_report(movements: list[dict[str, Any]]) -> bytes:
             m.get("user", "System"),
         ])
 
-    return output.getvalue().encode("utf-8")
+    return _encode_csv_with_bom(output)

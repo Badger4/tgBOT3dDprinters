@@ -263,14 +263,14 @@ async def handle_export_parts_csv(request: web.Request) -> web.Response:
 
     try:
         app_obj = request.app["app_obj"]
-        parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+        parts = await app_obj.storage.load_parts()
 
         from services.report_generator import generate_parts_csv_report
         csv_bytes = generate_parts_csv_report(parts)
 
         headers = {
-            "Content-Disposition": 'attachment; filename="parts_report.csv"',
-            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": 'attachment; filename="parts_report.csv"; filename*=UTF-8\'\'parts_report.csv',
+            "Content-Type": "text/csv; charset=utf-8-sig",
         }
         return web.Response(body=csv_bytes, headers=headers)
     except Exception as e:
