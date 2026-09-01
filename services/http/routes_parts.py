@@ -10,12 +10,14 @@ from services.http.auth import check_auth
 
 
 async def handle_get_parts(request: web.Request) -> web.Response:
-    """GET /api/parts - List 3D printed parts inventory with slice metadata."""
+    """GET /api/parts - Returns warehouse inventory of printed parts."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
-    parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+    parts = await app_obj.storage.load_parts()
+    if not isinstance(parts, dict):
+        parts = {}
 
     import config
     from services.gcode_parser import parse_3mf_file
@@ -43,7 +45,7 @@ async def handle_get_parts(request: web.Request) -> web.Response:
                     break
 
     if modified:
-        await app_obj.storage.save_json(app_obj.storage.parts_file, parts)
+        await app_obj.storage.save_parts(parts)
 
     return web.json_response(parts)
 
@@ -57,9 +59,11 @@ async def handle_save_part(request: web.Request) -> web.Response:
     try:
         data = await request.json()
         part_id = data.get("id") or f"part_{int(time.time() * 1000)}"
-        parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+        parts = await app_obj.storage.load_parts()
+        if not isinstance(parts, dict):
+            parts = {}
 
-        existing = parts.get(part_id, {})
+        existing = parts.get(part_id, {}) if isinstance(parts.get(part_id), dict) else {}
         new_three_mf = str(data.get("three_mf", existing.get("three_mf", ""))).strip()
         old_three_mf = existing.get("old_three_mf", "")
 
@@ -104,7 +108,7 @@ async def handle_save_part(request: web.Request) -> web.Response:
             "updated_at": time.time(),
         }
 
-        await app_obj.storage.save_json(app_obj.storage.parts_file, parts)
+        await app_obj.storage.save_parts(parts)
         return web.json_response({"status": "ok", "part": parts[part_id]})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
@@ -117,7 +121,9 @@ async def handle_download_part_3mf(request: web.Request) -> web.Response:
 
     app_obj = request.app["app_obj"]
     part_id = request.match_info.get("id", "")
-    parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+    parts = await app_obj.storage.load_parts()
+    if not isinstance(parts, dict):
+        parts = {}
     part = parts.get(part_id)
     if not part:
         return web.json_response({"error": "Part not found"}, status=404)
@@ -165,10 +171,12 @@ async def handle_delete_part(request: web.Request) -> web.Response:
 
     app_obj = request.app["app_obj"]
     part_id = request.match_info.get("id", "")
-    parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+    parts = await app_obj.storage.load_parts()
+    if not isinstance(parts, dict):
+        parts = {}
     if part_id in parts:
         del parts[part_id]
-        await app_obj.storage.save_json(app_obj.storage.parts_file, parts)
+        await app_obj.storage.save_parts(parts)
         return web.json_response({"status": "ok"})
     return web.json_response({"error": "Part not found"}, status=404)
 
@@ -182,7 +190,9 @@ async def handle_print_part(request: web.Request) -> web.Response:
     part_id = request.match_info.get("part_id", "")
     printer_id = request.match_info.get("printer_id", "")
 
-    parts = await app_obj.storage.load_json(app_obj.storage.parts_file, {})
+    parts = await app_obj.storage.load_parts()
+    if not isinstance(parts, dict):
+        parts = {}
     part = parts.get(part_id)
     if not part:
         return web.json_response({"error": "Part not found"}, status=404)

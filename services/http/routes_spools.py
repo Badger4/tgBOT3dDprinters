@@ -14,21 +14,22 @@ async def handle_get_spools(request: web.Request) -> web.Response:
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
-    spools = await app_obj.storage.load_json(app_obj.storage.spools_file, {})
+    spools = await app_obj.storage.load_spools()
+    if not isinstance(spools, dict):
+        spools = {}
 
     total_spools = 0
     total_weight_g = 0.0
     total_value_uah = 0.0
 
-    if isinstance(spools, dict):
-        for s in spools.values():
-            if isinstance(s, dict):
-                rem_g = float(s.get("remaining_grams") or s.get("total_grams") or 1000.0)
-                price_kg = float(s.get("price_per_kg") or s.get("price_uah") or 650.0)
-                qty = max(1, int(s.get("quantity", 1)))
-                total_spools += qty
-                total_weight_g += rem_g * qty
-                total_value_uah += (rem_g / 1000.0) * price_kg * qty
+    for s in spools.values():
+        if isinstance(s, dict):
+            rem_g = float(s.get("remaining_grams") or s.get("total_grams") or 1000.0)
+            price_kg = float(s.get("price_per_kg") or s.get("price_uah") or 650.0)
+            qty = max(1, int(s.get("quantity", 1)))
+            total_spools += qty
+            total_weight_g += rem_g * qty
+            total_value_uah += (rem_g / 1000.0) * price_kg * qty
 
     if request.query.get("with_summary") == "true" or request.headers.get("X-Include-Summary") == "true":
         return web.json_response({
@@ -69,9 +70,12 @@ async def handle_save_spool(request: web.Request) -> web.Response:
     try:
         data = await request.json()
         spool_id = data.get("id") or f"spool_{int(time.time())}"
-        spools = await app_obj.storage.load_json(app_obj.storage.spools_file, {})
+        spools = await app_obj.storage.load_spools()
+        if not isinstance(spools, dict):
+            spools = {}
+
         is_existing = spool_id in spools
-        existing = spools.get(spool_id, {})
+        existing = spools.get(spool_id, {}) if isinstance(spools.get(spool_id), dict) else {}
 
         prev_weight = float(existing.get("remaining_grams", 0.0))
         new_weight = float(data.get("remaining_grams", 1000.0))
@@ -87,7 +91,7 @@ async def handle_save_spool(request: web.Request) -> web.Response:
             "price_per_kg": float(data.get("price_per_kg", existing.get("price_per_kg", 650.0))),
             "notes": data.get("notes", existing.get("notes", "")),
         }
-        await app_obj.storage.save_json(app_obj.storage.spools_file, spools)
+        await app_obj.storage.save_spools(spools)
 
         # Audit movement logging
         if not is_existing:
@@ -128,10 +132,13 @@ async def handle_delete_spool(request: web.Request) -> web.Response:
 
     app_obj = request.app["app_obj"]
     spool_id = request.match_info.get("id", "")
-    spools = await app_obj.storage.load_json(app_obj.storage.spools_file, {})
+    spools = await app_obj.storage.load_spools()
+    if not isinstance(spools, dict):
+        spools = {}
+
     if spool_id in spools:
         spool = spools.pop(spool_id)
-        await app_obj.storage.save_json(app_obj.storage.spools_file, spools)
+        await app_obj.storage.save_spools(spools)
 
         prev_weight = float(spool.get("remaining_grams", 0.0))
         await app_obj.storage.record_spool_movement(
