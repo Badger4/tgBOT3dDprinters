@@ -190,6 +190,9 @@ def generate_parts_csv_report(parts: dict[str, Any]) -> bytes:
         ]
     )
 
+    total_qty = 0
+    total_val = 0.0
+
     if parts and isinstance(parts, dict):
         for p_id, p in parts.items():
             if isinstance(p, dict):
@@ -200,7 +203,9 @@ def generate_parts_csv_report(parts: dict[str, Any]) -> bytes:
                 p_weight = float(p.get("weight_g", 0.0) or p.get("weight", 0.0) or 0.0)
                 p_price = float(p.get("price", 0.0) or p.get("cost", 0.0) or 0.0)
                 p_qty = max(1, int(p.get("count", 1) or p.get("quantity", 1) or 1))
-                total_val = p_price * p_qty
+                row_val = p_price * p_qty
+                total_qty += p_qty
+                total_val += row_val
 
                 writer.writerow([
                     part_id,
@@ -210,8 +215,11 @@ def generate_parts_csv_report(parts: dict[str, Any]) -> bytes:
                     f"{p_weight:.1f}",
                     f"{p_price:.2f}",
                     p_qty,
-                    f"{total_val:.2f}",
+                    f"{row_val:.2f}",
                 ])
+
+    writer.writerow([])
+    writer.writerow(["ВАРТІСТЬ СКЛАДУ ДЕТАЛЕЙ", "ЗАГАЛОМ ПО ВСІХ ДЕТАЛЯХ", "-", "-", "-", "-", total_qty, f"{total_val:.2f} грн"])
 
     return _encode_csv_with_bom(output)
 
