@@ -54,9 +54,9 @@ def get_printer_menu_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyK
     keyboard = [
         [KeyboardButton(text=t("btn_status", lang)), KeyboardButton(text=t("btn_camera", lang))],
         [KeyboardButton(text=t("btn_control", lang)), KeyboardButton(text=t("btn_filament", lang))],
-        [KeyboardButton(text=t("btn_calibrate", lang)), KeyboardButton(text=notify_str)],
-        [KeyboardButton(text=t("btn_edit_printer", lang)), KeyboardButton(text=t("btn_reset_maint", lang))],
-        [KeyboardButton(text=t("btn_delete_printer", lang)), KeyboardButton(text=t("btn_back_to_printers", lang))],
+        [KeyboardButton(text=notify_str), KeyboardButton(text=t("btn_reset_maint", lang))],
+        [KeyboardButton(text=t("btn_edit_printer", lang)), KeyboardButton(text=t("btn_delete_printer", lang))],
+        [KeyboardButton(text=t("btn_back_to_printers", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -135,6 +135,7 @@ def get_printer_control_keyboard(printer: BambuPrinter, lang: str = "uk") -> Rep
     keyboard = [
         [KeyboardButton(text=t("btn_speed", lang)), KeyboardButton(text=t("btn_light", lang))],
         [KeyboardButton(text=t("btn_stop_print", lang)), pause_resume_btn],
+        [KeyboardButton(text=t("btn_calibrate", lang))],
     ]
     if printer.gcode_state in ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"]:
         keyboard.append([KeyboardButton(text="🚫 Пропустити об'єкт")])
