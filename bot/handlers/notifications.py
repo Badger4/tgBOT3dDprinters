@@ -61,6 +61,21 @@ async def handle_notifications_menu(message: Message, app):
         await message.answer(msg_title, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
+@router.callback_query(F.data == "pn_back_list")
+async def handle_pn_back_list_callback(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    if hasattr(app, "printers") and app.printers:
+        title = "⚙️ <b>Оберіть принтер для налаштування сповіщень:</b>" if u_lang != "en" else "⚙️ <b>Select printer for notification settings:</b>"
+        ikb = get_printer_select_notification_keyboard(app.printers, lang=u_lang)
+        await callback.message.edit_text(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
+    else:
+        await callback.answer("Принтери не знайдено!", show_alert=True)
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("pn_select:"))
 async def handle_pn_select_callback(callback: CallbackQuery, app):
     p_id = callback.data.split(":")[1]

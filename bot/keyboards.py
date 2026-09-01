@@ -322,6 +322,7 @@ def get_printer_notification_inline_keyboard(printer: Any, lang: str = "uk") -> 
         [InlineKeyboardButton(text=f"⏳ Таймер до кінця: {time_str}", callback_data=f"pn_cycle_time:{p_id}")],
         [InlineKeyboardButton(text=f"📦 Поріг нитки: {fil_str}", callback_data=f"pn_cycle_fil:{p_id}")],
         [InlineKeyboardButton(text=f"🔄 Скинути лічильник ТО ({maint_val}г)", callback_data=f"pn_reset_maint:{p_id}")],
+        [InlineKeyboardButton(text="⬅️ Назад до принтерів" if not is_en else "⬅️ Back to Printers", callback_data="pn_back_list")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
