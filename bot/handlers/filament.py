@@ -39,8 +39,8 @@ def parse_slot_key_from_text(text: str) -> str:
         return "2"
     elif "a4" in clean or "slot 4" in clean:
         return "3"
-    elif "зовнішн" in clean or "vt" in clean:
-        return "255"
+    elif "зовнішн" in clean or "vt" in clean or "external" in clean:
+        return "254"
     return "0"
 
 
@@ -110,15 +110,15 @@ async def handle_filament_menu(message: Message, app):
                 f"<b>🌈 AMS Slots:</b>\n\n"
             )
 
-            active_key = target_printer.get_active_slot_key() if hasattr(target_printer, "get_active_slot_key") else "255"
+            active_key = target_printer.get_active_slot_key() if hasattr(target_printer, "get_active_slot_key") else "254"
             slots = getattr(target_printer, "ams_slots", {})
-            slot_keys = ["0", "1", "2", "3", "255"]
-            slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": "VT"}
+            slot_keys = ["0", "1", "2", "3", "254"]
+            slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT"}
 
             for k in slot_keys:
                 s_name = slot_names[k]
                 assigned = next(
-                    (s for s in spool_list if s.get("assigned_printer_id") == target_printer.id and str(s.get("assigned_slot_key")) == str(k)),
+                    (s for s in spool_list if s.get("assigned_printer_id") == target_printer.id and str(s.get("assigned_slot_key")) in [str(k), "255" if k == "254" else str(k)]),
                     None,
                 )
                 tray_info = (getattr(target_printer, "ams_trays_info", {}) or {}).get(str(k), {})
@@ -137,7 +137,7 @@ async def handle_filament_menu(message: Message, app):
                     sp_title = "Порожньо" if u_lang != "en" else "Empty"
                     raw_g = 0.0
 
-                is_act = (str(k) == str(active_key)) and has_filament
+                is_act = (str(k) == str(active_key) or (k == "254" and str(active_key) in ["254", "255"])) and has_filament
                 act_str = (" ⚡ [АКТИВНИЙ]" if u_lang != "en" else " ⚡ [ACTIVE]") if is_act else ""
 
                 if has_filament:
@@ -176,10 +176,10 @@ async def handle_filament_menu(message: Message, app):
                 txt += f"🖨️ <b>{html.escape(p.name)}</b>\n"
 
             has_ams = getattr(p, "has_ams", False)
-            active_key = p.get_active_slot_key() if hasattr(p, "get_active_slot_key") else "255"
+            active_key = p.get_active_slot_key() if hasattr(p, "get_active_slot_key") else "254"
             slots = getattr(p, "ams_slots", {})
-            slot_keys = ["0", "1", "2", "3", "255"] if has_ams else ["255"]
-            slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": "VT"}
+            slot_keys = ["0", "1", "2", "3", "254"] if has_ams else ["254"]
+            slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT"}
 
             for k in slot_keys:
                 s_name = slot_names[k]

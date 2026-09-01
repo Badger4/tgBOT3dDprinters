@@ -253,7 +253,7 @@ def get_ams_slots_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyb
     is_en = lang == "en"
     active_key = printer.get_active_slot_key()
     active_mark_str = " [⚡ ACTIVE]" if is_en else " [⚡ АКТИВНИЙ]"
-    mark = lambda key, label: f"{label}{active_mark_str}" if active_key == key else label
+    mark = lambda key, label: f"{label}{active_mark_str}" if (active_key == key or (key == "254" and active_key in ["254", "255"])) else label
 
     if getattr(printer, "has_ams", False):
         keyboard = [
@@ -265,12 +265,12 @@ def get_ams_slots_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyb
                 KeyboardButton(text=mark("2", "📍 Slot A3 (Slot 3)" if is_en else "📍 Слот A3 (Slot 3)")),
                 KeyboardButton(text=mark("3", "📍 Slot A4 (Slot 4)" if is_en else "📍 Слот A4 (Slot 4)")),
             ],
-            [KeyboardButton(text=mark("255", "📍 External Slot (VT)" if is_en else "📍 Зовнішній слот (VT)"))],
+            [KeyboardButton(text=mark("254", "📍 External Slot (VT)" if is_en else "📍 Зовнішній слот (VT)"))],
             [KeyboardButton(text=t("btn_back", lang))],
         ]
     else:
         keyboard = [
-            [KeyboardButton(text=mark("255", "📍 External Spool (VT)" if is_en else "📍 Зовнішній котушкотримач (VT)"))],
+            [KeyboardButton(text=mark("254", "📍 External Spool (VT)" if is_en else "📍 Зовнішній котушкотримач (VT)"))],
             [KeyboardButton(text=t("btn_back", lang))],
         ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)

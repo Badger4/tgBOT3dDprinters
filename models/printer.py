@@ -42,6 +42,28 @@ DEFAULT_MAINTENANCE_ITEMS = {
 }
 
 
+def build_ams_mapping(active_slot: str | None, has_ams: bool, use_ams: bool) -> tuple[list[int], bool]:
+    """
+    Constructs compliant Bambu Lab MQTT ams_mapping (5 elements, right-aligned / invert-indexing).
+    For single-color print on AMS slot X (0-3): [-1, -1, -1, -1, X], use_ams=True
+    For print without AMS / external spool (254 or None): [], use_ams=False
+    """
+    if not has_ams or not use_ams or active_slot is None or active_slot in ["254", "255"]:
+        return [], False
+
+    try:
+        slot_num = int(active_slot)
+    except (ValueError, TypeError):
+        return [], False
+
+    if not (0 <= slot_num <= 3):
+        return [], False
+
+    mapping = [-1, -1, -1, -1, -1]
+    mapping[4] = slot_num  # For single color print, 5th element is target slot
+    return mapping, True
+
+
 class BambuPrinter:
     """Manages Bambu Lab 3D Printer telemetry and MQTT control."""
 
@@ -86,8 +108,10 @@ class BambuPrinter:
                 "last_reset": float(user_item.get("last_reset", 0.0)),
             }
 
-        # Per-slot AMS filament weight tracking (Keys: "0"=A1, "1"=A2, "2"=A3, "3"=A4, "255"=External)
+        # Per-slot AMS filament weight tracking (Keys: "0"=A1, "1"=A2, "2"=A3, "3"=A4, "254"=External vt_tray)
         raw_ams_slots = config.get("ams_slots") or {}
+        if "255" in raw_ams_slots and "254" not in raw_ams_slots:
+            raw_ams_slots["254"] = raw_ams_slots.pop("255")
         default_slots = {
             AMSSlot.A1.value: 1000.0,
             AMSSlot.A2.value: 1000.0,
@@ -206,18 +230,37 @@ class BambuPrinter:
             "min_filament": 0,
         }
 
+    def get_active_spool_key(self) -> str | None:
+        """
+        Returns key of active slot ("0".."3" for AMS, "254" for External vt_tray),
+        or None if idle (255 / no active spool loaded).
+        """
+        tray = self.active_ams_tray
+        if tray is None or tray == 255:
+            return None  # Idle - no active spool / do not write off weight
+        if tray == 254:
+            return AMSSlot.EXTERNAL.value  # "254"
+        if 0 <= tray <= 15:
+            return str(tray)  # "0".."3"
+        return None
+
     def get_active_slot_key(self) -> str:
-        s_key = str(self.active_ams_tray)
-        if s_key in self.ams_slots:
-            return s_key
-        return AMSSlot.EXTERNAL.value if AMSSlot.A1.value in self.ams_slots else AMSSlot.EXTERNAL.value
+        """Returns active slot key or falls back to '254' (External) for backward compatibility."""
+        key = self.get_active_spool_key()
+        if key is not None:
+            return key
+        return AMSSlot.EXTERNAL.value if AMSSlot.EXTERNAL.value in self.ams_slots else ("0" if "0" in self.ams_slots else AMSSlot.EXTERNAL.value)
 
     def get_slot_grams(self, slot_id: Any | None = None) -> float:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()
+        if s_key == "255":
+            s_key = AMSSlot.EXTERNAL.value
         return float(self.ams_slots.get(s_key, self.filament_grams))
 
     def set_slot_grams(self, grams: float, slot_id: Any | None = None) -> None:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()
+        if s_key == "255":
+            s_key = AMSSlot.EXTERNAL.value
         g_val = round(float(grams), 2)
         self.ams_slots[s_key] = g_val
         if s_key == self.get_active_slot_key():
@@ -444,7 +487,18 @@ class BambuPrinter:
             if "ams_temp" in parsed:
                 self.ams_temp = parsed["ams_temp"]
 
-            # Step 1: Delta-detection of AMS slot changes (spool insertion / removal)
+            # Step 1: Raw AMS Telemetry Logging for real data verification
+            if "ams" in print_data and isinstance(print_data["ams"], dict):
+                ams_data = print_data["ams"]
+                t_now = ams_data.get("tray_now")
+                t_pre = ams_data.get("tray_pre")
+                t_tar = ams_data.get("tray_tar")
+                if t_now is not None or t_pre is not None or t_tar is not None:
+                    logger.info(
+                        f"🔍 [AMS Telemetry] [{self.name}] tray_now={t_now}, tray_pre={t_pre}, tray_tar={t_tar}, exist_bits={ams_data.get('ams_exist_bits')}"
+                    )
+
+            # Step 2: Delta-detection of AMS slot changes (spool insertion / removal)
             old_slots = dict(getattr(self, "_previous_ams_slots", {}) or dict(self.ams_slots))
             for slot_key, new_weight in self.ams_slots.items():
                 old_weight = old_slots.get(slot_key, 0.0)
@@ -455,10 +509,12 @@ class BambuPrinter:
             self._previous_ams_slots = dict(self.ams_slots)
 
             if "vt_tray_info" in parsed:
-                self.ams_trays_info["255"] = parsed["vt_tray_info"]
+                self.ams_trays_info["254"] = parsed["vt_tray_info"]
 
-            filament = print_data.get("vt_tray", {}).get("tray_type")
-            if not filament and self.ams_units:
+            filament = None
+            if self.active_ams_tray == 254 or not self.has_ams:
+                filament = print_data.get("vt_tray", {}).get("tray_type")
+            elif self.active_ams_tray in [0, 1, 2, 3] and self.ams_units:
                 for ams_b in self.ams_units:
                     for tray in ams_b.get("tray", []):
                         if str(tray.get("id")) == str(self.active_ams_tray) and tray.get("tray_type"):
@@ -560,16 +616,21 @@ class BambuPrinter:
 
             if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]:
                 if not getattr(self, "_is_calibrating", False) and self._current_job_grams > 0 and not self._job_deducted:
-                    active_key = self.get_active_slot_key()
-                    old_w = self.get_slot_grams(active_key)
-                    new_w = max(0.0, round(old_w - self._current_job_grams, 2))
-                    self.set_slot_grams(new_w, active_key)
-                    self._job_deducted = True
-                    self.last_job_grams = self._current_job_grams
-                    logger.info(
-                        f"💾 Auto-deducted {self._current_job_grams}g from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
-                    )
-                    self._trigger_save()
+                    active_key = self.get_active_spool_key()
+                    if active_key is None:
+                        logger.warning(
+                            f"[{self.name}] Немає активного слоту (idle / active_ams_tray={self.active_ams_tray}) — автосписання ваги пропущено."
+                        )
+                    else:
+                        old_w = self.get_slot_grams(active_key)
+                        new_w = max(0.0, round(old_w - self._current_job_grams, 2))
+                        self.set_slot_grams(new_w, active_key)
+                        self._job_deducted = True
+                        self.last_job_grams = self._current_job_grams
+                        logger.info(
+                            f"💾 Auto-deducted {self._current_job_grams}g from Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
+                        )
+                        self._trigger_save()
 
                 if self.subtask_name and not getattr(self, "_is_calibrating", False):
                     from utils.spool_fingerprint import build_spool_fingerprint, save_active_print_context
@@ -1020,16 +1081,17 @@ class BambuPrinter:
                 logger.info(f"⚖️ Parsed 3MF weight {w_g}g for [{self.name}]")
 
                 # Deduct immediately from active slot
-                active_key = self.get_active_slot_key()
-                old_w = self.get_slot_grams(active_key)
-                new_w = max(0.0, round(old_w - w_g, 2))
-                self.set_slot_grams(new_w, active_key)
-                self._job_deducted = True
-                self.last_job_grams = w_g
-                logger.info(
-                    f"💾 Auto-deducted {w_g}g from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
-                )
-                self._trigger_save()
+                active_key = self.get_active_spool_key()
+                if active_key is not None:
+                    old_w = self.get_slot_grams(active_key)
+                    new_w = max(0.0, round(old_w - w_g, 2))
+                    self.set_slot_grams(new_w, active_key)
+                    self._job_deducted = True
+                    self.last_job_grams = w_g
+                    logger.info(
+                        f"💾 Auto-deducted {w_g}g from Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
+                    )
+                    self._trigger_save()
         except Exception as e_w:
             logger.warning(f"Could not parse 3MF weight in start_print_job_async: {e_w}")
 
@@ -1037,19 +1099,7 @@ class BambuPrinter:
         has_ams_hardware = bool(getattr(self, "has_ams", False))
         active_slot = str(self.get_active_slot_key())
 
-        use_ams_bool = bool(use_ams and has_ams_hardware)
-        ams_mapping_list: list[int] = []
-
-        if use_ams_bool:
-            if active_slot.isdigit():
-                ams_mapping_list = [int(active_slot)]
-            elif active_slot == "255":
-                ams_mapping_list = [255]
-            else:
-                ams_mapping_list = [0]
-        else:
-            use_ams_bool = False
-            ams_mapping_list = []
+        ams_mapping_list, use_ams_bool = build_ams_mapping(active_slot, has_ams_hardware, use_ams)
 
         payload = {
             "print": {

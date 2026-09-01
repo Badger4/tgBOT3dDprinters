@@ -641,17 +641,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const spoolsList = Object.values(window.latestSpools || {});
             const assignedSpools = spoolsList.filter(s => s.assigned_printer_id === p.id);
-            const activeKey = String(p.active_slot_key || "255");
-            const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": "VT" };
+            const activeKey = String(p.active_slot_key || "254");
+            const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT", "255": "VT" };
             const hasAms = Boolean(p.has_ams);
 
             let displaySlotKey = activeKey;
-            let assignedSpool = assignedSpools.find(s => String(s.assigned_slot_key) === activeKey);
+            let assignedSpool = assignedSpools.find(s => String(s.assigned_slot_key) === activeKey || (activeKey in ["254", "255"] && String(s.assigned_slot_key) in ["254", "255"]));
 
             if (!assignedSpool && assignedSpools.length > 0) {
                 assignedSpool = assignedSpools[0];
-                displaySlotKey = String(assignedSpool.assigned_slot_key !== undefined ? assignedSpool.assigned_slot_key : "255");
-            } else if (!assignedSpool && hasAms && activeKey === "255") {
+                displaySlotKey = String(assignedSpool.assigned_slot_key !== undefined ? assignedSpool.assigned_slot_key : "254");
+            } else if (!assignedSpool && hasAms && (activeKey === "254" || activeKey === "255")) {
                 const amsKeys = ["0", "1", "2", "3"];
                 const firstNonEmptyKey = amsKeys.find(k => {
                     const g = p.ams_slots ? p.ams_slots[k] : 0;
@@ -877,17 +877,17 @@ document.addEventListener("DOMContentLoaded", () => {
             };
 
             const hasAms = Boolean(p.has_ams);
-            const activeKey = String(p.active_slot_key || "255");
+            const activeKey = String(p.active_slot_key || "254");
             const slots = p.ams_slots || {};
-            const slotKeys = hasAms ? ["0", "1", "2", "3", "255"] : ["255"];
-            const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач" };
+            const slotKeys = hasAms ? ["0", "1", "2", "3", "254"] : ["254"];
+            const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач", "255": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач" };
             const spoolsList = Object.values(window.latestSpools || {});
 
             amsSlotsContainer.innerHTML = slotKeys.map(k => {
-                const rawGrams = slots[k] !== undefined ? slots[k] : 1000;
-                const isActive = (k === activeKey);
-                const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && String(s.assigned_slot_key) === k);
-                const trayInfo = (p.ams_trays_info || {})[k] || {};
+                const rawGrams = slots[k] !== undefined ? slots[k] : (slots["255"] !== undefined && k === "254" ? slots["255"] : 1000);
+                const isActive = (k === activeKey || (k === "254" && activeKey === "255") || (k === "255" && activeKey === "254"));
+                const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && (String(s.assigned_slot_key) === k || (k === "254" && String(s.assigned_slot_key) === "255")));
+                const trayInfo = (p.ams_trays_info || {})[k] || (k === "254" ? (p.ams_trays_info || {})["255"] : {}) || {};
                 const isTrayEmpty = trayInfo.empty === true || (!assignedSpool && !trayInfo.type);
 
                 let spoolColor = '#334155';
@@ -1492,10 +1492,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 container.innerHTML = printers.map(p => {
                     const hasAms = Boolean(p.has_ams);
-                    const activeKey = String(p.active_slot_key || "255");
+                    const activeKey = String(p.active_slot_key || "254");
                     const slots = p.ams_slots || {};
-                    const slotKeys = hasAms ? ["0", "1", "2", "3", "255"] : ["255"];
-                    const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "255": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач" };
+                    const slotKeys = hasAms ? ["0", "1", "2", "3", "254"] : ["254"];
+                    const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач", "255": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач" };
                     const amsBadge = hasAms
                         ? `<span class="badge badge-success" style="font-size:10px; font-weight:500;"><i class="fa-solid fa-layer-group"></i> AMS Підключено</span>`
                         : `<span class="badge badge-secondary" style="font-size:10px; font-weight:500;"><i class="fa-solid fa-spool"></i> Пряма подача (Без AMS)</span>`;
@@ -1511,10 +1511,10 @@ document.addEventListener("DOMContentLoaded", () => {
                             </div>
                             <div class="ams-slots-grid">
                                 ${slotKeys.map(k => {
-                                    const grams = slots[k] !== undefined ? slots[k] : 1000;
-                                    const isActive = (k === activeKey);
-                                    const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && String(s.assigned_slot_key) === k);
-                                    const trayInfo = (p.ams_trays_info || {})[k] || {};
+                                    const grams = slots[k] !== undefined ? slots[k] : (slots["255"] !== undefined && k === "254" ? slots["255"] : 1000);
+                                    const isActive = (k === activeKey || (k === "254" && activeKey === "255") || (k === "255" && activeKey === "254"));
+                                    const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && (String(s.assigned_slot_key) === k || (k === "254" && String(s.assigned_slot_key) === "255")));
+                                    const trayInfo = (p.ams_trays_info || {})[k] || (k === "254" ? (p.ams_trays_info || {})["255"] : {}) || {};
                                     const isTrayEmpty = trayInfo.empty === true;
 
                                     let spoolColor = '#64748b';

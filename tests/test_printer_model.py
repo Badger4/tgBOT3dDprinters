@@ -306,7 +306,7 @@ class TestPrinterModel(unittest.TestCase):
     def test_subtask_calibration_name_prevents_weight_deduction(self) -> None:
         self.printer._client = MagicMock()
         self.printer._client.is_connected.return_value = True
-        initial_grams = self.printer.get_slot_grams("255")
+        initial_grams = self.printer.get_slot_grams("254")
 
         msg = MagicMock()
         msg.topic = f"device/{self.printer.serial_number}/report"
@@ -315,7 +315,72 @@ class TestPrinterModel(unittest.TestCase):
 
         self.assertTrue(self.printer._is_calibrating)
         self.assertTrue(self.printer._job_deducted)
-        self.assertEqual(self.printer.get_slot_grams("255"), initial_grams)
+        self.assertEqual(self.printer.get_slot_grams("254"), initial_grams)
+
+    def test_get_active_spool_key_and_sentinels(self) -> None:
+        # Idle state (255) -> returns None
+        self.printer.active_ams_tray = 255
+        self.assertIsNone(self.printer.get_active_spool_key())
+
+        # External spool (254) -> returns "254"
+        self.printer.active_ams_tray = 254
+        self.assertEqual(self.printer.get_active_spool_key(), "254")
+
+        # AMS Slot 0-3 -> returns "0".."3"
+        self.printer.active_ams_tray = 0
+        self.assertEqual(self.printer.get_active_spool_key(), "0")
+        self.printer.active_ams_tray = 3
+        self.assertEqual(self.printer.get_active_spool_key(), "3")
+
+    def test_build_ams_mapping_protocol(self) -> None:
+        from models.printer import build_ams_mapping
+
+        # Single color on AMS Slot 0
+        mapping, use_ams = build_ams_mapping("0", has_ams=True, use_ams=True)
+        self.assertTrue(use_ams)
+        self.assertEqual(mapping, [-1, -1, -1, -1, 0])
+
+        # Single color on AMS Slot 2
+        mapping, use_ams = build_ams_mapping("2", has_ams=True, use_ams=True)
+        self.assertTrue(use_ams)
+        self.assertEqual(mapping, [-1, -1, -1, -1, 2])
+
+        # External spool (254)
+        mapping, use_ams = build_ams_mapping("254", has_ams=True, use_ams=True)
+        self.assertFalse(use_ams)
+        self.assertEqual(mapping, [])
+
+        # Without AMS hardware or use_ams=False
+        mapping, use_ams = build_ams_mapping("0", has_ams=False, use_ams=True)
+        self.assertFalse(use_ams)
+        self.assertEqual(mapping, [])
+
+        mapping, use_ams = build_ams_mapping("0", has_ams=True, use_ams=False)
+        self.assertFalse(use_ams)
+        self.assertEqual(mapping, [])
+
+    def test_idle_printer_does_not_deduct_weight(self) -> None:
+        self.printer._client = MagicMock()
+        self.printer._client.is_connected.return_value = True
+        self.printer.active_ams_tray = 255  # Idle / None loaded
+        self.printer.set_slot_grams(1000.0, "0")
+        self.printer.set_slot_grams(1000.0, "254")
+
+        msg = MagicMock()
+        msg.topic = f"device/{self.printer.serial_number}/report"
+        # Telemetry reports subtask with 50g weight but tray_now is 255 (idle)
+        msg.payload = json.dumps({
+            "print": {
+                "gcode_state": "RUNNING",
+                "subtask_name": "TestModel_50g.3mf",
+                "ams": {"ams_exist_bits": "1", "tray_now": 255}
+            }
+        }).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        # Neither slot 0 nor external 254 should be deducted
+        self.assertEqual(self.printer.get_slot_grams("0"), 1000.0)
+        self.assertEqual(self.printer.get_slot_grams("254"), 1000.0)
 
 
 if __name__ == "__main__":

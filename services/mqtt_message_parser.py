@@ -177,6 +177,16 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
                 result["active_ams_tray"] = int(ams_info["tray_now"])
             except (ValueError, TypeError):
                 result["active_ams_tray"] = 255
+        if "tray_pre" in ams_info:
+            try:
+                result["tray_pre"] = int(ams_info["tray_pre"])
+            except (ValueError, TypeError):
+                pass
+        if "tray_tar" in ams_info:
+            try:
+                result["tray_tar"] = int(ams_info["tray_tar"])
+            except (ValueError, TypeError):
+                pass
 
         if "ams" in ams_info and isinstance(ams_info["ams"], list):
             result["ams_units"] = ams_info["ams"]
@@ -238,7 +248,7 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
         vt_color = str(vt.get("tray_color") or "")
         vt_hex = f"#{vt_color[:6]}" if len(vt_color) >= 6 else ""
         result["vt_tray_info"] = {
-            "id": "255",
+            "id": "254",
             "empty": vt_empty,
             "type": str(vt.get("tray_type") or ""),
             "sub_brands": str(vt.get("tray_sub_brands") or ""),

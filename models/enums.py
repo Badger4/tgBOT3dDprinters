@@ -10,7 +10,8 @@ class AMSSlot(str, Enum):
     A2 = "1"
     A3 = "2"
     A4 = "3"
-    EXTERNAL = "255"
+    EXTERNAL = "254"
+    NONE = "255"
 
 
 class GCodeState(str, Enum):
