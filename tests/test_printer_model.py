@@ -80,7 +80,7 @@ class TestPrinterModel(unittest.TestCase):
         self.printer.filament_grams = 3.0
         job_weight = 6.47
         self.printer.filament_grams = round(self.printer.filament_grams - job_weight, 2)
-        self.assertEqual(self.printer.filament_grams, -3.47)
+        self.assertEqual(self.printer.filament_grams, 0.0)
 
     # ==================== _on_message Tests ====================
 

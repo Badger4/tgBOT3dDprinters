@@ -76,7 +76,8 @@ class BambuPrinter:
         self.serial_number = str(config.get("serialNumber") or config.get("serial") or "")
         self.printer_model = str(config.get("printer_model") or config.get("model") or "A1").strip()
         self.spool_db_file = config.get("spoolDbFile", f"./spool_{self.id}.json")
-        self.filament_grams = float(config.get("filament_grams", 1000.0))
+        raw_fg = float(config.get("filament_grams", 1000.0))
+        self._filament_grams = max(0.0, round(raw_fg, 2))
         self.notify = config.get("notify", True)
         self.log = config.get("log", True)
         self.price_per_kg = float(config.get("price_per_kg", 650.0))
@@ -259,27 +260,40 @@ class BambuPrinter:
             return str(tray)  # "0".."3"
         return None
 
+    @property
+    def filament_grams(self) -> float:
+        """Returns the current remaining grams for the active slot or printer."""
+        return self.get_slot_grams()
+
+    @filament_grams.setter
+    def filament_grams(self, val: float) -> None:
+        self._filament_grams = max(0.0, round(float(val), 2))
+        s_key = self.get_active_slot_key()
+        self.ams_slots[s_key] = self._filament_grams
+
     def get_active_slot_key(self) -> str:
-        """Returns active slot key or falls back to '254' (External) for backward compatibility."""
+        """Returns active slot key or falls back to '0' (AMS) if printer has AMS, else '254' (External)."""
         key = self.get_active_spool_key()
         if key is not None:
             return key
-        return AMSSlot.EXTERNAL.value if AMSSlot.EXTERNAL.value in self.ams_slots else ("0" if "0" in self.ams_slots else AMSSlot.EXTERNAL.value)
+        if getattr(self, "has_ams", False):
+            return "0" if "0" in self.ams_slots else AMSSlot.EXTERNAL.value
+        return AMSSlot.EXTERNAL.value
 
     def get_slot_grams(self, slot_id: Any | None = None) -> float:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()
         if s_key == "255":
             s_key = AMSSlot.EXTERNAL.value
-        return float(self.ams_slots.get(s_key, self.filament_grams))
+        val = float(self.ams_slots.get(s_key, getattr(self, "_filament_grams", 1000.0)))
+        return max(0.0, round(val, 2))
 
     def set_slot_grams(self, grams: float, slot_id: Any | None = None) -> None:
         s_key = str(slot_id) if slot_id is not None else self.get_active_slot_key()
         if s_key == "255":
             s_key = AMSSlot.EXTERNAL.value
-        g_val = round(float(grams), 2)
+        g_val = max(0.0, round(float(grams), 2))
         self.ams_slots[s_key] = g_val
-        if s_key == self.get_active_slot_key():
-            self.filament_grams = g_val
+        self._filament_grams = g_val
 
     def _get_active_event_loop(self) -> asyncio.AbstractEventLoop | None:
         if self._main_loop and self._main_loop.is_running():
