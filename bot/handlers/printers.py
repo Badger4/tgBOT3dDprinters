@@ -15,6 +15,7 @@ from bot.keyboards import (
     get_printer_control_keyboard,
     get_printer_menu_keyboard,
     get_printer_models_keyboard,
+    get_printer_notification_inline_keyboard,
     get_printers_keyboard,
 )
 from models.printer import BambuPrinter
@@ -621,6 +622,11 @@ async def handle_printer_states(message: Message, app):
                 parse_mode=ParseMode.HTML,
                 reply_markup=back_kb,
             )
+            return True
+        elif t_low in ["🔔 сповіщення", "🔔 notifications", "сповіщення", "notifications", "🔔 налаштування сповіщень"]:
+            title = f"⚙️ <b>Сповіщення для {target_printer.name}:</b>"
+            ikb = get_printer_notification_inline_keyboard(target_printer, lang=u_lang)
+            await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
             return True
 
     if state == "edit_p_name" and target_printer:

@@ -62,9 +62,12 @@ def get_printer_menu_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyK
 
 
 def get_edit_printer_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    notify_str = "🔔 Сповіщення" if not is_en else "🔔 Notifications"
     keyboard = [
         [KeyboardButton(text=t("btn_edit_p_name", lang)), KeyboardButton(text=t("btn_edit_p_ip", lang))],
         [KeyboardButton(text=t("btn_edit_p_sn", lang)), KeyboardButton(text=t("btn_edit_p_code", lang))],
+        [KeyboardButton(text=notify_str)],
         [KeyboardButton(text=t("btn_back", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
