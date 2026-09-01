@@ -129,18 +129,25 @@ def get_deduct_weight_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
 
 
 def get_printer_control_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyboardMarkup:
-    if printer.gcode_state == "PAUSE":
-        pause_resume_btn = KeyboardButton(text=t("btn_resume_print", lang))
-    else:
-        pause_resume_btn = KeyboardButton(text=t("btn_pause_print", lang))
+    is_printing = printer.gcode_state in ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"]
+    keyboard = []
 
-    keyboard = [
-        [KeyboardButton(text=t("btn_speed", lang)), KeyboardButton(text=t("btn_light", lang))],
-        [KeyboardButton(text=t("btn_stop_print", lang)), pause_resume_btn],
-        [KeyboardButton(text=t("btn_calibrate", lang)), KeyboardButton(text=t("btn_reset_maint", lang))],
-    ]
-    if printer.gcode_state in ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"]:
+    if is_printing:
+        if printer.gcode_state in ["PAUSE", "PAUSED"]:
+            pause_resume_btn = KeyboardButton(text=t("btn_resume_print", lang))
+        else:
+            pause_resume_btn = KeyboardButton(text=t("btn_pause_print", lang))
+
+        keyboard.append([KeyboardButton(text=t("btn_speed", lang)), KeyboardButton(text=t("btn_light", lang))])
+        keyboard.append([KeyboardButton(text=t("btn_stop_print", lang)), pause_resume_btn])
+    else:
+        keyboard.append([KeyboardButton(text=t("btn_light", lang))])
+
+    keyboard.append([KeyboardButton(text=t("btn_calibrate", lang)), KeyboardButton(text=t("btn_reset_maint", lang))])
+
+    if is_printing:
         keyboard.append([KeyboardButton(text="🚫 Пропустити об'єкт")])
+
     keyboard.append([KeyboardButton(text=t("btn_back", lang))])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
