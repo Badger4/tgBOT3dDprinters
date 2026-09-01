@@ -38,7 +38,8 @@ class TestReportGenerator(unittest.TestCase):
         text = csv_bytes.decode("utf-8-sig")
         reader = csv.reader(io.StringIO(text), delimiter=";")
         rows = list(reader)
-        self.assertEqual(len(rows), 3)
+        # 1 sep= header + 1 table header + 2 data rows = 4 rows
+        self.assertEqual(len(rows), 4)
 
     def test_generate_spools_csv_report_dict(self):
         spools = {
@@ -62,10 +63,11 @@ class TestReportGenerator(unittest.TestCase):
         text = csv_bytes.decode("utf-8-sig")
         reader = csv.reader(io.StringIO(text), delimiter=";")
         rows = list(reader)
-        self.assertEqual(len(rows), 5)
-        self.assertIn("Black PLA", rows[1][1])
-        self.assertIn("Прив'язаний: Слот AMS1_Slot1", rows[1][8])
-        self.assertIn("На складі", rows[2][8])
+        # 1 sep= header + 1 table header + 2 spools + 1 empty + 1 summary = 6 rows
+        self.assertEqual(len(rows), 6)
+        self.assertIn("Black PLA", rows[2][1])
+        self.assertIn("Прив'язаний: Слот AMS1_Slot1", rows[2][8])
+        self.assertIn("На складі", rows[3][8])
         self.assertEqual(rows[-1][0], "ВАРТІСТЬ СКЛАДУ")
 
     def test_generate_spools_csv_report_objects(self):
@@ -84,8 +86,9 @@ class TestReportGenerator(unittest.TestCase):
         text = csv_bytes.decode("utf-8-sig")
         reader = csv.reader(io.StringIO(text), delimiter=";")
         rows = list(reader)
-        self.assertEqual(len(rows), 4)
-        self.assertIn("Red ABS", rows[1][1])
+        # 1 sep= header + 1 table header + 1 spool + 1 empty + 1 summary = 5 rows
+        self.assertEqual(len(rows), 5)
+        self.assertIn("Red ABS", rows[2][1])
         self.assertEqual(rows[-1][0], "ВАРТІСТЬ СКЛАДУ")
 
     def test_generate_parts_csv_report(self):
@@ -105,9 +108,10 @@ class TestReportGenerator(unittest.TestCase):
         text = csv_bytes.decode("utf-8-sig")
         reader = csv.reader(io.StringIO(text), delimiter=";")
         rows = list(reader)
-        self.assertEqual(len(rows), 5)
-        self.assertIn("Gear Wheel", rows[1][1])
-        self.assertIn("ВАРТІСТЬ СКЛАДУ ДЕТАЛЕЙ", rows[4][0])
+        # 1 sep= header + 1 table header + 2 parts + 1 empty + 1 summary = 6 rows
+        self.assertEqual(len(rows), 6)
+        self.assertIn("Gear Wheel", rows[2][1])
+        self.assertIn("ВАРТІСТЬ СКЛАДУ ДЕТАЛЕЙ", rows[5][0])
 
     def test_generate_warehouse_csv_report(self):
         spools = {"s1": {"name": "Test Spool"}}
