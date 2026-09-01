@@ -879,11 +879,11 @@
         </div>
 
         <!-- SPOOL MODAL (ADD / EDIT) -->
-        <div id="spool-modal" class="modal-backdrop">
+        <div id="spool-modal" class="modal-backdrop" onclick="if(event.target===this)window.closeSpoolModal()">
             <div class="modal-window">
                 <div class="modal-header">
                     <h3 id="spool-modal-title">Додати котушку</h3>
-                    <button id="close-spool-modal" class="icon-btn-close" onclick="document.getElementById('spool-modal').classList.remove('active')"><i class="fa-solid fa-xmark"></i></button>
+                    <button type="button" id="close-spool-modal" class="icon-btn-close" onclick="window.closeSpoolModal()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body">
                     <form id="spool-form" onsubmit="return false;">
