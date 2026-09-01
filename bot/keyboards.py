@@ -282,6 +282,50 @@ def get_notify_keyboard(u_notify: dict, lang: str = "uk") -> ReplyKeyboardMarkup
     )
 
 
+def get_printer_select_notification_keyboard(printers: dict[str, Any], lang: str = "uk") -> InlineKeyboardMarkup:
+    """Builds inline keyboard for selecting which printer's notification settings to configure."""
+    is_en = lang == "en"
+    buttons = []
+    for p_id, p in printers.items():
+        p_name = getattr(p, "name", "Printer")
+        buttons.append([InlineKeyboardButton(text=f"🖨️ {p_name}", callback_data=f"pn_select:{p_id}")])
+    buttons.append([InlineKeyboardButton(text="🌐 Глобальні сповіщення" if not is_en else "🌐 Global Preferences", callback_data="pn_select:global")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_printer_notification_inline_keyboard(printer: Any, lang: str = "uk") -> InlineKeyboardMarkup:
+    """Builds per-printer notification controls inline keyboard matching WebApp structure."""
+    is_en = lang == "en"
+    p_notify = printer.get_notify_dict() if hasattr(printer, "get_notify_dict") else {}
+    p_id = printer.id
+
+    start_icon = "✅" if p_notify.get("start", True) else "❌"
+    finish_icon = "✅" if p_notify.get("finish", True) else "❌"
+    pause_icon = "✅" if p_notify.get("pause", True) else "❌"
+    hms_icon = "✅" if p_notify.get("hms", True) else "❌"
+    clear_icon = "✅" if p_notify.get("remind_clear", True) else "❌"
+
+    time_val = p_notify.get("min_time_to_end", 0)
+    time_str = f"⏳ {time_val} хв" if time_val > 0 else "❌ Вимк"
+
+    fil_val = p_notify.get("min_filament", 0)
+    fil_str = f"📦 <{fil_val}g" if fil_val > 0 else "❌ Вимк"
+
+    maint_val = round(getattr(printer, "maintenance_hours_counter", 0.0), 1)
+
+    buttons = [
+        [InlineKeyboardButton(text=f"▶️ Початок друку: {start_icon}", callback_data=f"pn_toggle:{p_id}:start")],
+        [InlineKeyboardButton(text=f"🏁 Закінчення друку: {finish_icon}", callback_data=f"pn_toggle:{p_id}:finish")],
+        [InlineKeyboardButton(text=f"⏸️ Пауза друку: {pause_icon}", callback_data=f"pn_toggle:{p_id}:pause")],
+        [InlineKeyboardButton(text=f"⚠️ HMS Помилки: {hms_icon}", callback_data=f"pn_toggle:{p_id}:hms")],
+        [InlineKeyboardButton(text=f"🧹 Зняти деталь: {clear_icon}", callback_data=f"pn_toggle:{p_id}:remind_clear")],
+        [InlineKeyboardButton(text=f"⏳ Таймер до кінця: {time_str}", callback_data=f"pn_cycle_time:{p_id}")],
+        [InlineKeyboardButton(text=f"📦 Поріг нитки: {fil_str}", callback_data=f"pn_cycle_fil:{p_id}")],
+        [InlineKeyboardButton(text=f"🔄 Скинути лічильник ТО ({maint_val}г)", callback_data=f"pn_reset_maint:{p_id}")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_parts_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     is_en = lang == "en"
     keyboard = [

@@ -8,7 +8,12 @@ from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
-from bot.keyboards import get_notify_keyboard
+from bot.keyboards import (
+    get_notify_keyboard,
+    get_printer_notification_inline_keyboard,
+    get_printer_select_notification_keyboard,
+)
+from aiogram.types import CallbackQuery
 
 router = Router()
 
@@ -33,13 +38,159 @@ async def handle_notifications_menu(message: Message, app):
     user = await app.storage.load_user(chat_id)
     u_notify = user.get("notify", {})
     u_lang = user.get("language", "uk")
-    kb = get_notify_keyboard(u_notify, lang=u_lang)
-    msg_title = "<b>⚙️ Notification Settings:</b>" if u_lang == "en" else "<b>⚙️ Налаштування сповіщень:</b>"
-    await message.answer(
-        msg_title,
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb,
-    )
+
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid and hasattr(app, "printers") else None
+
+    if target_printer:
+        title = f"⚙️ <b>Сповіщення для {target_printer.name}:</b>"
+        ikb = get_printer_notification_inline_keyboard(target_printer, lang=u_lang)
+        await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
+    elif hasattr(app, "printers") and app.printers and len(app.printers) > 1:
+        title = "⚙️ <b>Оберіть принтер для налаштування сповіщень:</b>"
+        ikb = get_printer_select_notification_keyboard(app.printers, lang=u_lang)
+        await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
+    elif hasattr(app, "printers") and app.printers and len(app.printers) == 1:
+        p = list(app.printers.values())[0]
+        title = f"⚙️ <b>Сповіщення для {p.name}:</b>"
+        ikb = get_printer_notification_inline_keyboard(p, lang=u_lang)
+        await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
+    else:
+        kb = get_notify_keyboard(u_notify, lang=u_lang)
+        msg_title = "<b>⚙️ Налаштування сповіщень:</b>"
+        await message.answer(msg_title, parse_mode=ParseMode.HTML, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("pn_select:"))
+async def handle_pn_select_callback(callback: CallbackQuery, app):
+    p_id = callback.data.split(":")[1]
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    if p_id == "global":
+        u_notify = user.get("notify", {})
+        kb = get_notify_keyboard(u_notify, lang=u_lang)
+        await callback.message.answer("<b>⚙️ Глобальні налаштування сповіщень:</b>", parse_mode=ParseMode.HTML, reply_markup=kb)
+        await callback.answer()
+        return
+
+    printer = app.printers.get(p_id) if hasattr(app, "printers") else None
+    if not printer:
+        await callback.answer("Принтер не знайдено!", show_alert=True)
+        return
+
+    title = f"⚙️ <b>Сповіщення для {printer.name}:</b>"
+    ikb = get_printer_notification_inline_keyboard(printer, lang=u_lang)
+    await callback.message.edit_text(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("pn_toggle:"))
+async def handle_pn_toggle_callback(callback: CallbackQuery, app):
+    _, p_id, setting_key = callback.data.split(":", 2)
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    printer = app.printers.get(p_id) if hasattr(app, "printers") else None
+    if not printer:
+        await callback.answer("Принтер не знайдено!", show_alert=True)
+        return
+
+    if not isinstance(printer.notify, dict):
+        printer.notify = printer.get_notify_dict()
+
+    cur_val = printer.notify.get(setting_key, True)
+    printer.notify[setting_key] = not cur_val
+
+    if hasattr(app, "save_printers_config"):
+        await app.save_printers_config()
+
+    ikb = get_printer_notification_inline_keyboard(printer, lang=u_lang)
+    await callback.message.edit_reply_markup(reply_markup=ikb)
+    await callback.answer("Збережено! ✅")
+
+
+@router.callback_query(F.data.startswith("pn_cycle_time:"))
+async def handle_pn_cycle_time_callback(callback: CallbackQuery, app):
+    p_id = callback.data.split(":")[1]
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    printer = app.printers.get(p_id) if hasattr(app, "printers") else None
+    if not printer:
+        await callback.answer("Принтер не знайдено!", show_alert=True)
+        return
+
+    if not isinstance(printer.notify, dict):
+        printer.notify = printer.get_notify_dict()
+
+    times = [0, 5, 10, 15]
+    cur_t = printer.notify.get("min_time_to_end", 0)
+    idx = times.index(cur_t) if cur_t in times else 0
+    next_t = times[(idx + 1) % len(times)]
+    printer.notify["min_time_to_end"] = next_t
+
+    if hasattr(app, "save_printers_config"):
+        await app.save_printers_config()
+
+    ikb = get_printer_notification_inline_keyboard(printer, lang=u_lang)
+    await callback.message.edit_reply_markup(reply_markup=ikb)
+    msg_str = f"Таймер: {next_t} хв ✅" if next_t > 0 else "Таймер вимкнено ❌"
+    await callback.answer(msg_str)
+
+
+@router.callback_query(F.data.startswith("pn_cycle_fil:"))
+async def handle_pn_cycle_fil_callback(callback: CallbackQuery, app):
+    p_id = callback.data.split(":")[1]
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    printer = app.printers.get(p_id) if hasattr(app, "printers") else None
+    if not printer:
+        await callback.answer("Принтер не знайдено!", show_alert=True)
+        return
+
+    if not isinstance(printer.notify, dict):
+        printer.notify = printer.get_notify_dict()
+
+    fils = [0, 50, 100, 200]
+    cur_f = printer.notify.get("min_filament", 0)
+    idx = fils.index(cur_f) if cur_f in fils else 0
+    next_f = fils[(idx + 1) % len(fils)]
+    printer.notify["min_filament"] = next_f
+
+    if hasattr(app, "save_printers_config"):
+        await app.save_printers_config()
+
+    ikb = get_printer_notification_inline_keyboard(printer, lang=u_lang)
+    await callback.message.edit_reply_markup(reply_markup=ikb)
+    msg_str = f"Поріг нитки: <{next_f}g ✅" if next_f > 0 else "Поріг нитки вимкнено ❌"
+    await callback.answer(msg_str)
+
+
+@router.callback_query(F.data.startswith("pn_reset_maint:"))
+async def handle_pn_reset_maint_callback(callback: CallbackQuery, app):
+    p_id = callback.data.split(":")[1]
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    printer = app.printers.get(p_id) if hasattr(app, "printers") else None
+    if not printer:
+        await callback.answer("Принтер не знайдено!", show_alert=True)
+        return
+
+    printer.maintenance_hours_counter = 0.0
+    if hasattr(app, "save_printers_config"):
+        await app.save_printers_config()
+
+    ikb = get_printer_notification_inline_keyboard(printer, lang=u_lang)
+    await callback.message.edit_reply_markup(reply_markup=ikb)
+    await callback.answer("Лічильник ТО скинуто на 0.0 год! 🧹", show_alert=True)
 
 
 @router.message(F.text.startswith("🌐 Мова / Language") | F.text.startswith("🌐 Language / Мова"))
