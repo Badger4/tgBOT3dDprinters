@@ -165,7 +165,7 @@ async def handle_export_warehouse_csv(request: web.Request) -> web.Response:
         filename = "parts_report.csv" if report_type == "parts" else "spools_report.csv"
         headers = {
             "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-            "Content-Type": "text/csv; charset=utf-8-sig",
+            "Content-Type": "text/csv; charset=utf-8",
         }
         return web.Response(body=csv_bytes, headers=headers)
     except Exception as e:

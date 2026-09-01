@@ -2144,127 +2144,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const exportPdfBtn = document.getElementById("btn-export-calc-pdf");
     if (exportPdfBtn) {
-        exportPdfBtn.addEventListener("click", async (e) => {
+        exportPdfBtn.addEventListener("click", (e) => {
             e.preventDefault();
-            try {
-                const presetSelect = document.getElementById("calc-preset-select");
-                const presetName = presetSelect?.options[presetSelect.selectedIndex]?.text || "За замовчуванням";
-                const weightG = document.getElementById("calc-weight-g")?.value || "0";
-                const timeMins = document.getElementById("calc-time-mins")?.value || "0";
+            const presetSelect = document.getElementById("calc-preset-select");
+            const presetId = presetSelect?.value || "";
+            const weightG = document.getElementById("calc-weight-g")?.value || "100";
+            const timeMins = document.getElementById("calc-time-mins")?.value || "60";
 
-                const totalPrice = document.getElementById("res-total-price")?.textContent || "0.00 ₴";
-                const filCost = document.getElementById("res-filament-cost")?.textContent || "0.00 ₴";
-                const elecCost = document.getElementById("res-elec-cost")?.textContent || "0.00 ₴";
-                const deprCost = document.getElementById("res-depr-cost")?.textContent || "0.00 ₴";
-                const consCost = document.getElementById("res-cons-cost")?.textContent || "0.00 ₴";
-                const directCost = document.getElementById("res-direct-cost")?.textContent || "0.00 ₴";
-                const profitCost = document.getElementById("res-profit-cost")?.textContent || "0.00 ₴";
-
-                const dateStr = new Date().toLocaleDateString("uk-UA");
-
-                const container = document.createElement("div");
-                container.style.padding = "24px";
-                container.style.fontFamily = "'Outfit', 'Segoe UI', Roboto, sans-serif";
-                container.style.color = "#0f172a";
-                container.style.backgroundColor = "#ffffff";
-
-                container.innerHTML = `
-                    <div style="border-bottom: 2px solid #6366f1; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <h2 style="margin: 0; color: #4f46e5; font-size: 22px;">📊 Звіт розрахунку вартості друку</h2>
-                            <small style="color: #64748b;">3D Farm Hub — Комерційний калькулятор</small>
-                        </div>
-                        <div style="text-align: right; font-size: 13px; color: #64748b;">
-                            <strong>Дата:</strong> ${dateStr}
-                        </div>
-                    </div>
-
-                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 20px;">
-                        <h4 style="margin: 0 0 10px 0; color: #334155; font-size: 15px;">⚙️ Вхідні параметри</h4>
-                        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                            <tr>
-                                <td style="padding: 4px 0; color: #64748b; width: 45%;"><strong>Пресет ціноутворення:</strong></td>
-                                <td style="padding: 4px 0; color: #0f172a;">${escapeHtml(presetName)}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 4px 0; color: #64748b;"><strong>Вага нитки (пластику):</strong></td>
-                                <td style="padding: 4px 0; color: #0f172a;">${weightG} г</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 4px 0; color: #64748b;"><strong>Час друку:</strong></td>
-                                <td style="padding: 4px 0; color: #0f172a;">${timeMins} хв (${(parseFloat(timeMins)/60).toFixed(1)} год)</td>
-                            </tr>
-                        </table>
-                    </div>
-
-                    <h4 style="margin: 0 0 10px 0; color: #334155; font-size: 15px;">📋 Деталізація калькуляції</h4>
-                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
-                        <thead>
-                            <tr style="background: #4f46e5; color: #ffffff;">
-                                <th style="padding: 8px 12px; text-align: left; border-radius: 4px 0 0 0;">Стаття витрат</th>
-                                <th style="padding: 8px 12px; text-align: right; border-radius: 0 4px 0 0;">Сума</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr style="border-bottom: 1px solid #f1f5f9;">
-                                <td style="padding: 8px 12px;">Пластик (матеріал)</td>
-                                <td style="padding: 8px 12px; text-align: right;">${filCost}</td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid #f1f5f9;">
-                                <td style="padding: 8px 12px;">Електроенергія</td>
-                                <td style="padding: 8px 12px; text-align: right;">${elecCost}</td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid #f1f5f9;">
-                                <td style="padding: 8px 12px;">Амортизація обладнання</td>
-                                <td style="padding: 8px 12px; text-align: right;">${deprCost}</td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid #f1f5f9;">
-                                <td style="padding: 8px 12px;">Витратні матеріали</td>
-                                <td style="padding: 8px 12px; text-align: right;">${consCost}</td>
-                            </tr>
-                            <tr style="background: #f8fafc; font-weight: bold; border-bottom: 1px solid #e2e8f0;">
-                                <td style="padding: 8px 12px; color: #1e293b;">Собівартість (прямі витрати)</td>
-                                <td style="padding: 8px 12px; text-align: right; color: #1e293b;">${directCost}</td>
-                            </tr>
-                            <tr style="background: #f8fafc; font-weight: bold; border-bottom: 2px solid #e2e8f0;">
-                                <td style="padding: 8px 12px; color: #16a34a;">Прибуток (Маржа)</td>
-                                <td style="padding: 8px 12px; text-align: right; color: #16a34a;">${profitCost}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                    <div style="background: #eef2ff; border: 2px solid #6366f1; border-radius: 8px; padding: 14px; text-align: right;">
-                        <span style="font-size: 15px; color: #475569;">Підсумкова комерційна ціна:</span>
-                        <div style="font-size: 24px; font-weight: 700; color: #4f46e5; margin-top: 4px;">${totalPrice}</div>
-                    </div>
-                `;
-
-                const opt = {
-                    margin: [10, 10, 10, 10],
-                    filename: `print_cost_calculation_${new Date().toISOString().slice(0, 10)}.pdf`,
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2, useCORS: true, logging: false },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                };
-
-                if (window.html2pdf) {
-                    const worker = window.html2pdf().set(opt).from(container);
-                    const pdfBlob = await worker.outputPdf('blob');
-                    await downloadReportFile(pdfBlob, opt.filename);
-                } else {
-                    const win = window.open("", "_blank");
-                    if (win) {
-                        win.document.write(`<html><head><title>Розрахунок вартості друку</title></head><body>${container.innerHTML}</body></html>`);
-                        win.document.close();
-                        win.print();
-                    } else {
-                        alert("Будь ласка, дозвольте спливаючі вікна для друку звіту.");
-                    }
-                }
-            } catch (err) {
-                console.error("PDF Export error:", err);
-                alert("Помилка генерації PDF: " + (err.message || err));
-            }
+            const endpoint = `/api/commercial/export_pdf?preset_id=${encodeURIComponent(presetId)}&weight_g=${encodeURIComponent(weightG)}&time_mins=${encodeURIComponent(timeMins)}`;
+            downloadReportFile(endpoint, `print_cost_calculation_${new Date().toISOString().slice(0, 10)}.html`);
         });
     }
 

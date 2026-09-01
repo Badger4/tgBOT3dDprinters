@@ -317,9 +317,92 @@ async def handle_export_history_csv(request: web.Request) -> web.Response:
         body=csv_bytes,
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-            "Content-Type": "text/csv; charset=utf-8-sig",
+            "Content-Type": "text/csv; charset=utf-8",
         },
     )
+
+
+async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
+    """GET /api/commercial/export_pdf - Generates clean printable HTML/PDF report for commercial calculation."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    try:
+        weight_g = float(request.query.get("weight_g", 100.0))
+        time_mins = int(request.query.get("time_mins", 60))
+        preset_id = request.query.get("preset_id")
+
+        presets = await load_commercial_presets(app_obj)
+        preset = presets.get(preset_id) if preset_id else None
+        if not preset and presets:
+            preset = list(presets.values())[0]
+        elif not preset:
+            preset = DEFAULT_PRESETS.get("default_pla", {})
+
+        calc = calculate_commercial_price(preset, weight_g, time_mins)
+        preset_name = preset.get("name", "За замовчуванням")
+        date_str = time.strftime("%Y-%m-%d %H:%M")
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Звіт розрахунку вартості друку</title>
+<style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 20px; }}
+    .card {{ background: #fff; border-radius: 12px; padding: 24px; max-width: 600px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
+    .header {{ border-bottom: 2px solid #6366f1; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }}
+    h2 {{ margin: 0; color: #4f46e5; font-size: 20px; }}
+    .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #f1f5f9; padding: 14px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }}
+    th {{ background: #4f46e5; color: #fff; padding: 10px 12px; text-align: left; border-radius: 4px 4px 0 0; }}
+    td {{ padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }}
+    .total {{ background: #eef2ff; border: 2px solid #6366f1; border-radius: 8px; padding: 16px; text-align: right; font-size: 18px; font-weight: bold; color: #4f46e5; }}
+    @media print {{ body {{ background: #fff; padding: 0; }} .card {{ box-shadow: none; max-width: 100%; border: none; }} }}
+</style>
+</head>
+<body>
+<div class="card">
+    <div class="header">
+        <div>
+            <h2>📊 Звіт розрахунку вартості друку</h2>
+            <small style="color: #64748b;">3D Farm Hub — Комерційне ціноутворення</small>
+        </div>
+        <div style="font-size: 12px; color: #64748b; text-align: right;"><strong>Дата:</strong><br>{date_str}</div>
+    </div>
+    <div class="grid">
+        <div><strong>Пресет:</strong> {preset_name}</div>
+        <div><strong>Вага нитки:</strong> {weight_g:.1f} г</div>
+        <div><strong>Час друку:</strong> {time_mins} хв</div>
+        <div><strong>Маржа:</strong> {calc.get("profit_margin_pct", 0)}%</div>
+    </div>
+    <table>
+        <thead><tr><th>Стаття витрат</th><th style="text-align:right;">Сума</th></tr></thead>
+        <tbody>
+            <tr><td>Пластик (матеріал)</td><td style="text-align:right;">{calc.get("filament_cost", 0):.2f} ₴</td></tr>
+            <tr><td>Електроенергія</td><td style="text-align:right;">{calc.get("electricity_cost", 0):.2f} ₴</td></tr>
+            <tr><td>Амортизація обладнання</td><td style="text-align:right;">{calc.get("depreciation_cost", 0):.2f} ₴</td></tr>
+            <tr><td>Витратні матеріали</td><td style="text-align:right;">{calc.get("consumables_cost", 0):.2f} ₴</td></tr>
+            <tr style="font-weight:bold; background:#f8fafc;"><td>Собівартість (прямі витрати)</td><td style="text-align:right;">{calc.get("direct_cost", 0):.2f} ₴</td></tr>
+            <tr style="font-weight:bold; color:#16a34a; background:#f8fafc;"><td>Прибуток (Маржа)</td><td style="text-align:right;">{calc.get("profit_amount", 0):.2f} ₴</td></tr>
+        </tbody>
+    </table>
+    <div class="total">
+        Підсумкова ціна: {calc.get("total_price", 0):.2f} ₴
+    </div>
+</div>
+<script>
+    window.onload = function() {{
+        setTimeout(function() {{ window.print(); }}, 300);
+    }};
+</script>
+</body>
+</html>"""
+        return web.Response(text=html_content, content_type="text/html", charset="utf-8")
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
 
 
 async def handle_get_settings(request: web.Request) -> web.Response:

@@ -31,6 +31,7 @@ from services.http.routes_settings import (
     handle_delete_history,
     handle_delete_preset,
     handle_delete_user,
+    handle_export_commercial_pdf,
     handle_export_history_csv,
     handle_get_history,
     handle_get_presets,
@@ -153,6 +154,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_post("/api/commercial/presets", handle_save_preset)
     web_app.router.add_delete("/api/commercial/presets/{id}", handle_delete_preset)
     web_app.router.add_post("/api/commercial/calculate", handle_calculate_commercial)
+    web_app.router.add_get("/api/commercial/export_pdf", handle_export_commercial_pdf)
 
     # History & Events API
     web_app.router.add_get("/api/events", handle_sse_stream)

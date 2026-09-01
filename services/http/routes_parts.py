@@ -270,7 +270,7 @@ async def handle_export_parts_csv(request: web.Request) -> web.Response:
 
         headers = {
             "Content-Disposition": 'attachment; filename="parts_report.csv"; filename*=UTF-8\'\'parts_report.csv',
-            "Content-Type": "text/csv; charset=utf-8-sig",
+            "Content-Type": "text/csv; charset=utf-8",
         }
         return web.Response(body=csv_bytes, headers=headers)
     except Exception as e:
