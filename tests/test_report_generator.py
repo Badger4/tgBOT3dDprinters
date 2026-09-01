@@ -104,9 +104,9 @@ class TestReportGenerator(unittest.TestCase):
         csv_bytes = generate_parts_csv_report(parts)
         text = csv_bytes.decode("utf-8-sig")
         reader = csv.reader(io.StringIO(text), delimiter=";")
-        rows = list(reader)
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 5)
         self.assertIn("Gear Wheel", rows[1][1])
+        self.assertIn("ВАРТІСТЬ СКЛАДУ ДЕТАЛЕЙ", rows[4][0])
 
     def test_generate_warehouse_csv_report(self):
         spools = {"s1": {"name": "Test Spool"}}
