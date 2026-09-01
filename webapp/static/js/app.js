@@ -456,19 +456,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function applyPrinterFilters() {
         const searchInput = document.getElementById("printer-search-input");
-        const query = (searchInput?.value || "").toLowerCase().trim();
+        const rawQuery = (searchInput?.value || "").trim().toLowerCase();
         const activeBtn = document.querySelector(".filter-pills .pill-btn.active");
         const filterState = activeBtn?.dataset.filter || "all";
+
+        const cleanQuery = rawQuery.replace(/[^\w]/g, "");
 
         document.querySelectorAll(".printer-card").forEach(card => {
             const name = (card.getAttribute("data-name") || "").toLowerCase();
             const model = (card.getAttribute("data-model") || "").toLowerCase();
+            const pmodel = (card.getAttribute("data-pmodel") || "").toLowerCase();
             const ip = (card.getAttribute("data-ip") || "").toLowerCase();
             const sn = (card.getAttribute("data-sn") || "").toLowerCase();
+            const fullSearch = (card.getAttribute("data-search") || `${name} ${model} ${pmodel} ${ip} ${sn}`).toLowerCase();
+            const cleanFullSearch = fullSearch.replace(/[^\w]/g, "");
             const state = (card.getAttribute("data-state") || "IDLE").toUpperCase();
             const statusInfo = getPrinterStatusInfo(state);
 
-            const matchesQuery = !query || name.includes(query) || model.includes(query) || ip.includes(query) || sn.includes(query);
+            let matchesQuery = true;
+            if (rawQuery) {
+                matchesQuery = fullSearch.includes(rawQuery)
+                    || name.includes(rawQuery)
+                    || model.includes(rawQuery)
+                    || pmodel.includes(rawQuery)
+                    || ip.includes(rawQuery)
+                    || sn.includes(rawQuery)
+                    || (cleanQuery.length > 0 && cleanFullSearch.includes(cleanQuery));
+            }
+
             let matchesFilter = true;
             if (filterState === "RUNNING") {
                 matchesFilter = statusInfo.code === "RUNNING";
@@ -578,8 +593,24 @@ document.addEventListener("DOMContentLoaded", () => {
                 filamentDisplay = `${slotTag}${slotGrams}g`;
             }
 
+            const serialVal = p.serial || p.serial_number || p.serialNumber || p.sn || "";
+            const printerModelVal = p.printer_model || p.model || "";
+            const fullSearchText = [
+                p.name,
+                printerModelVal,
+                p.ip,
+                serialVal,
+                modelName,
+                p.subtask_name,
+                filamentDisplay,
+                p.filament_type,
+                `${slotGrams}g`,
+                `${progress}%`,
+                timeStr
+            ].filter(Boolean).join(" ").toLowerCase();
+
             return `
-                <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(p.serialNumber || '')}" data-state="${statusInfo.code}">
+                <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">
                     <div class="printer-card-header">
                         <div class="printer-name-group">
                             <h3>${escapeHtml(p.name)}</h3>
