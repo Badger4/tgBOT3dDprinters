@@ -62,6 +62,29 @@ class BambuPrinter:
         self.electricity_rate_uah = float(config.get("electricity_rate_uah", 4.32))
         self.active_spool_id = str(config.get("active_spool_id", ""))
 
+    def get_notify_dict(self) -> dict[str, Any]:
+        """Returns normalized notification settings dictionary for this printer."""
+        if isinstance(self.notify, dict):
+            return {
+                "start": bool(self.notify.get("start", True)),
+                "finish": bool(self.notify.get("finish", True)),
+                "pause": bool(self.notify.get("pause", True)),
+                "hms": bool(self.notify.get("hms", True)),
+                "remind_clear": bool(self.notify.get("remind_clear", True)),
+                "min_time_to_end": int(self.notify.get("min_time_to_end", 0)),
+                "min_filament": int(self.notify.get("min_filament", 0)),
+            }
+        is_on = bool(self.notify)
+        return {
+            "start": is_on,
+            "finish": is_on,
+            "pause": is_on,
+            "hms": is_on,
+            "remind_clear": is_on,
+            "min_time_to_end": 0,
+            "min_filament": 0,
+        }
+
         # Maintenance & Print Hours Tracking
         self.total_print_hours = float(config.get("total_print_hours", 0.0))
         self.maintenance_hours_counter = float(config.get("maintenance_hours_counter", 0.0))

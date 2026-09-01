@@ -2,6 +2,8 @@
 Global user notification settings handlers.
 """
 
+from typing import Any
+
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
@@ -58,6 +60,22 @@ async def toggle_language(message: Message, app):
     await message.answer(confirm_text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
+async def _sync_notify_change(app: Any, user: dict, key: str, value: Any):
+    if "notify" not in user or not isinstance(user["notify"], dict):
+        user["notify"] = {}
+    user["notify"][key] = value
+    await app.storage.save_user(user)
+
+    if hasattr(app, "printers") and app.printers:
+        for p in app.printers.values():
+            if hasattr(p, "get_notify_dict"):
+                if not isinstance(p.notify, dict):
+                    p.notify = p.get_notify_dict()
+                p.notify[key] = value
+        if hasattr(app, "save_printers_config"):
+            await app.save_printers_config()
+
+
 @router.message(
     F.text.startswith("✅ Початок друку:")
     | F.text.startswith("❌ Початок друку:")
@@ -68,11 +86,12 @@ async def toggle_start_notify(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
-    user["notify"]["start"] = not user["notify"].get("start", True)
-    await app.storage.save_user(user)
+    cur = user.get("notify", {}).get("start", True)
+    new_val = not cur
+    await _sync_notify_change(app, user, "start", new_val)
     kb = get_notify_keyboard(user["notify"], lang=u_lang)
     await message.answer(
-        f"Початок друку: {'Увімкнено ✅' if user['notify']['start'] else 'Вимкнено ❌'}" if u_lang != "en" else f"Print Start: {'On ✅' if user['notify']['start'] else 'Off ❌'}", reply_markup=kb
+        f"Початок друку: {'Увімкнено ✅' if new_val else 'Вимкнено ❌'}" if u_lang != "en" else f"Print Start: {'On ✅' if new_val else 'Off ❌'}", reply_markup=kb
     )
 
 
@@ -86,11 +105,12 @@ async def toggle_finish_notify(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
-    user["notify"]["finish"] = not user["notify"].get("finish", True)
-    await app.storage.save_user(user)
+    cur = user.get("notify", {}).get("finish", True)
+    new_val = not cur
+    await _sync_notify_change(app, user, "finish", new_val)
     kb = get_notify_keyboard(user["notify"], lang=u_lang)
     await message.answer(
-        f"Закінчення друку: {'Увімкнено ✅' if user['notify']['finish'] else 'Вимкнено ❌'}" if u_lang != "en" else f"Print Finish: {'On ✅' if user['notify']['finish'] else 'Off ❌'}", reply_markup=kb
+        f"Закінчення друку: {'Увімкнено ✅' if new_val else 'Вимкнено ❌'}" if u_lang != "en" else f"Print Finish: {'On ✅' if new_val else 'Off ❌'}", reply_markup=kb
     )
 
 
@@ -104,11 +124,12 @@ async def toggle_pause_notify(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
-    user["notify"]["pause"] = not user["notify"].get("pause", True)
-    await app.storage.save_user(user)
+    cur = user.get("notify", {}).get("pause", True)
+    new_val = not cur
+    await _sync_notify_change(app, user, "pause", new_val)
     kb = get_notify_keyboard(user["notify"], lang=u_lang)
     await message.answer(
-        f"Пауза: {'Увімкнено ✅' if user['notify']['pause'] else 'Вимкнено ❌'}" if u_lang != "en" else f"Pause: {'On ✅' if user['notify']['pause'] else 'Off ❌'}", reply_markup=kb
+        f"Пауза: {'Увімкнено ✅' if new_val else 'Вимкнено ❌'}" if u_lang != "en" else f"Pause: {'On ✅' if new_val else 'Off ❌'}", reply_markup=kb
     )
 
 
@@ -122,11 +143,12 @@ async def toggle_hms_notify(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
-    user["notify"]["hms"] = not user["notify"].get("hms", True)
-    await app.storage.save_user(user)
+    cur = user.get("notify", {}).get("hms", True)
+    new_val = not cur
+    await _sync_notify_change(app, user, "hms", new_val)
     kb = get_notify_keyboard(user["notify"], lang=u_lang)
     await message.answer(
-        f"HMS Помилки: {'Увімкнено ✅' if user['notify']['hms'] else 'Вимкнено ❌'}" if u_lang != "en" else f"HMS Errors: {'On ✅' if user['notify']['hms'] else 'Off ❌'}", reply_markup=kb
+        f"HMS Помилки: {'Увімкнено ✅' if new_val else 'Вимкнено ❌'}" if u_lang != "en" else f"HMS Errors: {'On ✅' if new_val else 'Off ❌'}", reply_markup=kb
     )
 
 
@@ -140,11 +162,12 @@ async def toggle_clear_notify(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
-    user["notify"]["remind_clear"] = not user["notify"].get("remind_clear", True)
-    await app.storage.save_user(user)
+    cur = user.get("notify", {}).get("remind_clear", True)
+    new_val = not cur
+    await _sync_notify_change(app, user, "remind_clear", new_val)
     kb = get_notify_keyboard(user["notify"], lang=u_lang)
     await message.answer(
-        f"Нагадування зняти деталь: {'Увімкнено ✅' if user['notify']['remind_clear'] else 'Вимкнено ❌'}" if u_lang != "en" else f"Clear Bed Alert: {'On ✅' if user['notify']['remind_clear'] else 'Off ❌'}",
+        f"Нагадування зняти деталь: {'Увімкнено ✅' if new_val else 'Вимкнено ❌'}" if u_lang != "en" else f"Clear Bed Alert: {'On ✅' if new_val else 'Off ❌'}",
         reply_markup=kb,
     )
 
@@ -185,8 +208,7 @@ async def handle_set_time_notify(message: Message, app):
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
     t_val = 5 if "5" in message.text else (10 if "10" in message.text else (15 if "15" in message.text else 0))
-    user["notify"]["min_time_to_end"] = t_val
-    await app.storage.save_user(user)
+    await _sync_notify_change(app, user, "min_time_to_end", t_val)
     kb = get_notify_keyboard(user["notify"], lang=u_lang)
     msg_str = (
         f"Встановити сповіщення за {t_val} хв до кінця ✅" if t_val > 0 else "Попереднє сповіщення за часом вимкнено ❌"
@@ -230,8 +252,7 @@ async def handle_set_filament_notify(message: Message, app):
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
     f_val = 50 if "50" in message.text else (100 if "100" in message.text else (200 if "200" in message.text else 0))
-    user["notify"]["min_filament"] = f_val
-    await app.storage.save_user(user)
+    await _sync_notify_change(app, user, "min_filament", f_val)
     kb = get_notify_keyboard(user["notify"], lang=u_lang)
     msg_str = (
         f"Попереджувати, коли нитки менше {f_val}g ✅" if f_val > 0 else "Попередження за лімітом нитки вимкнено ❌"

@@ -49,10 +49,7 @@ def get_printers_keyboard(printers: dict[str, BambuPrinter], lang: str = "uk") -
 
 def get_printer_menu_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyboardMarkup:
     is_en = lang == "en"
-    if is_en:
-        notify_str = "🔔 Notifications: On" if printer.notify else "🔕 Notifications: Off"
-    else:
-        notify_str = "🔔 Сповіщення: Включено" if printer.notify else "🔕 Сповіщення: Виключено"
+    notify_str = "🔔 Notifications" if is_en else "🔔 Сповіщення"
 
     keyboard = [
         [KeyboardButton(text=t("btn_status", lang)), KeyboardButton(text=t("btn_camera", lang))],

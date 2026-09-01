@@ -85,7 +85,11 @@ class PrinterBotApp:
                 logger.warning(f"Failed sending message to {chat_id}: {e}")
             return False
 
-    async def send_notification(self, event_type: str, text: str, reply_markup: Any | None = None) -> None:
+    async def send_notification(self, event_type: str, text: str, reply_markup: Any | None = None, printer: Any | None = None) -> None:
+        if printer and hasattr(printer, "get_notify_dict"):
+            p_dict = printer.get_notify_dict()
+            if not p_dict.get(event_type, True):
+                return
         users = await self.storage.load_all_users()
         for chat_id, udata in users.items():
             if udata.get("chat_active") is False:
