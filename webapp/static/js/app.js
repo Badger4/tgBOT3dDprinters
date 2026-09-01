@@ -460,30 +460,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const activeBtn = document.querySelector(".filter-pills .pill-btn.active");
         const filterState = activeBtn?.dataset.filter || "all";
 
-        const cleanQuery = rawQuery.replace(/[^\w]/g, "");
-
         document.querySelectorAll(".printer-card").forEach(card => {
             const name = (card.getAttribute("data-name") || "").toLowerCase();
-            const model = (card.getAttribute("data-model") || "").toLowerCase();
-            const pmodel = (card.getAttribute("data-pmodel") || "").toLowerCase();
-            const ip = (card.getAttribute("data-ip") || "").toLowerCase();
-            const sn = (card.getAttribute("data-sn") || "").toLowerCase();
-            const fullSearch = (card.getAttribute("data-search") || `${name} ${model} ${pmodel} ${ip} ${sn}`).toLowerCase();
-            const cleanFullSearch = fullSearch.replace(/[^\w]/g, "");
             const state = (card.getAttribute("data-state") || "IDLE").toUpperCase();
             const statusInfo = getPrinterStatusInfo(state);
 
-            let matchesQuery = true;
-            if (rawQuery) {
-                matchesQuery = fullSearch.includes(rawQuery)
-                    || name.includes(rawQuery)
-                    || model.includes(rawQuery)
-                    || pmodel.includes(rawQuery)
-                    || ip.includes(rawQuery)
-                    || sn.includes(rawQuery)
-                    || (cleanQuery.length > 0 && cleanFullSearch.includes(cleanQuery));
-            }
-
+            const matchesQuery = !rawQuery || name.includes(rawQuery);
             let matchesFilter = true;
             if (filterState === "RUNNING") {
                 matchesFilter = statusInfo.code === "RUNNING";
