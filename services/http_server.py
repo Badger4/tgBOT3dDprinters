@@ -33,6 +33,7 @@ from services.http.routes_settings import (
     handle_delete_user,
     handle_export_commercial_pdf,
     handle_export_history_csv,
+    handle_export_history_pdf,
     handle_get_history,
     handle_get_presets,
     handle_get_settings,
@@ -50,6 +51,7 @@ from services.http.routes_parts import (
     handle_delete_part,
     handle_download_part_3mf,
     handle_export_parts_csv,
+    handle_export_parts_pdf,
     handle_get_parts,
     handle_print_part,
     handle_save_part,
@@ -66,6 +68,7 @@ from services.http.routes_auth import (
 from services.http.routes_spools import (
     handle_delete_spool,
     handle_export_movements_csv,
+    handle_export_spools_pdf,
     handle_export_warehouse_csv,
     handle_get_spool_movements,
     handle_get_spools,
@@ -139,6 +142,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_post("/api/spools", handle_save_spool)
     web_app.router.add_delete("/api/spools/{id}", handle_delete_spool)
     web_app.router.add_get("/api/spools/export_csv", handle_export_warehouse_csv)
+    web_app.router.add_get("/api/spools/export_pdf", handle_export_spools_pdf)
     web_app.router.add_get("/api/warehouse/export_csv", handle_export_warehouse_csv)
 
     # Parts Warehouse API
@@ -147,6 +151,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_delete("/api/parts/{id}", handle_delete_part)
     web_app.router.add_get("/api/parts/{id}/download_3mf", handle_download_part_3mf)
     web_app.router.add_get("/api/parts/export_csv", handle_export_parts_csv)
+    web_app.router.add_get("/api/parts/export_pdf", handle_export_parts_pdf)
     web_app.router.add_post("/api/parts/{part_id}/print/{printer_id}", handle_print_part)
 
     # Commercial Pricing API
@@ -161,6 +166,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_get("/api/history", handle_get_history)
     web_app.router.add_delete("/api/history", handle_delete_history)
     web_app.router.add_get("/api/history/export", handle_export_history_csv)
+    web_app.router.add_get("/api/history/export_pdf", handle_export_history_pdf)
     web_app.router.add_get("/api/settings", handle_get_settings)
     web_app.router.add_post("/api/settings", handle_update_settings)
     web_app.router.add_get("/api/user/settings", handle_get_user_settings)

@@ -2142,8 +2142,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     attachDirectDownloadLink("btn-export-history", "/api/history/export");
+    attachDirectDownloadLink("btn-export-history-pdf", "/api/history/export_pdf");
     attachDirectDownloadLink("btn-export-spools-csv", "/api/spools/export_csv?type=spools");
+    attachDirectDownloadLink("btn-export-spools-pdf", "/api/spools/export_pdf");
     attachDirectDownloadLink("btn-export-parts-csv", "/api/parts/export_csv");
+    attachDirectDownloadLink("btn-export-parts-pdf", "/api/parts/export_pdf");
 
     const exportPdfBtn = document.getElementById("btn-export-calc-pdf");
     if (exportPdfBtn) {

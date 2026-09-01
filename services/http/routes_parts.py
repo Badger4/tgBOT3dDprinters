@@ -276,3 +276,107 @@ async def handle_export_parts_csv(request: web.Request) -> web.Response:
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
+
+async def handle_export_parts_pdf(request: web.Request) -> web.Response:
+    """GET /api/parts/export_pdf - Generates clean printable HTML/PDF report of parts warehouse."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    try:
+        import time
+        app_obj = request.app["app_obj"]
+        parts = await app_obj.storage.load_parts()
+        date_str = time.strftime("%Y-%m-%d %H:%M")
+
+        total_parts = 0
+        total_weight_g = 0.0
+        total_val_uah = 0.0
+
+        rows_html = ""
+        if parts and isinstance(parts, dict):
+            for p_id, p in parts.items():
+                if isinstance(p, dict):
+                    name = p.get("name", "Деталь")
+                    model = p.get("printer_model", "-")
+                    fil_type = p.get("filament_type", "PLA")
+                    weight_g = float(p.get("weight_g", 0.0) or p.get("weight", 0.0) or 0.0)
+                    price = float(p.get("price", 0.0) or p.get("cost", 0.0) or 0.0)
+                    qty = max(1, int(p.get("count", 1) or p.get("quantity", 1) or 1))
+
+                    row_val = price * qty
+                    total_parts += qty
+                    total_weight_g += weight_g * qty
+                    total_val_uah += row_val
+
+                    rows_html += f"""
+                    <tr>
+                        <td><strong>{name}</strong></td>
+                        <td>{model}</td>
+                        <td>{fil_type}</td>
+                        <td style="text-align:right;">{weight_g:.1f} г</td>
+                        <td style="text-align:center;">{qty}</td>
+                        <td style="text-align:right;">{price:.2f} ₴</td>
+                        <td style="text-align:right; font-weight:bold;">{row_val:.2f} ₴</td>
+                    </tr>
+                    """
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Звіт складу деталей</title>
+<style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 20px; }}
+    .card {{ background: #fff; border-radius: 12px; padding: 24px; max-width: 900px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
+    .header {{ border-bottom: 2px solid #6366f1; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }}
+    h2 {{ margin: 0; color: #4f46e5; font-size: 20px; }}
+    .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; background: #f1f5f9; padding: 14px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; text-align: center; }}
+    .summary-item strong {{ display: block; font-size: 18px; color: #4f46e5; margin-top: 4px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }}
+    th {{ background: #4f46e5; color: #fff; padding: 8px 10px; text-align: left; }}
+    td {{ padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }}
+    tr:nth-child(even) {{ background: #f8fafc; }}
+    @media print {{ body {{ background: #fff; padding: 0; }} .card {{ box-shadow: none; max-width: 100%; border: none; }} }}
+</style>
+</head>
+<body>
+<div class="card">
+    <div class="header">
+        <div>
+            <h2>🧩 Звіт складу готових деталей</h2>
+            <small style="color: #64748b;">3D Farm Hub — Інвентар деталей</small>
+        </div>
+        <div style="font-size: 12px; color: #64748b; text-align: right;"><strong>Дата:</strong><br>{date_str}</div>
+    </div>
+    <div class="summary-grid">
+        <div class="summary-item">Деталей усього: <strong>{total_parts} шт</strong></div>
+        <div class="summary-item">Загальна вага: <strong>{(total_weight_g/1000.0):.2f} кг</strong> ({total_weight_g:.0f} г)</div>
+        <div class="summary-item">Загальна вартість: <strong>{total_val_uah:.2f} ₴</strong></div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Назва деталі</th>
+                <th>Модель принтера</th>
+                <th>Тип</th>
+                <th style="text-align:right;">Вага 1 шт</th>
+                <th style="text-align:center;">К-сть</th>
+                <th style="text-align:right;">Ціна/шт</th>
+                <th style="text-align:right;">Сума</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html if rows_html else '<tr><td colspan="7" style="text-align:center; padding:20px; color:#64748b;">Склад порожній</td></tr>'}
+        </tbody>
+    </table>
+</div>
+<script>
+    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 300); }};
+</script>
+</body>
+</html>"""
+        return web.Response(text=html_content, content_type="text/html", charset="utf-8")
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+

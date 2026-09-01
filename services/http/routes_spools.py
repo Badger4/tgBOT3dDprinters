@@ -172,6 +172,114 @@ async def handle_export_warehouse_csv(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def handle_export_spools_pdf(request: web.Request) -> web.Response:
+    """GET /api/spools/export_pdf - Generates clean printable HTML/PDF report of spools warehouse."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    try:
+        app_obj = request.app["app_obj"]
+        spools = await app_obj.storage.load_spools()
+        date_str = time.strftime("%Y-%m-%d %H:%M")
+
+        total_spools = 0
+        total_weight_g = 0.0
+        total_val_uah = 0.0
+
+        rows_html = ""
+        if spools and isinstance(spools, dict):
+            for s_id, s in spools.items():
+                if isinstance(s, dict):
+                    name = s.get("name", "Котушка")
+                    fil_type = s.get("type", "PLA")
+                    color = str(s.get("color") or "-")
+                    initial_g = float(s.get("initial_grams") or s.get("total_grams") or 1000.0)
+                    rem_g = float(s.get("remaining_grams") or 1000.0)
+                    price_kg = float(s.get("price_per_kg") or 650.0)
+                    qty = max(1, int(s.get("quantity", 1)))
+                    slot = s.get("assigned_slot_key")
+                    status_text = f"Слот {slot}" if slot else "На складі"
+
+                    val = (rem_g / 1000.0) * price_kg * qty
+                    total_spools += qty
+                    total_weight_g += rem_g * qty
+                    total_val_uah += val
+
+                    rows_html += f"""
+                    <tr>
+                        <td><strong>{name}</strong></td>
+                        <td>{fil_type}</td>
+                        <td>{color}</td>
+                        <td style="text-align:right;">{rem_g:.0f} / {initial_g:.0f} г</td>
+                        <td style="text-align:center;">{qty}</td>
+                        <td style="text-align:right;">{price_kg:.2f} ₴</td>
+                        <td>{status_text}</td>
+                        <td style="text-align:right; font-weight:bold;">{val:.2f} ₴</td>
+                    </tr>
+                    """
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Звіт складу пластику</title>
+<style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 20px; }}
+    .card {{ background: #fff; border-radius: 12px; padding: 24px; max-width: 900px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }}
+    .header {{ border-bottom: 2px solid #6366f1; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }}
+    h2 {{ margin: 0; color: #4f46e5; font-size: 20px; }}
+    .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; background: #f1f5f9; padding: 14px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; text-align: center; }}
+    .summary-item strong {{ display: block; font-size: 18px; color: #4f46e5; margin-top: 4px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }}
+    th {{ background: #4f46e5; color: #fff; padding: 8px 10px; text-align: left; }}
+    td {{ padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }}
+    tr:nth-child(even) {{ background: #f8fafc; }}
+    @media print {{ body {{ background: #fff; padding: 0; }} .card {{ box-shadow: none; max-width: 100%; border: none; }} }}
+</style>
+</head>
+<body>
+<div class="card">
+    <div class="header">
+        <div>
+            <h2>📦 Звіт складу філаменту</h2>
+            <small style="color: #64748b;">3D Farm Hub — Інвентар пластику</small>
+        </div>
+        <div style="font-size: 12px; color: #64748b; text-align: right;"><strong>Дата:</strong><br>{date_str}</div>
+    </div>
+    <div class="summary-grid">
+        <div class="summary-item">Котушок усього: <strong>{total_spools} шт</strong></div>
+        <div class="summary-item">Загальний залишок: <strong>{(total_weight_g/1000.0):.2f} кг</strong></div>
+        <div class="summary-item">Загальна вартість: <strong>{total_val_uah:.2f} ₴</strong></div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Назва</th>
+                <th>Тип</th>
+                <th>Колір</th>
+                <th style="text-align:right;">Залишок</th>
+                <th style="text-align:center;">К-сть</th>
+                <th style="text-align:right;">Ціна/кг</th>
+                <th>Статус</th>
+                <th style="text-align:right;">Сума</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html if rows_html else '<tr><td colspan="8" style="text-align:center; padding:20px; color:#64748b;">Склад порожній</td></tr>'}
+        </tbody>
+    </table>
+</div>
+<script>
+    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 300); }};
+</script>
+</body>
+</html>"""
+        return web.Response(text=html_content, content_type="text/html", charset="utf-8")
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def handle_export_movements_csv(request: web.Request) -> web.Response:
     """GET /api/spools/movements/export_csv - Download CSV report of warehouse audit movement logs."""
     if not await check_auth(request):
