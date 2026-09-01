@@ -718,6 +718,24 @@ async def back_to_main_menu_or_list(message: Message, state: FSMContext, app: An
         await message.answer(t("warehouse_title", lang), reply_markup=kb)
 
 
+@router.message(F.text.lower().in_(["🧩 звіт csv деталей", "звіт csv деталей", "звіт деталей csv", "/csv_parts", "csv parts"]))
+async def handle_parts_csv_report_bot(message: Message, app: Any):
+    parts = await app.storage.load_parts()
+
+    from aiogram.types import BufferedInputFile
+    from services.report_generator import generate_parts_csv_report
+    csv_bytes = generate_parts_csv_report(parts)
+
+    date_str = time.strftime("%Y-%m-%d_%H-%M")
+    doc_file = BufferedInputFile(csv_bytes, filename=f"parts_report_{date_str}.csv")
+
+    await message.answer_document(
+        doc_file,
+        caption="🧩 <b>Звіт склада готових деталей завантажено!</b>\n\nФайл містить перелік усіх виготовлених деталей із назвою, ціною, вагою та кількістю.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
 @router.message(F.text.lower().in_(["📊 звіт csv", "📊 звіт csv склада", "звіт csv склада", "звіт csv", "csv склад", "/csv_warehouse", "csv warehouse", "📊 csv report"]))
 async def handle_warehouse_csv_report_bot(message: Message, app: Any):
     spools = await app.storage.load_spools()
@@ -725,14 +743,14 @@ async def handle_warehouse_csv_report_bot(message: Message, app: Any):
 
     from aiogram.types import BufferedInputFile
     from services.report_generator import generate_warehouse_csv_report
-    csv_bytes = generate_warehouse_csv_report(spools, parts)
+    csv_bytes = generate_warehouse_csv_report(spools, parts, report_type="all")
 
     date_str = time.strftime("%Y-%m-%d_%H-%M")
     doc_file = BufferedInputFile(csv_bytes, filename=f"warehouse_report_{date_str}.csv")
 
     await message.answer_document(
         doc_file,
-        caption="📊 <b>Звіт склада завантажено!</b>\n\nФайл містить окремі блоки для <b>Котушок пластику</b> та <b>Готових деталей</b> із назвою, ціною, вагою та кількістю.",
+        caption="📊 <b>Повний звіт склада завантажено!</b>\n\nФайл містить окремі блоки для <b>Котушок пластику</b> та <b>Готових деталей</b> із назвою, ціною, вагою та кількістю.",
         parse_mode=ParseMode.HTML,
     )
 

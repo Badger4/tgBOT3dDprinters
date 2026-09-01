@@ -216,10 +216,107 @@ def generate_parts_csv_report(parts: dict[str, Any]) -> bytes:
     return _encode_csv_with_bom(output)
 
 
-def generate_warehouse_csv_report(spools: dict[str, Any], parts: dict[str, Any] | None = None, report_type: str = "spools") -> bytes:
-    """Delegates to spools or parts report generator based on report_type."""
+def generate_combined_warehouse_csv_report(spools: dict[str, Any], parts: dict[str, Any]) -> bytes:
+    """
+    Generates a combined CSV report containing both Spools Warehouse and Parts Warehouse.
+    """
+    output = io.StringIO()
+    output.write("\ufeff")
+    writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+
+    # Section 1: Spools Warehouse
+    writer.writerow(["=== СКЛАД КОТУШОК ПЛАСТИКУ ==="])
+    writer.writerow([
+        "ID",
+        "Назва котушки",
+        "Тип",
+        "Колір",
+        "Початкова вага (г)",
+        "Залишок ваги (г)",
+        "Ціна (грн/кг)",
+        "Кількість (шт)",
+        "Статус / Слот",
+    ])
+    total_spools_val = 0.0
+    if spools and isinstance(spools, dict):
+        for s_id, s in spools.items():
+            if isinstance(s, dict):
+                spool_id = s.get("id", s_id)
+                name = s.get("name", "Котушка")
+                fil_type = s.get("type", "PLA")
+                color = str(s.get("color") or "-")
+                initial_g = float(s.get("initial_grams") or s.get("total_grams") or 1000.0)
+                remaining_g = float(s.get("remaining_grams") or 1000.0)
+                price_per_kg = float(s.get("price_per_kg") or 650.0)
+                qty = max(1, int(s.get("quantity", 1)))
+                slot_info = s.get("assigned_slot_key")
+                status = f"Слот {slot_info}" if slot_info else "На складі"
+                val_uah = (remaining_g / 1000.0) * price_per_kg * qty
+                total_spools_val += val_uah
+
+                writer.writerow([
+                    spool_id,
+                    name,
+                    fil_type,
+                    color,
+                    f"{initial_g:.1f}",
+                    f"{remaining_g:.1f}",
+                    f"{price_per_kg:.2f}",
+                    qty,
+                    status,
+                ])
+
+    writer.writerow([])
+    writer.writerow(["=== СКЛАД ГОТОВИХ ДЕТАЛЕЙ ==="])
+    writer.writerow([
+        "ID",
+        "Назва деталі",
+        "Модель принтера",
+        "Тип пластику",
+        "Вага 1 шт (г)",
+        "Ціна за 1 шт (грн)",
+        "Кількість (шт)",
+        "Загальна вартість (грн)",
+    ])
+    total_parts_val = 0.0
+    if parts and isinstance(parts, dict):
+        for p_id, p in parts.items():
+            if isinstance(p, dict):
+                part_id = p.get("id", p_id)
+                p_name = p.get("name", "Деталь")
+                p_model = p.get("printer_model", "-")
+                p_fil = p.get("filament_type", "PLA")
+                p_weight = float(p.get("weight_g", 0.0) or p.get("weight", 0.0) or 0.0)
+                p_price = float(p.get("price", 0.0) or p.get("cost", 0.0) or 0.0)
+                p_qty = max(1, int(p.get("count", 1) or p.get("quantity", 1) or 1))
+                t_val = p_price * p_qty
+                total_parts_val += t_val
+
+                writer.writerow([
+                    part_id,
+                    p_name,
+                    p_model,
+                    p_fil,
+                    f"{p_weight:.1f}",
+                    f"{p_price:.2f}",
+                    p_qty,
+                    f"{t_val:.2f}",
+                ])
+
+    writer.writerow([])
+    writer.writerow(["ЗАГАЛЬНА ВАРТІСТЬ СКЛАДУ (КОТУШКИ + ДЕТАЛІ)", f"{total_spools_val + total_parts_val:.2f} грн"])
+
+    return _encode_csv_with_bom(output)
+
+
+def generate_warehouse_csv_report(spools: dict[str, Any], parts: dict[str, Any] | None = None, report_type: str = "all") -> bytes:
+    """Delegates to spools, parts or combined report generator based on report_type."""
     if report_type == "parts" and parts:
         return generate_parts_csv_report(parts)
+    if report_type == "spools":
+        return generate_spools_csv_report(spools)
+    if parts:
+        return generate_combined_warehouse_csv_report(spools, parts)
     return generate_spools_csv_report(spools)
 
 
