@@ -2060,65 +2060,77 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    const exportBtn = document.getElementById("btn-export-history");
-    if (exportBtn) {
-        exportBtn.addEventListener("click", async (e) => {
-            e.preventDefault();
-            try {
-                const res = await fetch("/api/history/export");
-                if (!res.ok) throw new Error("Не вдалося завантажити CSV");
-                const blob = await res.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `farm_print_history_${new Date().toISOString().slice(0, 10)}.csv`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                window.URL.revokeObjectURL(url);
-            } catch (err) {
-                console.error("Export CSV error:", err);
-                alert("Помилка завантаження CSV звіту: " + (err.message || err));
-            }
-        });
-    }
-
-    async function downloadWarehouseCsv(endpoint, targetFilename) {
+    async function downloadReportFile(urlOrBlob, defaultFilename) {
         try {
             const initData = window.Telegram?.WebApp?.initData || "";
-            const response = await fetch(endpoint, {
-                method: "GET",
-                headers: {
-                    "Authorization": `Bearer ${initData}`,
-                    "X-Telegram-Init-Data": initData
-                }
-            });
+            const sessionToken = localStorage.getItem("web_session_token") || "";
 
-            if (!response.ok) {
-                throw new Error(`Потрібна авторизація або виникла помилка (HTTP ${response.status})`);
+            // String URL (GET API Endpoint)
+            if (typeof urlOrBlob === "string") {
+                const downloadUrl = new URL(urlOrBlob, window.location.origin);
+                if (initData) downloadUrl.searchParams.set("initData", initData);
+                if (sessionToken) downloadUrl.searchParams.set("token", sessionToken);
+
+                const fullUrlStr = downloadUrl.toString();
+
+                if (window.Telegram?.WebApp?.downloadFile) {
+                    try {
+                        window.Telegram.WebApp.downloadFile({ url: fullUrlStr, filename: defaultFilename });
+                        return;
+                    } catch (e) {
+                        console.warn("Telegram downloadFile failed, fallback:", e);
+                    }
+                }
+
+                if (window.Telegram?.WebApp?.openLink) {
+                    try {
+                        window.Telegram.WebApp.openLink(fullUrlStr);
+                        return;
+                    } catch (e) {
+                        console.warn("Telegram openLink failed, fallback:", e);
+                    }
+                }
+
+                // Standard browser fallback
+                window.location.href = fullUrlStr;
+                return;
             }
 
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.style.display = "none";
-            a.href = url;
-            a.download = targetFilename;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(url);
+            // Blob object (e.g. generated PDF)
+            if (urlOrBlob instanceof Blob) {
+                const reader = new FileReader();
+                reader.readAsDataURL(urlOrBlob);
+                reader.onloadend = function () {
+                    const dataUrl = reader.result;
+
+                    const a = document.createElement("a");
+                    a.href = dataUrl;
+                    a.download = defaultFilename;
+                    a.target = "_blank";
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => a.remove(), 1000);
+                };
+            }
         } catch (err) {
-            console.error("Warehouse CSV Export Error:", err);
-            alert("Помилка завантаження звіту склада: " + (err.message || err));
+            console.error("Report Download Error:", err);
+            alert("Помилка завантаження звіту: " + (err.message || err));
         }
+    }
+
+    const exportBtn = document.getElementById("btn-export-history");
+    if (exportBtn) {
+        exportBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            downloadReportFile("/api/history/export", `farm_print_history_${new Date().toISOString().slice(0, 10)}.csv`);
+        });
     }
 
     const spoolsCsvBtn = document.getElementById("btn-export-spools-csv");
     if (spoolsCsvBtn) {
         spoolsCsvBtn.addEventListener("click", (e) => {
             e.preventDefault();
-            downloadWarehouseCsv("/api/spools/export_csv?type=spools", "spools_report.csv");
+            downloadReportFile("/api/spools/export_csv?type=spools", "spools_report.csv");
         });
     }
 
@@ -2126,7 +2138,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (partsCsvBtn) {
         partsCsvBtn.addEventListener("click", (e) => {
             e.preventDefault();
-            downloadWarehouseCsv("/api/parts/export_csv", "parts_report.csv");
+            downloadReportFile("/api/parts/export_csv", "parts_report.csv");
         });
     }
 
@@ -2236,12 +2248,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 };
 
                 if (window.html2pdf) {
-                    await window.html2pdf().set(opt).from(container).save();
+                    const worker = window.html2pdf().set(opt).from(container);
+                    const pdfBlob = await worker.outputPdf('blob');
+                    await downloadReportFile(pdfBlob, opt.filename);
                 } else {
                     const win = window.open("", "_blank");
-                    win.document.write(`<html><head><title>Розрахунок вартості друку</title></head><body>${container.innerHTML}</body></html>`);
-                    win.document.close();
-                    win.print();
+                    if (win) {
+                        win.document.write(`<html><head><title>Розрахунок вартості друку</title></head><body>${container.innerHTML}</body></html>`);
+                        win.document.close();
+                        win.print();
+                    } else {
+                        alert("Будь ласка, дозвольте спливаючі вікна для друку звіту.");
+                    }
                 }
             } catch (err) {
                 console.error("PDF Export error:", err);
