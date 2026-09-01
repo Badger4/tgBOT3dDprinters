@@ -498,6 +498,7 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             obj["name"] = clean_n if clean_n else raw_n
 
         name_counts: dict[str, int] = {}
+        name_indices: dict[str, int] = {}
         for obj in objects_list:
             name_counts[obj["name"]] = name_counts.get(obj["name"], 0) + 1
 
