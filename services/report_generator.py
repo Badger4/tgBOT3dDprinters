@@ -9,11 +9,12 @@ from typing import Any
 
 
 def _encode_csv_with_bom(output_stringio: io.StringIO) -> bytes:
-    """Encodes StringIO content to UTF-8 and ensures UTF-8 BOM (0xEF 0xBB 0xBF) is present for Excel."""
-    raw_bytes = output_stringio.getvalue().encode("utf-8")
-    if not raw_bytes.startswith(b"\xef\xbb\xbf"):
-        raw_bytes = b"\xef\xbb\xbf" + raw_bytes
-    return raw_bytes
+    """Encodes StringIO content to UTF-8 and ensures UTF-8 BOM (0xEF 0xBB 0xBF) + Excel separator header 'sep=;\n' is present."""
+    text = output_stringio.getvalue()
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    raw_bytes = ("sep=;\n" + text).encode("utf-8")
+    return b"\xef\xbb\xbf" + raw_bytes
 
 
 def generate_csv_report(history: list[dict[str, Any]]) -> bytes:
