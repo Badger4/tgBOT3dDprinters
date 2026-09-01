@@ -2055,44 +2055,52 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    document.querySelectorAll(".btn-export-warehouse-csv").forEach(btn => {
-        btn.addEventListener("click", async (e) => {
-            e.preventDefault();
-            const exportType = btn.getAttribute("data-type") || "spools";
-            const isParts = exportType === "parts";
-            const endpoint = isParts ? "/api/parts/export_csv" : "/api/spools/export_csv";
-            const targetFilename = isParts ? "parts_report.csv" : "spools_report.csv";
-
-            try {
-                const initData = window.Telegram?.WebApp?.initData || "";
-                const response = await fetch(endpoint, {
-                    method: "GET",
-                    headers: {
-                        "Authorization": `Bearer ${initData}`,
-                        "X-Telegram-Init-Data": initData
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Потрібна авторизація або виникла помилка (HTTP ${response.status})`);
+    async function downloadWarehouseCsv(endpoint, targetFilename) {
+        try {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const response = await fetch(endpoint, {
+                method: "GET",
+                headers: {
+                    "Authorization": `Bearer ${initData}`,
+                    "X-Telegram-Init-Data": initData
                 }
+            });
 
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.style.display = "none";
-                a.href = url;
-                a.download = targetFilename;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                window.URL.revokeObjectURL(url);
-            } catch (err) {
-                console.error("Warehouse CSV Export Error:", err);
-                alert("Помилка завантаження звіту склада: " + (err.message || err));
+            if (!response.ok) {
+                throw new Error(`Потрібна авторизація або виникла помилка (HTTP ${response.status})`);
             }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.style.display = "none";
+            a.href = url;
+            a.download = targetFilename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error("Warehouse CSV Export Error:", err);
+            alert("Помилка завантаження звіту склада: " + (err.message || err));
+        }
+    }
+
+    const spoolsCsvBtn = document.getElementById("btn-export-spools-csv");
+    if (spoolsCsvBtn) {
+        spoolsCsvBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            downloadWarehouseCsv("/api/spools/export_csv?type=spools", "spools_report.csv");
         });
-    });
+    }
+
+    const partsCsvBtn = document.getElementById("btn-export-parts-csv");
+    if (partsCsvBtn) {
+        partsCsvBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            downloadWarehouseCsv("/api/parts/export_csv", "parts_report.csv");
+        });
+    }
 
     const exportPdfBtn = document.getElementById("btn-export-calc-pdf");
     if (exportPdfBtn) {
