@@ -2118,29 +2118,32 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    const exportBtn = document.getElementById("btn-export-history");
-    if (exportBtn) {
-        exportBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            downloadReportFile("/api/history/export", `farm_print_history_${new Date().toISOString().slice(0, 10)}.csv`);
+    function attachDirectDownloadLink(linkId, baseUrl) {
+        const el = document.getElementById(linkId);
+        if (!el) return;
+        const updateHref = () => {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const sessionToken = localStorage.getItem("web_session_token") || "";
+            const url = new URL(baseUrl, window.location.origin);
+            if (initData) url.searchParams.set("initData", initData);
+            if (sessionToken) url.searchParams.set("token", sessionToken);
+            el.href = url.toString();
+        };
+        el.addEventListener("mouseenter", updateHref);
+        el.addEventListener("touchstart", updateHref, { passive: true });
+        el.addEventListener("click", (e) => {
+            updateHref();
+            if (window.Telegram?.WebApp?.openLink) {
+                e.preventDefault();
+                window.Telegram.WebApp.openLink(el.href);
+            }
         });
+        updateHref();
     }
 
-    const spoolsCsvBtn = document.getElementById("btn-export-spools-csv");
-    if (spoolsCsvBtn) {
-        spoolsCsvBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            downloadReportFile("/api/spools/export_csv?type=spools", "spools_report.csv");
-        });
-    }
-
-    const partsCsvBtn = document.getElementById("btn-export-parts-csv");
-    if (partsCsvBtn) {
-        partsCsvBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            downloadReportFile("/api/parts/export_csv", "parts_report.csv");
-        });
-    }
+    attachDirectDownloadLink("btn-export-history", "/api/history/export");
+    attachDirectDownloadLink("btn-export-spools-csv", "/api/spools/export_csv?type=spools");
+    attachDirectDownloadLink("btn-export-parts-csv", "/api/parts/export_csv");
 
     const exportPdfBtn = document.getElementById("btn-export-calc-pdf");
     if (exportPdfBtn) {
