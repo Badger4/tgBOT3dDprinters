@@ -129,11 +129,14 @@ def get_deduct_weight_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
 
 
 def get_printer_control_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyboardMarkup:
-    is_printing = printer.gcode_state in ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"]
+    raw_st = str(getattr(printer, "gcode_state", "IDLE")).upper()
+    mapped_st = str(getattr(printer, "mapped_state", "IDLE")).upper()
+
+    is_printing = (mapped_st in ["RUNNING", "PAUSE"]) and (raw_st not in ["FINISH", "IDLE", "SUCCESS", "FAILED", "CANCEL", "OFFLINE"])
     keyboard = []
 
     if is_printing:
-        if printer.gcode_state in ["PAUSE", "PAUSED"]:
+        if raw_st in ["PAUSE", "PAUSED"] or mapped_st == "PAUSE":
             pause_resume_btn = KeyboardButton(text=t("btn_resume_print", lang))
         else:
             pause_resume_btn = KeyboardButton(text=t("btn_pause_print", lang))
