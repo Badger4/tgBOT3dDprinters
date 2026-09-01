@@ -41,18 +41,7 @@ async def handle_list_printers(message: Message, app):
     )
 
 
-@router.message(F.text.lower().in_(["📊 статус", "статус", "📊 status", "status"]))
-async def handle_printer_status(message: Message, app):
-    chat_id = str(message.chat.id)
-    user = await app.storage.load_user(chat_id)
-    u_lang = user.get("language", "uk")
-    is_en = u_lang == "en"
-    selected_pid = user.get("context_data", {}).get("selected_printer_id")
-    target_printer = app.printers.get(selected_pid) if selected_pid else None
-
-    if not target_printer:
-        return
-
+def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False) -> str:
     st_code = getattr(target_printer, "gcode_state", "IDLE")
     if st_code == "RUNNING":
         state_emoji = "🟢"
@@ -175,6 +164,22 @@ async def handle_printer_status(message: Message, app):
         f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
         f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>"
     )
+    return status_txt
+
+
+@router.message(F.text.lower().in_(["📊 статус", "статус", "📊 status", "status"]))
+async def handle_printer_status(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+
+    if not target_printer:
+        return
+
+    status_txt = build_printer_status_card(target_printer, is_en=is_en)
     await message.answer(status_txt, parse_mode=ParseMode.HTML)
 
 
@@ -441,9 +446,9 @@ async def handle_select_printer_by_name(message: Message, app):
         user["state"] = "printer_menu"
         await app.storage.save_user(user)
         u_lang = user.get("language", "uk")
+        status_txt = build_printer_status_card(printer, is_en=(u_lang == "en"))
         await message.answer(
-            f"<b>Керування принтером: {printer.name}</b>\n"
-            f"Залишок філаменту: <b>{printer.filament_grams}g</b>" if u_lang != "en" else f"<b>Printer Controls: {printer.name}</b>\nFilament remaining: <b>{printer.filament_grams}g</b>",
+            status_txt,
             parse_mode=ParseMode.HTML,
             reply_markup=get_printer_menu_keyboard(printer, lang=u_lang),
         )
