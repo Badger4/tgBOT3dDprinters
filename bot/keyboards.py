@@ -197,10 +197,9 @@ def get_spool_presets_inline_keyboard() -> InlineKeyboardMarkup:
 
 def get_filament_menu_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text=t("btn_rfid_sync", lang)), KeyboardButton(text=t("btn_add_spool", lang))],
-        [KeyboardButton(text=t("btn_mount_spool", lang)), KeyboardButton(text=t("btn_unmount_spool", lang))],
-        [KeyboardButton(text=t("btn_edit_spool", lang)), KeyboardButton(text=t("btn_edit_weight", lang))],
-        [KeyboardButton(text=t("btn_delete_spool", lang)), KeyboardButton(text=t("btn_back", lang))],
+        [KeyboardButton(text=t("btn_add_spool", lang)), KeyboardButton(text=t("btn_mount_spool", lang))],
+        [KeyboardButton(text=t("btn_edit_spool", lang)), KeyboardButton(text=t("btn_delete_spool", lang))],
+        [KeyboardButton(text=t("btn_rfid_sync", lang)), KeyboardButton(text=t("btn_back", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 

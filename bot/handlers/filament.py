@@ -160,7 +160,7 @@ async def handle_filament_menu(message: Message, app):
     await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard(lang=u_lang))
 
 
-@router.message(F.text.lower().in_(["🏷️ зчитати rfid котушки", "зчитати rfid котушки", "zchytaty rfid", "rfid", "🏷️ read rfid spools", "read rfid spools"]))
+@router.message(F.text.lower().in_(["🏷️ зчитати rfid котушки", "зчитати rfid котушки", "🏷️ rfid зчитування", "rfid зчитування", "zchytaty rfid", "rfid", "🏷️ read rfid spools", "read rfid spools", "🏷️ rfid sync", "rfid sync"]))
 async def handle_rfid_sync(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -241,7 +241,7 @@ async def handle_rfid_sync(message: Message, app):
     await message.answer(msg_txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard(lang=u_lang))
 
 
-@router.message(F.text.lower().in_(["🔗 встановити на принтер", "встановити на принтер", "🔗 mount to printer", "mount to printer"]))
+@router.message(F.text.lower().in_(["🔗 встановити на принтер", "встановити на принтер", "🔗 монтаж / зняття", "монтаж / зняття", "🔗 mount / unmount", "mount / unmount", "🔗 mount to printer", "mount to printer"]))
 async def handle_mount_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -422,7 +422,7 @@ async def handle_manual_price_start(message: Message, app):
     )
 
 
-@router.message(F.text.lower().in_(["✏️ редагувати котушку", "редагувати котушку", "✏️ edit spool", "edit spool"]))
+@router.message(F.text.lower().in_(["✏️ редагувати котушку", "редагувати котушку", "✏️ редагувати", "редагувати", "✏️ edit spool", "edit spool"]))
 async def handle_edit_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -439,7 +439,7 @@ async def handle_edit_spool_start(message: Message, app):
     )
 
 
-@router.message(F.text.lower().in_(["🗑️ видалити котушку", "видалити котушку", "🗑️ delete spool", "delete spool"]))
+@router.message(F.text.lower().in_(["🗑️ видалити котушку", "видалити котушку", "🗑️ видалити", "видалити", "🗑️ delete spool", "delete spool"]))
 async def handle_delete_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -456,7 +456,7 @@ async def handle_delete_spool_start(message: Message, app):
     )
 
 
-@router.message(F.text.lower().in_(["➕ нова котушка", "нова котушка", "➕ new spool", "new spool"]))
+@router.message(F.text.lower().in_(["➕ нова котушка", "нова котушка", "➕ додати", "додати", "➕ new spool", "new spool", "➕ add spool", "add spool"]))
 async def handle_add_spool_start(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)

@@ -40,31 +40,31 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     # --- Warehouse Buttons ---
     "btn_rfid_sync": {
-        "uk": "🏷️ Зчитати RFID котушки",
-        "en": "🏷️ Read RFID Spools",
+        "uk": "🏷️ RFID Зчитування",
+        "en": "🏷️ RFID Sync",
     },
     "btn_add_spool": {
-        "uk": "➕ Нова котушка",
-        "en": "➕ New Spool",
+        "uk": "➕ Додати",
+        "en": "➕ Add Spool",
     },
     "btn_mount_spool": {
-        "uk": "🔗 Встановити на принтер",
-        "en": "🔗 Mount to Printer",
+        "uk": "🔗 Монтаж / Зняття",
+        "en": "🔗 Mount / Unmount",
     },
     "btn_unmount_spool": {
         "uk": "🔓 Зняти з принтера",
         "en": "🔓 Unmount Spool",
     },
     "btn_edit_spool": {
-        "uk": "✏️ Редагувати котушку",
+        "uk": "✏️ Редагувати",
         "en": "✏️ Edit Spool",
     },
     "btn_edit_weight": {
-        "uk": "✏️ Ручне введення ваги",
-        "en": "✏️ Manual Weight Input",
+        "uk": "✏️ Змінити вагу",
+        "en": "✏️ Edit Weight",
     },
     "btn_delete_spool": {
-        "uk": "🗑️ Видалити котушку",
+        "uk": "🗑️ Видалити",
         "en": "🗑️ Delete Spool",
     },
     "btn_back": {
