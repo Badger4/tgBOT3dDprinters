@@ -183,7 +183,10 @@ class BambuPrinter:
 
     @property
     def has_ams(self) -> bool:
-        """Returns True if printer has at least 1 active AMS unit connected with valid trays."""
+        """
+        100% Fully Automatic AMS Hardware Detection from live Bambu MQTT telemetry.
+        Returns True if the printer has a real, active AMS unit connected.
+        """
         if self.ams_enabled is False:
             return False
         if self.ams_enabled is True:
@@ -193,24 +196,31 @@ class BambuPrinter:
         if exist_bits in ["0", "0000", ""]:
             return False
 
-        if not self.ams_units or not isinstance(self.ams_units, list):
+        units = getattr(self, "ams_units", [])
+        if not units or not isinstance(units, list):
             return False
 
-        total_trays = 0
-        for unit in self.ams_units:
+        for unit in units:
             if isinstance(unit, dict) and unit:
+                # 1. Standard AMS reports environmental sensors (humidity / temperature)
+                if unit.get("humidity") is not None or unit.get("humidity_raw") is not None or unit.get("temp") is not None:
+                    return True
+
+                # 2. Check tray slots in unit
                 trays = unit.get("tray", [])
-                if isinstance(trays, list):
+                if isinstance(trays, list) and len(trays) > 0:
                     for t in trays:
                         if isinstance(t, dict):
-                            if t.get("tray_type") or not t.get("empty", True) or t.get("tag_uid") or t.get("tray_color"):
-                                total_trays += 1
+                            # Non-empty / real AMS tray
+                            if t.get("tray_type") or not t.get("empty", True) or t.get("tag_uid") or t.get("tray_uuid") or t.get("tray_color"):
+                                return True
 
+                # 3. Check tray_exist_bits bitmask (if any tray is detected in AMS)
                 t_bits = str(getattr(self, "tray_exist_bits", "")).strip()
                 if t_bits and t_bits not in ["0", "0000"]:
-                    total_trays += 1
+                    return True
 
-        return total_trays > 0
+        return False
 
     def get_notify_dict(self) -> dict[str, Any]:
         """Returns normalized notification settings dictionary for this printer."""

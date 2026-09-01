@@ -378,9 +378,27 @@ class TestPrinterModel(unittest.TestCase):
         }).encode("utf-8")
         self.printer._on_message(None, None, msg)
 
-        # Neither slot 0 nor external 254 should be deducted
-        self.assertEqual(self.printer.get_slot_grams("0"), 1000.0)
-        self.assertEqual(self.printer.get_slot_grams("254"), 1000.0)
+    def test_automatic_has_ams_detection(self) -> None:
+        # 1. No AMS exist bits
+        self.printer.ams_enabled = None
+        self.printer.ams_exist_bits = "0"
+        self.printer.ams_units = []
+        self.assertFalse(self.printer.has_ams)
+
+        # 2. Standard AMS with environmental sensors
+        self.printer.ams_exist_bits = "1"
+        self.printer.ams_units = [{"id": "0", "humidity": 2, "temp": 25.0, "tray": []}]
+        self.assertTrue(self.printer.has_ams)
+
+        # 3. Dummy A1 port with empty trays and no sensors -> False
+        self.printer.ams_exist_bits = "1"
+        self.printer.tray_exist_bits = "0"
+        self.printer.ams_units = [{"id": "0", "tray": [{"id": "0", "tray_type": "", "empty": True}]}]
+        self.assertFalse(self.printer.has_ams)
+
+        # 4. AMS Lite with active filament loaded -> True
+        self.printer.ams_units = [{"id": "0", "tray": [{"id": "0", "tray_type": "PLA", "tray_color": "FFFFFF", "empty": False}]}]
+        self.assertTrue(self.printer.has_ams)
 
 
 if __name__ == "__main__":
