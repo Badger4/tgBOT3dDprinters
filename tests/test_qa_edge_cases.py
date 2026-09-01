@@ -197,9 +197,8 @@ class TestQAReportGenerator(unittest.TestCase):
         self.assertTrue(csv_bytes.startswith(b"\xef\xbb\xbf"))  # UTF-8-BOM check
         decoded = csv_bytes.decode("utf-8-sig")
         reader = list(csv.reader(io.StringIO(decoded), delimiter=";"))
-        # 1 sep= header + 1 table header + 1 data row = 3 rows
-        self.assertEqual(len(reader), 3)
-        self.assertEqual(reader[2][2], 'Bambu "P1S" Special, Name')
+        self.assertEqual(len(reader), 2)
+        self.assertEqual(reader[1][2], 'Bambu "P1S" Special, Name')
 
 
 if __name__ == "__main__":

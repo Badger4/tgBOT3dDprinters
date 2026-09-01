@@ -9,12 +9,11 @@ from typing import Any
 
 
 def _encode_csv_with_bom(output_stringio: io.StringIO) -> bytes:
-    """Encodes StringIO content to UTF-8 and ensures UTF-8 BOM (0xEF 0xBB 0xBF) + Excel separator header 'sep=;\n' is present."""
+    """Encodes StringIO content to UTF-8 and ensures UTF-8 BOM (0xEF 0xBB 0xBF) is present for Excel & Mobile."""
     text = output_stringio.getvalue()
     if text.startswith("\ufeff"):
         text = text[1:]
-    raw_bytes = ("sep=;\n" + text).encode("utf-8")
-    return b"\xef\xbb\xbf" + raw_bytes
+    return b"\xef\xbb\xbf" + text.encode("utf-8")
 
 
 def generate_csv_report(history: list[dict[str, Any]]) -> bytes:
@@ -234,7 +233,7 @@ def generate_combined_warehouse_csv_report(spools: dict[str, Any], parts: dict[s
     writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
 
     # Section 1: Spools Warehouse
-    writer.writerow(["=== СКЛАД КОТУШОК ПЛАСТИКУ ==="])
+    writer.writerow(["СКЛАД КОТУШОК ПЛАСТИКУ"])
     writer.writerow([
         "ID",
         "Назва котушки",
@@ -276,7 +275,7 @@ def generate_combined_warehouse_csv_report(spools: dict[str, Any], parts: dict[s
                 ])
 
     writer.writerow([])
-    writer.writerow(["=== СКЛАД ГОТОВИХ ДЕТАЛЕЙ ==="])
+    writer.writerow(["СКЛАД ГОТОВИХ ДЕТАЛЕЙ"])
     writer.writerow([
         "ID",
         "Назва деталі",
