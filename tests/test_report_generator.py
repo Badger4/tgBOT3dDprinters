@@ -119,6 +119,90 @@ class TestReportGenerator(unittest.TestCase):
         res_parts = generate_warehouse_csv_report(spools, parts, report_type="parts")
         self.assertIn("Test Part", res_parts.decode("utf-8-sig"))
 
+    def test_generate_history_pdf_report(self):
+        from services.report_generator import generate_history_pdf_report
+        sample_history = [
+            {
+                "timestamp": 1700000000,
+                "printer_name": "Bambu Lab P1S",
+                "subtask_name": "Box_PLA_1h.3mf",
+                "filament_type": "PLA",
+                "weight_g": 45.5,
+                "note": "Успішно",
+            },
+        ]
+        pdf_bytes = generate_history_pdf_report(sample_history)
+        self.assertTrue(len(pdf_bytes) > 1000)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+    def test_generate_spools_pdf_report(self):
+        from services.report_generator import generate_spools_pdf_report
+        spools = {
+            "spool_1": {
+                "id": "spool_1",
+                "name": "Black PLA",
+                "type": "PLA",
+                "color": "#000000",
+                "initial_grams": 1000,
+                "remaining_grams": 750,
+                "price_per_kg": 650.0,
+                "quantity": 2,
+                "assigned_slot_key": "AMS1_Slot1",
+            }
+        }
+        pdf_bytes = generate_spools_pdf_report(spools)
+        self.assertTrue(len(pdf_bytes) > 1000)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+    def test_generate_parts_pdf_report(self):
+        from services.report_generator import generate_parts_pdf_report
+        parts = {
+            "part_1": {
+                "id": "part_1",
+                "name": "Gear Wheel",
+                "printer_model": "Bambu Lab A1 mini",
+                "filament_type": "PLA",
+                "weight_g": 25.0,
+                "price": 50.0,
+                "count": 5,
+            }
+        }
+        pdf_bytes = generate_parts_pdf_report(parts)
+        self.assertTrue(len(pdf_bytes) > 1000)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+    def test_generate_combined_and_movements_pdf_report(self):
+        from services.report_generator import (
+            generate_combined_warehouse_pdf_report,
+            generate_movements_pdf_report,
+            generate_warehouse_pdf_report,
+        )
+        spools = {"s1": {"name": "Test Spool", "remaining_grams": 500.0, "price_per_kg": 600.0}}
+        parts = {"p1": {"name": "Test Part", "price": 100.0, "count": 2}}
+
+        pdf_comb = generate_combined_warehouse_pdf_report(spools, parts)
+        self.assertTrue(pdf_comb.startswith(b"%PDF"))
+
+        pdf_ware = generate_warehouse_pdf_report(spools, parts, report_type="all")
+        self.assertTrue(pdf_ware.startswith(b"%PDF"))
+
+        movs = [
+            {
+                "id": "mov_1",
+                "datetime": "2026-09-03 10:00:00",
+                "spool_id": "s1",
+                "spool_name": "Test Spool",
+                "action": "Deduction",
+                "weight_change_g": -50.0,
+                "prev_weight_g": 550.0,
+                "new_weight_g": 500.0,
+                "reason": "Print",
+                "user": "System",
+            }
+        ]
+        pdf_movs = generate_movements_pdf_report(movs)
+        self.assertTrue(pdf_movs.startswith(b"%PDF"))
+
 
 if __name__ == "__main__":
     unittest.main()

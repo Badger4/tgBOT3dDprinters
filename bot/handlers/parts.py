@@ -718,39 +718,57 @@ async def back_to_main_menu_or_list(message: Message, state: FSMContext, app: An
         await message.answer(t("warehouse_title", lang), reply_markup=kb)
 
 
-@router.message(F.text.lower().in_(["🧩 звіт csv деталей", "звіт csv деталей", "звіт деталей csv", "/csv_parts", "csv parts"]))
-async def handle_parts_csv_report_bot(message: Message, app: Any):
+@router.message(F.text.lower().in_(["🧩 звіт pdf деталей", "звіт pdf деталей", "звіт деталей pdf", "📊 звіт pdf деталей", "/pdf_parts", "pdf parts", "🧩 звіт csv деталей", "звіт csv деталей", "звіт деталей csv", "/csv_parts", "csv parts"]))
+async def handle_parts_pdf_report_bot(message: Message, app: Any):
     parts = await app.storage.load_parts()
 
     from aiogram.types import BufferedInputFile
-    from services.report_generator import generate_parts_csv_report
-    csv_bytes = generate_parts_csv_report(parts)
+    from services.report_generator import generate_parts_pdf_report
+    pdf_bytes = generate_parts_pdf_report(parts)
 
     date_str = time.strftime("%Y-%m-%d_%H-%M")
-    doc_file = BufferedInputFile(csv_bytes, filename=f"parts_report_{date_str}.csv")
+    doc_file = BufferedInputFile(pdf_bytes, filename=f"parts_report_{date_str}.pdf")
 
     await message.answer_document(
         doc_file,
-        caption="🧩 <b>Звіт склада готових деталей завантажено!</b>\n\nФайл містить перелік усіх виготовлених деталей із назвою, ціною, вагою та кількістю.",
+        caption="🧩 <b>PDF Звіт складу готових деталей згенеровано!</b>\n\nФайл містить перелік усіх виготовлених деталей із назвою, моделлю принтера, пластиком, ціною, вагою та кількістю.",
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.message(F.text.lower().in_(["📊 звіт csv", "📊 звіт csv склада", "звіт csv склада", "звіт csv", "csv склад", "/csv_warehouse", "csv warehouse", "📊 csv report"]))
-async def handle_warehouse_csv_report_bot(message: Message, app: Any):
+@router.message(F.text.lower().in_(["🧵 звіт pdf котушок", "звіт pdf котушок", "звіт котушок pdf", "/pdf_spools", "pdf spools", "/csv_spools", "csv spools"]))
+async def handle_spools_pdf_report_bot(message: Message, app: Any):
+    spools = await app.storage.load_spools()
+
+    from aiogram.types import BufferedInputFile
+    from services.report_generator import generate_spools_pdf_report
+    pdf_bytes = generate_spools_pdf_report(spools)
+
+    date_str = time.strftime("%Y-%m-%d_%H-%M")
+    doc_file = BufferedInputFile(pdf_bytes, filename=f"spools_report_{date_str}.pdf")
+
+    await message.answer_document(
+        doc_file,
+        caption="🧵 <b>PDF Звіт складу котушок пластику згенеровано!</b>\n\nФайл містить перелік усіх котушок на складі із залишками, ціною та статусом прив'язки до принтерів.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(F.text.lower().in_(["📊 звіт pdf", "📊 звіт pdf склада", "звіт pdf склада", "звіт pdf", "pdf склад", "📊 pdf report", "pdf report", "/pdf_warehouse", "pdf warehouse", "📊 звіт csv", "📊 звіт csv склада", "звіт csv склада", "звіт csv", "csv склад", "/csv_warehouse", "csv warehouse", "📊 csv report"]))
+async def handle_warehouse_pdf_report_bot(message: Message, app: Any):
     spools = await app.storage.load_spools()
     parts = await app.storage.load_parts()
 
     from aiogram.types import BufferedInputFile
-    from services.report_generator import generate_warehouse_csv_report
-    csv_bytes = generate_warehouse_csv_report(spools, parts, report_type="all")
+    from services.report_generator import generate_warehouse_pdf_report
+    pdf_bytes = generate_warehouse_pdf_report(spools, parts, report_type="all")
 
     date_str = time.strftime("%Y-%m-%d_%H-%M")
-    doc_file = BufferedInputFile(csv_bytes, filename=f"warehouse_report_{date_str}.csv")
+    doc_file = BufferedInputFile(pdf_bytes, filename=f"warehouse_report_{date_str}.pdf")
 
     await message.answer_document(
         doc_file,
-        caption="📊 <b>Повний звіт склада завантажено!</b>\n\nФайл містить окремі блоки для <b>Котушок пластику</b> та <b>Готових деталей</b> із назвою, ціною, вагою та кількістю.",
+        caption="📊 <b>Повний PDF звіт складу згенеровано!</b>\n\nФайл містить окремі блоки для <b>Котушок пластику</b> та <b>Готових деталей</b> із назвою, ціною, вагою, кількістю та загальною сумою.",
         parse_mode=ParseMode.HTML,
     )
 

@@ -360,7 +360,7 @@ def get_parts_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
         [
             KeyboardButton(text="🔍 Пошук" if not is_en else "🔍 Search"),
             KeyboardButton(text="➕ Добавити" if not is_en else "➕ Add"),
-            KeyboardButton(text="📊 Звіт CSV" if not is_en else "📊 CSV Report"),
+            KeyboardButton(text="📊 Звіт PDF" if not is_en else "📊 PDF Report"),
         ],
         [
             KeyboardButton(text="🚀 Кинути на друк" if not is_en else "🚀 Send to Print"),

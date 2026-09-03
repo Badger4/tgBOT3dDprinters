@@ -108,32 +108,43 @@ async def handle_history(message: Message, app):
 
     from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
-    csv_kb = ReplyKeyboardMarkup(
+    pdf_kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📥 Download CSV Report" if is_en else "📥 Завантажити CSV звіт")],
+            [KeyboardButton(text="📥 Download PDF Report" if is_en else "📥 Завантажити PDF звіт")],
             [KeyboardButton(text="⬅️ Back" if is_en else "⬅️ Назад")]
         ],
         resize_keyboard=True,
     )
-    await message.answer(hist_txt, parse_mode=ParseMode.HTML, reply_markup=csv_kb)
+    await message.answer(hist_txt, parse_mode=ParseMode.HTML, reply_markup=pdf_kb)
 
 
 @router.message(
     F.text.lower().in_(
         [
+            "📥 завантажити pdf звіт",
+            "завантажити pdf звіт",
+            "експорт pdf",
+            "pdf",
+            "звіт pdf",
             "📥 завантажити csv звіт",
             "завантажити csv звіт",
             "експорт csv",
             "csv",
             "/export_history",
             "/export",
+            "/pdf_history",
+            "/history_pdf",
+            "📥 download pdf report",
+            "download pdf report",
+            "export pdf",
+            "pdf report",
             "📥 download csv report",
             "download csv report",
             "export csv"
         ]
     )
 )
-async def handle_export_csv(message: Message, app):
+async def handle_export_history_pdf(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
         return
@@ -151,13 +162,13 @@ async def handle_export_csv(message: Message, app):
 
     from aiogram.types import BufferedInputFile
 
-    from services.report_generator import generate_csv_report
+    from services.report_generator import generate_history_pdf_report
 
-    csv_bytes = generate_csv_report(history)
+    pdf_bytes = generate_history_pdf_report(history)
     date_str = time.strftime("%Y%m%d_%H%M")
-    doc_file = BufferedInputFile(csv_bytes, filename=f"farm_print_history_{date_str}.csv")
+    doc_file = BufferedInputFile(pdf_bytes, filename=f"farm_print_history_{date_str}.pdf")
     await message.answer_document(
         document=doc_file,
-        caption="📊 *Full 3D Farm Print History CSV Report*" if is_en else "📊 *Повний CSV звіт історії друку 3D Ферми*",
+        caption="📊 *Full 3D Farm Print History PDF Report*" if is_en else "📊 *Повний PDF звіт історії друку 3D Ферми*",
         parse_mode=ParseMode.MARKDOWN,
     )
