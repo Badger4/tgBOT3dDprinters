@@ -37,16 +37,34 @@ async def handle_dashboard(message: Message, app):
 
     for pid, p in app.printers.items():
         p_name = html.escape(p.name)
-        st_emoji = (
-            "🖨️"
-            if p.gcode_state == "RUNNING"
-            else ("⏸️" if p.gcode_state == "PAUSE" else ("🎉" if p.gcode_state == "FINISH" else "💤"))
+        is_p_online = getattr(p, "is_online", True)
+        if not is_p_online or p.gcode_state in ["OFFLINE", "DISCONNECTED", "UNKNOWN"]:
+            st_emoji = "🔴"
+            st_str = "OFFLINE"
+        elif p.gcode_state == "RUNNING":
+            st_emoji = "🖨️"
+            st_str = p.gcode_state
+        elif p.gcode_state == "PAUSE":
+            st_emoji = "⏸️"
+            st_str = p.gcode_state
+        elif p.gcode_state == "FINISH":
+            st_emoji = "🎉"
+            st_str = p.gcode_state
+        else:
+            st_emoji = "💤"
+            st_str = p.gcode_state
+
+        spd_str = (
+            f" ({p.spd_mag}%)"
+            if getattr(p, "spd_mag", 100) and getattr(p, "spd_mag", 100) != 100 and is_p_online
+            else ""
         )
-        spd_str = f" ({p.spd_mag}%)" if getattr(p, "spd_mag", 100) and getattr(p, "spd_mag", 100) != 100 else ""
 
-        dash_txt += f"{st_emoji} <b>{p_name}</b>: <code>{p.gcode_state}</code>{spd_str}\n"
+        dash_txt += f"{st_emoji} <b>{p_name}</b>: <code>{st_str}</code>{spd_str}\n"
 
-        if p.gcode_state in ["RUNNING", "PAUSE"]:
+        if not is_p_online or p.gcode_state in ["OFFLINE", "DISCONNECTED", "UNKNOWN"]:
+            dash_txt += f"   🔌 <i>{'Вимкнений або немає зв\'язку' if not is_en else 'Offline / Powered off'}</i>\n"
+        elif p.gcode_state in ["RUNNING", "PAUSE"]:
             sub_task = html.escape(p.subtask_name or ("Model" if is_en else "Модель"))
             min_lbl = "min" if is_en else "хв"
             dash_txt += f"   📄 <i>{sub_task}</i> ({p.mc_percent}%) | ~{p.mc_remaining_time} {min_lbl}\n"
@@ -59,7 +77,22 @@ async def handle_dashboard(message: Message, app):
     await message.answer(dash_txt, parse_mode=ParseMode.HTML)
 
 
-@router.message(F.text.lower().in_(["📜 історія друку", "історія друку", "історія", "📜 print history", "print history", "history"]))
+@router.message(
+    F.text.lower().in_(
+        [
+            "📜 історія друку",
+            "історія друку",
+            "історія",
+            "журнал друку",
+            "📜 print history",
+            "print history",
+            "history",
+            "/history",
+            "/history_log",
+            "/prints",
+        ]
+    )
+)
 async def handle_history(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):

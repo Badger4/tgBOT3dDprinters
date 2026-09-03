@@ -203,6 +203,46 @@ class TestReportGenerator(unittest.TestCase):
         pdf_movs = generate_movements_pdf_report(movs)
         self.assertTrue(pdf_movs.startswith(b"%PDF"))
 
+    def test_generate_commercial_pdf_reports(self):
+        from services.report_generator import (
+            generate_commercial_calc_pdf,
+            generate_commercial_pdf_report,
+        )
+        presets = {
+            "p1": {
+                "id": "p1",
+                "name": "Standard PLA",
+                "price_per_g": 0.85,
+                "electricity_rate_uah": 4.32,
+                "power_watts": 120.0,
+                "depreciation_val": "10",
+                "consumables_val": "5",
+                "profit_val": "100%",
+            }
+        }
+        pdf_report = generate_commercial_pdf_report(presets, lang="uk")
+        self.assertTrue(pdf_report.startswith(b"%PDF"))
+        self.assertTrue(len(pdf_report) > 1000)
+
+        calc = {
+            "preset_name": "Standard PLA",
+            "weight_g": 100.0,
+            "time_mins": 120,
+            "time_hours": 2.0,
+            "filament_cost": 85.0,
+            "electricity_cost": 1.04,
+            "depreciation_cost": 20.0,
+            "depreciation_str": "10 грн/год",
+            "consumables_cost": 10.0,
+            "consumables_str": "5 грн/год",
+            "profit_cost": 116.04,
+            "profit_str": "+100%",
+            "total_price": 232.08,
+        }
+        pdf_calc = generate_commercial_calc_pdf(calc, lang="uk")
+        self.assertTrue(pdf_calc.startswith(b"%PDF"))
+        self.assertTrue(len(pdf_calc) > 1000)
+
 
 if __name__ == "__main__":
     unittest.main()

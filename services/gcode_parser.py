@@ -192,6 +192,31 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
                 namelist = zf.namelist()
 
+                # 0. Plate JSON Extraction: Metadata/plate_1.json or plate_*.json (contains exact ID and 2D bounding boxes)
+                plate_json_files = [f for f in namelist if ("plate_" in f and f.endswith(".json"))]
+                for pjf in plate_json_files:
+                    try:
+                        p_data = json.loads(zf.read(pjf).decode("utf-8", errors="ignore"))
+                        if isinstance(p_data, dict) and "objects" in p_data and isinstance(p_data["objects"], list):
+                            for obj in p_data["objects"]:
+                                if isinstance(obj, dict):
+                                    oid = obj.get("identify_id") or obj.get("id")
+                                    oname = obj.get("name") or obj.get("part_name")
+                                    obbox = obj.get("bbox")
+                                    if oid is not None:
+                                        oid_str = str(oid).strip()
+                                        oname_str = str(oname).strip() if oname else f"Об'єкт {oid_str}"
+                                        existing = next((o for o in objects_list if str(o["id"]) == oid_str), None)
+                                        if not existing:
+                                            entry = {"id": oid_str, "name": oname_str}
+                                            if obbox and isinstance(obbox, list):
+                                                entry["bbox"] = obbox
+                                            objects_list.append(entry)
+                                        elif obbox and isinstance(obbox, list) and "bbox" not in existing:
+                                            existing["bbox"] = obbox
+                    except Exception as e_pj:
+                        logger.debug(f"Plate json parse warning for {pjf}: {e_pj}")
+
                 # 1. Primary Object Extraction: Metadata/slice_info.config
                 if "Metadata/slice_info.config" in namelist:
                     try:
@@ -202,10 +227,10 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                             if tag_name == "object":
                                 obj_id = elem.get("identify_id") or elem.get("id") or elem.get("identify") or elem.get("object_id")
                                 obj_name = elem.get("name") or elem.get("part_name")
-                                if obj_id:
+                                if obj_id is not None:
                                     obj_id_str = str(obj_id).strip()
                                     obj_name_str = str(obj_name).strip() if obj_name else f"Об'єкт {obj_id_str}"
-                                    if not any(o["id"] == obj_id_str for o in objects_list):
+                                    if not any(str(o["id"]) == obj_id_str for o in objects_list):
                                         objects_list.append({"id": obj_id_str, "name": obj_name_str})
                     except Exception:
                         pass
@@ -225,11 +250,28 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                                     obj_type = elem.get("type", "").lower()
                                     if obj_type == "other":
                                         continue
-                                    if obj_id:
+                                    if obj_id is not None:
                                         obj_id_str = str(obj_id).strip()
                                         obj_name_str = str(obj_name).strip() if obj_name else f"Об'єкт {obj_id_str}"
-                                        if not any(o["id"] == obj_id_str for o in objects_list):
+                                        if not any(str(o["id"]) == obj_id_str for o in objects_list):
                                             objects_list.append({"id": obj_id_str, "name": obj_name_str})
+                        except Exception:
+                            pass
+
+                # 1c. Fallback G-code M486 / OBJECT_ID scanning if still empty
+                if not objects_list:
+                    gcode_files = [f for f in namelist if f.endswith(".gcode")]
+                    for gf in gcode_files:
+                        try:
+                            gcode_text = zf.read(gf).decode("utf-8", errors="ignore")
+                            # Match M486 S1 or ; OBJECT_ID: 1
+                            m486_ids = re.findall(r"M486\s+S(\d+)", gcode_text)
+                            obj_id_matches = re.findall(r";\s*OBJECT_ID:\s*(\d+)", gcode_text)
+                            found_ids = sorted(list(set([int(i) for i in (m486_ids + obj_id_matches)])))
+                            for fid in found_ids:
+                                fid_str = str(fid)
+                                if not any(str(o["id"]) == fid_str for o in objects_list):
+                                    objects_list.append({"id": fid_str, "name": f"Об'єкт #{fid_str}"})
                         except Exception:
                             pass
 
@@ -692,6 +734,10 @@ def check_compatibility(
             "reason_type": "PRINTER",
             "level": "BLOCK",
             "reason": "🛑 Принтер несумісний з файлом",
+            "sliced_model": sliced_model or sliced_code,
+            "target_model": target_printer_name or target_code,
+            "sliced_filament": filament_type,
+            "target_filament": target_filament,
         }
 
     # Stage 2: Material Check (Filament Type)
@@ -704,6 +750,10 @@ def check_compatibility(
             "reason_type": "FILAMENT",
             "level": "BLOCK",
             "reason": "🛑 Філамент несумісний з файлом",
+            "sliced_model": sliced_model or sliced_code,
+            "target_model": target_printer_name or target_code,
+            "sliced_filament": filament_type,
+            "target_filament": target_filament,
         }
 
     return {
@@ -711,4 +761,8 @@ def check_compatibility(
         "reason_type": "OK",
         "level": "OK",
         "reason": "✅ Сумісність підтверджено!",
+        "sliced_model": sliced_model or sliced_code,
+        "target_model": target_printer_name or target_code,
+        "sliced_filament": filament_type,
+        "target_filament": target_filament,
     }

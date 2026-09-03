@@ -124,6 +124,73 @@ class TestBotHandlersFull(unittest.TestCase):
             ans_fil = await self._send_msg("📦 Склад")
             self.assertTrue(ans_fil.called)
 
+            # 5.1 Add Spool Wizard with Type Selection
+            ans_add_s = await self._send_msg("➕ Додати котушку")
+            self.assertTrue(ans_add_s.called)
+            u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "add_spool_name")
+
+            ans_name = await self._send_msg("Custom Plexiwire")
+            self.assertTrue(ans_name.called)
+            u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "add_spool_type")
+
+            ans_type = await self._send_msg("TPU")
+            self.assertTrue(ans_type.called)
+            u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "add_spool_grams")
+
+            ans_g = await self._send_msg("1000")
+            self.assertTrue(ans_g.called)
+            u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "add_spool_price")
+
+            ans_pr = await self._send_msg("850")
+            self.assertTrue(ans_pr.called)
+            u = await self.sm.load_user("777")
+            self.assertIn(u["state"], ["idle", "printer_menu"])
+
+            spools = await self.sm.load_spools()
+            added_s = next((s for s in spools.values() if s.get("name") == "Custom Plexiwire"), None)
+            self.assertIsNotNone(added_s)
+            # 5.2 Mount and Unmount Spool Flow (Printer-specific context)
+            ans_mount = await self._send_msg("🔗 Встановити на принтер")
+            self.assertTrue(ans_mount.called)
+            u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "select_spool_to_mount")
+
+            # Selecting spool automatically moves to slot selection because printer context is active
+            ans_sel_sp = await self._send_msg("🧵 Custom Plexiwire (TPU, 1000.0g)")
+            self.assertTrue(ans_sel_sp.called)
+            u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "select_slot_for_mount")
+
+            ans_sel_slot = await self._send_msg("📍 Слот A1")
+            self.assertTrue(ans_sel_slot.called)
+            u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "printer_menu")
+
+            spools = await self.sm.load_spools()
+            mounted_s = spools.get(added_s["id"])
+            self.assertIsNotNone(mounted_s)
+            self.assertEqual(mounted_s.get("assigned_printer_id"), "p1")
+            self.assertEqual(mounted_s.get("assigned_slot_key"), "0")
+
+            # Unmount spool from AMS printer prompts slot selection
+            ans_unmount = await self._send_msg("🔓 Зняти з принтера")
+            self.assertTrue(ans_unmount.called)
+            u = await self.sm.load_user("777")
+            if u["state"] == "select_spool_to_unmount":
+                ans_sel_unm = await self._send_msg("🧵 Слот A1 — Custom Plexiwire (TPU, 1000.0g)")
+                self.assertTrue(ans_sel_unm.called)
+                u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "printer_menu")
+
+            spools = await self.sm.load_spools()
+            unmounted_s = spools.get(added_s["id"])
+            self.assertIsNone(unmounted_s.get("assigned_printer_id"))
+            self.assertIsNone(unmounted_s.get("assigned_slot_key"))
+
             # 6. 3MF Commercial Calculation Flow (including direct button click with idle state)
             await self.sm.save_user(
                 {

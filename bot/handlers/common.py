@@ -91,8 +91,21 @@ async def handle_cancel_or_back(message: Message, app):
 @router.message(
     F.text.lower().in_(
         [
-            "головне меню", "⬅️ головне меню", "повернутись в меню", "назад в меню", "⬅️ назад в меню", "вихід", "меню",
-            "main menu", "⬅️ main menu", "back to menu", "menu"
+            "головне меню",
+            "⬅️ головне меню",
+            "повернутись в меню",
+            "назад в меню",
+            "⬅️ назад в меню",
+            "вихід",
+            "меню",
+            "назад",
+            "⬅️ назад",
+            "back",
+            "⬅️ back",
+            "main menu",
+            "⬅️ main menu",
+            "back to menu",
+            "menu",
         ]
     )
 )

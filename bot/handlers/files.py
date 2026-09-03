@@ -7,7 +7,13 @@ import os
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+)
 
 from bot.keyboards import get_printer_menu_keyboard
 from config import STORAGE_DIR, logger
@@ -224,7 +230,21 @@ async def handle_3mf_preset_choice(message: Message, app):
     if text == "📊 Розрахувати для всіх пресетів":
         for p in presets.values():
             res = calculate_commercial_price(p, w_g, t_mins)
-            await message.answer(format_commercial_card(res, fname), parse_mode=ParseMode.HTML, reply_markup=file_kb)
+            inline_kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="📄 Завантажити розрахунок (PDF)",
+                            callback_data=f"comm_quote_pdf_{p['id']}_{int(w_g)}_{int(t_mins)}",
+                        )
+                    ]
+                ]
+            )
+            await message.answer(
+                format_commercial_card(res, fname),
+                parse_mode=ParseMode.HTML,
+                reply_markup=inline_kb,
+            )
     else:
         preset_name_clean = text.replace("🔹 ", "").strip()
         target = next((p for p in presets.values() if p["name"] == preset_name_clean or p["name"] == text), None)
@@ -233,7 +253,21 @@ async def handle_3mf_preset_choice(message: Message, app):
             return True
 
         res = calculate_commercial_price(target, w_g, t_mins)
-        await message.answer(format_commercial_card(res, fname), parse_mode=ParseMode.HTML, reply_markup=file_kb)
+        inline_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📄 Завантажити розрахунок (PDF)",
+                        callback_data=f"comm_quote_pdf_{target['id']}_{int(w_g)}_{int(t_mins)}",
+                    )
+                ]
+            ]
+        )
+        await message.answer(
+            format_commercial_card(res, fname),
+            parse_mode=ParseMode.HTML,
+            reply_markup=inline_kb,
+        )
 
     user["state"] = "select_printer_for_file"
     await app.storage.save_user(user)
@@ -267,9 +301,24 @@ async def handle_select_printer_for_file(message: Message, app):
     active_fil = get_printer_active_filament(target_p, spools_map)
     c_info = check_compatibility(sliced_model, fil_type, target_p.name, active_fil)
     if not c_info["compatible"]:
-        await message.answer(
-            f"🚨 <b>ПОМИЛКА БЕЗПЕКИ! ДРУК БЛОКОВАНО!</b>\n\n{c_info['reason']}", parse_mode=ParseMode.HTML
-        )
+        if c_info.get("reason_type") == "PRINTER":
+            await message.answer(
+                f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n"
+                f"🛑 <b>Принтер несумісний з файлом!</b>\n"
+                f"• <b>Модель у файлі:</b> <code>{html.escape(str(c_info.get('sliced_model', sliced_model)))}</code>\n"
+                f"• <b>Обраний принтер:</b> <code>{html.escape(target_p.name)}</code>\n\n"
+                f"<i>Будь ласка, оберіть сумісний принтер або перенаріжте модель для {html.escape(target_p.name)}.</i>",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await message.answer(
+                f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n"
+                f"🛑 <b>Філамент несумісний з файлом!</b>\n"
+                f"• <b>Необхідний пластик:</b> <code>{html.escape(str(c_info.get('sliced_filament', fil_type)))}</code>\n"
+                f"• <b>Пластик на принтері:</b> <code>{html.escape(str(c_info.get('target_filament', active_fil or 'Невідомо')))}</code>\n\n"
+                f"<i>Будь ласка, встановіть відповідний пластик на принтер.</i>",
+                parse_mode=ParseMode.HTML,
+            )
         return
 
     w_req = pending_file.get("weight_g", 0.0)

@@ -111,18 +111,52 @@ class TestCommercialHandlers(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_sanitize_commercial_presets(self):
-        from bot.handlers.commercial import sanitize_commercial_presets
+    def test_edit_preset_name_and_fields(self):
+        async def run_test():
+            from config import STORAGE_DIR
 
-        dirty = {
-            "p1": {"id": "p1", "name": "Стандарт PLA"},
-            "p2": {"id": "test_preset", "name": "Тестовий пресет"},
-            "p3": {"id": "p3", "name": "Sample PETG"},
-        }
-        clean = sanitize_commercial_presets(dirty)
-        self.assertIn("p1", clean)
-        self.assertNotIn("p2", clean)
-        self.assertNotIn("p3", clean)
+            presets_path = STORAGE_DIR / "commercial_presets.json"
+            await self.sm.save_json(
+                presets_path,
+                {"p_edit": {"id": "p_edit", "name": "Old Name", "price_per_g": 0.85}},
+            )
+            await self.sm.save_user(
+                {
+                    "user_id": "123456",
+                    "chat_id": "123456",
+                    "state": "idle",
+                    "context_data": {},
+                }
+            )
+
+            # Click edit preset
+            await self._send_msg("✏️ Редагувати пресет")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "select_preset_to_edit")
+
+            # Select Old Name
+            ans = await self._send_msg("Old Name")
+            self.assertTrue(ans.called)
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "edit_preset_field_choice")
+
+            # Click edit name callback
+            cb_ans = await self._send_cb("edit_p_field_name_p_edit")
+            self.assertTrue(cb_ans.called)
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "edit_preset_field_value")
+
+            # Type new name
+            await self._send_msg("Brand New Name")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "idle")
+
+            updated_presets = await self.sm.load_json(presets_path, {})
+            self.assertEqual(updated_presets["p_edit"]["name"], "Brand New Name")
+
+        import asyncio
+
+        asyncio.run(run_test())
 
 
 if __name__ == "__main__":

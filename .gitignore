@@ -34,3 +34,5 @@ printers_storage/*
 # Temporary executables & scratch
 cloudflared.exe
 scratch/
+NUL
+

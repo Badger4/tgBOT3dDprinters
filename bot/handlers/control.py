@@ -39,6 +39,26 @@ async def handle_skip_objects_menu(message: Message, app):
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
     if not target_printer:
+        # Fallback to single active printer if only one is printing
+        active_printers = [
+            p for p in app.printers.values()
+            if getattr(p, "is_online", True) and p.gcode_state in ["RUNNING", "PAUSE", "PREPARING", "PREPARATION", "BUILDING"]
+        ]
+        if len(active_printers) == 1:
+            target_printer = active_printers[0]
+        elif len(active_printers) > 1:
+            await message.answer("⚠️ Декілька принтерів друкують одночасно. Спочатку відкрийте потрібний принтер у меню «🖨️ Принтери».")
+            return
+        else:
+            await message.answer("⚠️ Наразі жоден принтер не друкує. Пропуск об'єктів доступний тільки під час активного друку.")
+            return
+
+    if target_printer.gcode_state not in ["RUNNING", "PAUSE", "PREPARING", "PREPARATION", "BUILDING"]:
+        await message.answer(
+            f"⚠️ Принтер <b>{html.escape(target_printer.name)}</b> зараз не друкує (стан: <code>{target_printer.gcode_state}</code>).\n"
+            f"Пропуск об'єктів доступний тільки під час активного друку.",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     objects = target_printer.get_clean_job_objects()
@@ -65,13 +85,12 @@ async def handle_skip_objects_menu(message: Message, app):
                 pass
 
     if not objects:
-        # Fallback: Generate numbered generic objects so user can always skip objects by ID (#1..#10)
-        skipped = getattr(target_printer, "skipped_objects", [])
-        skipped_ids = [int(x) for x in skipped if str(x).isdigit()]
-        max_num = max(skipped_ids + [10])
-        fallback_objs = [{"id": oid, "name": f"Об'єкт #{oid}"} for oid in range(1, max_num + 1)]
-        target_printer.current_job_objects = fallback_objs
-        objects = fallback_objs
+        await message.answer(
+            f"ℹ️ Для поточного завдання друку на <b>{html.escape(target_printer.name)}</b> не виявлено списку об'єктів у .3mf файлі.\n\n"
+            f"💡 <i>Об'єкти зчитуються автоматично з SD-карти принтера через FTPS або при завантаженні .3mf файлу через бот/веб-панель.</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
 
     logger.info(
         f"🚫 [Skip Menu] Rendering skip menu for [{target_printer.name}] with {len(objects)} objects: {[o.get('id') for o in objects]} (skipped: {getattr(target_printer, 'skipped_objects', [])})"

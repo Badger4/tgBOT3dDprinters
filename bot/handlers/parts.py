@@ -171,11 +171,41 @@ async def handle_select_part_view(callback: CallbackQuery, state: FSMContext, ap
 
     three_mf = part.get("three_mf")
     if three_mf:
-        await callback.message.answer(".3mf:")
         try:
-            await callback.message.answer_document(three_mf)
+            is_file_id = bool(
+                three_mf
+                and not three_mf.startswith(("/", "\\", "http://", "https://"))
+                and "." not in three_mf
+                and "/" not in three_mf
+                and "\\" not in three_mf
+                and len(three_mf) >= 20
+            )
+            if is_file_id:
+                await callback.message.answer(".3mf:")
+                await callback.message.answer_document(three_mf)
+            else:
+                import config
+                from aiogram.types import FSInputFile
+                clean_name = three_mf.replace("\\", "/").split("/")[-1]
+                clean_rel = three_mf.lstrip("/").lstrip("\\")
+                possible_paths = [
+                    config.STORAGE_DIR / "uploads" / clean_name,
+                    config.STORAGE_DIR / "parts_files" / clean_name,
+                    config.STORAGE_DIR / clean_name,
+                    config.STORAGE_DIR / clean_rel,
+                    Path(three_mf),
+                ]
+                found_path = None
+                for p in possible_paths:
+                    if p.exists() and p.is_file():
+                        found_path = p
+                        break
+                if found_path:
+                    doc_fname = part.get("three_mf_name") or clean_name
+                    await callback.message.answer(".3mf:")
+                    await callback.message.answer_document(FSInputFile(found_path, filename=doc_fname))
         except Exception as e:
-            await callback.message.answer(f"Помилка відправки файлу: {e}")
+            logger.warning(f"Error sending .3mf document: {e}")
 
     await callback.answer()
 
@@ -201,9 +231,8 @@ async def handle_part_print_select(callback: CallbackQuery, state: FSMContext, a
         return
 
     u_data = await app.storage.load_user(callback.from_user.id)
-    lang = get_user_lang(u_data)
-
-    kb = get_printer_select_inline_keyboard(part_id, app.printers, part, lang)
+    spools_map = await app.storage.load_spools() if hasattr(app, "storage") else None
+    kb = get_printer_select_inline_keyboard(part_id, app.printers, part=part, lang=lang, spools_map=spools_map)
     model_str = f"\n🖨️ <b>Модель у файлі:</b> {html.escape(part.get('printer_model'))}" if part.get('printer_model') and part.get('printer_model') != 'Unknown' else ""
 
     await callback.message.answer(
@@ -254,12 +283,27 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
     if not comp.get("compatible"):
         reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
         await callback.answer(f"🛑 ДРУК БЛОКОВАНО: {reason}", show_alert=True)
-        await callback.message.answer(
-            f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n{reason}\n\n"
-            f"Необхідний пластик: <code>{html.escape(part.get('filament_type', 'Невідомо'))}</code>\n"
-            f"Пластик на принтері: <code>{html.escape(active_fil or 'Невідомо')}</code>",
-            parse_mode=ParseMode.HTML,
-        )
+        if comp.get("reason_type") == "PRINTER":
+            p_model = part.get("printer_model") or comp.get("sliced_model", "Невідомо")
+            await callback.message.answer(
+                f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n"
+                f"🛑 <b>Принтер несумісний з файлом!</b>\n"
+                f"• <b>Модель у файлі:</b> <code>{html.escape(str(p_model))}</code>\n"
+                f"• <b>Обраний принтер:</b> <code>{html.escape(printer.name)}</code>\n\n"
+                f"<i>Будь ласка, оберіть сумісний принтер зі списку або наріжте деталь для {html.escape(printer.name)}.</i>",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            req_fil = part.get("filament_type") or comp.get("sliced_filament", "Невідомо")
+            curr_fil = active_fil or comp.get("target_filament", "Невідомо")
+            await callback.message.answer(
+                f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n"
+                f"🛑 <b>Філамент несумісний з файлом!</b>\n"
+                f"• <b>Необхідний пластик:</b> <code>{html.escape(str(req_fil))}</code>\n"
+                f"• <b>Пластик на принтері:</b> <code>{html.escape(str(curr_fil))}</code>\n\n"
+                f"<i>Будь ласка, заправте потрібний пластик на принтер або оберіть інший принтер.</i>",
+                parse_mode=ParseMode.HTML,
+            )
         return
 
     await callback.answer("⏳ Завантаження .3mf файлу та відправка на принтер...")
@@ -478,7 +522,9 @@ async def process_confirm_property_edit(message: Message, state: FSMContext, app
 
 # TEXT BUTTON HANDLERS FOR REPLY KEYBOARD
 
-@router.message(F.text.in_(["🚀 Кинути на друк", "🚀 Send to Print", "Кинути на друк"]))
+@router.message(PartEditingStates.in_part_info, F.text.in_(["🚀 Кинути на друк", "🚀 Send to Print", "Кинути на друк", "🚀 Кинути деталь на друк"]))
+@router.message(PartEditingStates.in_parts_list, F.text.in_(["🚀 Кинути на друк", "🚀 Send to Print", "Кинути на друк", "🚀 Кинути деталь на друк"]))
+@router.message(F.text.in_(["🚀 Кинути деталь на друк", "🚀 Send part to print"]))
 async def handle_print_button_text(message: Message, state: FSMContext, app: Any) -> None:
     current_state = await state.get_state()
     data = await state.get_data()
@@ -501,9 +547,11 @@ async def handle_print_button_text(message: Message, state: FSMContext, app: Any
 
         u_data = await app.storage.load_user(message.from_user.id)
         lang = get_user_lang(u_data)
-        kb = get_printer_select_inline_keyboard(part_id, app.printers, lang)
+        spools_map = await app.storage.load_spools() if hasattr(app, "storage") else None
+        kb = get_printer_select_inline_keyboard(part_id, app.printers, part=part, lang=lang, spools_map=spools_map)
+        model_str = f"\n🖨️ <b>Модель у файлі:</b> {html.escape(part.get('printer_model'))}" if part.get('printer_model') and part.get('printer_model') != 'Unknown' else ""
         await message.answer(
-            f"🚀 Оберіть принтер для відправки та запуску друку деталі <b>{html.escape(part.get('name', 'Деталь'))}</b>:",
+            f"🚀 Оберіть принтер для відправки та запуску друку деталі <b>{html.escape(part.get('name', 'Деталь'))}</b>{model_str}:",
             parse_mode=ParseMode.HTML,
             reply_markup=kb,
         )
@@ -514,7 +562,46 @@ async def handle_print_button_text(message: Message, state: FSMContext, app: Any
         await message.answer("🚀 <b>Оберіть деталь зі списку для відправки на друк:</b>", parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
-@router.message(F.text.in_(["✏️ Редагувати", "✏️ Edit", "✏️ Редагувати деталь", "Редагувати"]))
+@router.message(
+    PartEditingStates.in_part_info,
+    F.text.lower().in_(
+        [
+            "✏️ редагувати",
+            "редагувати",
+            "✏️ edit",
+            "edit",
+            "✏️ редагувати деталь",
+            "редагувати деталь",
+            "✏️ edit part",
+            "edit part",
+        ]
+    ),
+)
+@router.message(
+    PartEditingStates.in_parts_list,
+    F.text.lower().in_(
+        [
+            "✏️ редагувати",
+            "редагувати",
+            "✏️ edit",
+            "edit",
+            "✏️ редагувати деталь",
+            "редагувати деталь",
+            "✏️ edit part",
+            "edit part",
+        ]
+    ),
+)
+@router.message(
+    F.text.lower().in_(
+        [
+            "✏️ редагувати деталь",
+            "редагувати деталь",
+            "✏️ edit part",
+            "edit part",
+        ]
+    )
+)
 async def handle_edit_button_text(message: Message, state: FSMContext, app: Any) -> None:
     current_state = await state.get_state()
     data = await state.get_data()
@@ -537,7 +624,9 @@ async def handle_edit_button_text(message: Message, state: FSMContext, app: Any)
         await message.answer("✏️ <b>Оберіть деталь зі списку для редагування:</b>", parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
-@router.message(F.text.in_(["🔍 Пошук", "🔍 Search", "🔍 Пошук деталі", "Пошук деталі", "Пошук"]))
+@router.message(PartEditingStates.in_parts_list, F.text.in_(["🔍 Пошук", "🔍 Search", "🔍 Пошук деталі", "Пошук деталі", "Пошук"]))
+@router.message(PartEditingStates.in_part_info, F.text.in_(["🔍 Пошук", "🔍 Search", "🔍 Пошук деталі", "Пошук деталі", "Пошук"]))
+@router.message(F.text.in_(["🔍 Пошук деталі", "🔍 Search Part"]))
 async def handle_search_part_btn(message: Message, state: FSMContext) -> None:
     await state.set_state(PartEditingStates.search_query)
     await message.answer("🔍 <b>Введіть назву деталі для пошуку:</b>", parse_mode=ParseMode.HTML)
@@ -687,7 +776,46 @@ async def add_part_three_mf(message: Message, state: FSMContext, app: Any) -> No
     await open_parts_list(message, state, app, lang)
 
 
-@router.message(F.text.in_(["🗑️ Видалити", "🗑️ Delete", "Видалити", "Delete", "🗑️ Видалити деталь"]))
+@router.message(
+    PartEditingStates.in_part_info,
+    F.text.lower().in_(
+        [
+            "🗑️ видалити",
+            "видалити",
+            "🗑️ delete",
+            "delete",
+            "🗑️ видалити деталь",
+            "видалити деталь",
+            "🗑️ delete part",
+            "delete part",
+        ]
+    ),
+)
+@router.message(
+    PartEditingStates.in_parts_list,
+    F.text.lower().in_(
+        [
+            "🗑️ видалити",
+            "видалити",
+            "🗑️ delete",
+            "delete",
+            "🗑️ видалити деталь",
+            "видалити деталь",
+            "🗑️ delete part",
+            "delete part",
+        ]
+    ),
+)
+@router.message(
+    F.text.lower().in_(
+        [
+            "🗑️ видалити деталь",
+            "видалити деталь",
+            "🗑️ delete part",
+            "delete part",
+        ]
+    )
+)
 async def delete_current_part(message: Message, state: FSMContext, app: Any) -> None:
     data = await state.get_data()
     part_id = data.get("selected_part_id")
@@ -696,21 +824,77 @@ async def delete_current_part(message: Message, state: FSMContext, app: Any) -> 
     if part_id and part_id in parts:
         del parts[part_id]
         await app.storage.save_json(app.storage.parts_file, parts)
-        await message.answer("Видалення деталі пройшло успішно!")
+        await message.answer("✅ <b>Видалення деталі пройшло успішно!</b>", parse_mode=ParseMode.HTML)
+        u_data = await app.storage.load_user(message.from_user.id)
+        lang = get_user_lang(u_data)
+        await open_parts_list(message, state, app, lang)
+    else:
+        if not parts:
+            await message.answer("⚠️ Склад деталей порожній!")
+            return
+        await state.set_state(PartEditingStates.select_part_for_delete)
+        kb = get_parts_inline_keyboard(parts)
+        await message.answer("🗑️ <b>Оберіть деталь зі списку для видалення:</b>", parse_mode=ParseMode.HTML, reply_markup=kb)
 
-    u_data = await app.storage.load_user(message.from_user.id)
-    lang = get_user_lang(u_data)
-    await open_parts_list(message, state, app, lang)
 
-
-@router.message(F.text.in_(["Назад", "Back"]))
+@router.message(
+    PartEditingStates.in_parts_list,
+    F.text.lower().in_(
+        [
+            "назад",
+            "back",
+            "⬅️ назад",
+            "⬅️ back",
+            "⬅️ до списку деталей",
+            "до списку деталей",
+            "⬅️ back to parts",
+            "back to parts",
+            "⬅️ назад до списку",
+            "назад до списку",
+        ]
+    ),
+)
+@router.message(
+    PartEditingStates.in_part_info,
+    F.text.lower().in_(
+        [
+            "назад",
+            "back",
+            "⬅️ назад",
+            "⬅️ back",
+            "⬅️ до списку деталей",
+            "до списку деталей",
+            "⬅️ back to parts",
+            "back to parts",
+            "⬅️ назад до списку",
+            "назад до списку",
+        ]
+    ),
+)
+@router.message(
+    F.text.lower().in_(
+        [
+            "⬅️ до списку деталей",
+            "до списку деталей",
+            "⬅️ back to parts",
+            "back to parts",
+            "⬅️ назад до списку деталей",
+        ]
+    )
+)
 async def back_to_main_menu_or_list(message: Message, state: FSMContext, app: Any) -> None:
     current_state = await state.get_state()
     u_data = await app.storage.load_user(message.from_user.id)
     lang = get_user_lang(u_data)
     is_admin = await app.is_user_admin(message.from_user.id)
 
-    if current_state == PartEditingStates.in_part_info:
+    if current_state in (
+        PartEditingStates.in_part_info,
+        PartEditingStates.property_edit,
+        PartEditingStates.select_part_for_print,
+        PartEditingStates.select_part_for_edit,
+        PartEditingStates.select_part_for_delete,
+    ):
         await open_parts_list(message, state, app, lang)
     else:
         await state.clear()
@@ -718,7 +902,33 @@ async def back_to_main_menu_or_list(message: Message, state: FSMContext, app: An
         await message.answer(t("warehouse_title", lang), reply_markup=kb)
 
 
-@router.message(F.text.lower().in_(["🧩 звіт pdf деталей", "звіт pdf деталей", "звіт деталей pdf", "📊 звіт pdf деталей", "/pdf_parts", "pdf parts", "🧩 звіт csv деталей", "звіт csv деталей", "звіт деталей csv", "/csv_parts", "csv parts"]))
+@router.message(
+    F.text.lower().in_(
+        [
+            "📊 звіт деталей (pdf)",
+            "звіт деталей (pdf)",
+            "📊 parts report (pdf)",
+            "parts report (pdf)",
+            "🧩 звіт pdf деталей",
+            "звіт pdf деталей",
+            "звіт деталей pdf",
+            "📊 звіт pdf деталей",
+            "звіт деталей",
+            "звіт по деталях",
+            "/pdf_parts",
+            "pdf parts",
+            "📊 звіт pdf",
+            "звіт pdf",
+            "📊 pdf report",
+            "pdf report",
+            "🧩 звіт csv деталей",
+            "звіт csv деталей",
+            "звіт деталей csv",
+            "/csv_parts",
+            "csv parts",
+        ]
+    )
+)
 async def handle_parts_pdf_report_bot(message: Message, app: Any):
     parts = await app.storage.load_parts()
 
@@ -731,12 +941,27 @@ async def handle_parts_pdf_report_bot(message: Message, app: Any):
 
     await message.answer_document(
         doc_file,
-        caption="🧩 <b>PDF Звіт складу готових деталей згенеровано!</b>\n\nФайл містить перелік усіх виготовлених деталей із назвою, моделлю принтера, пластиком, ціною, вагою та кількістю.",
+        caption="🧩 <b>PDF Звіт складу готових деталей згенеровано!</b>\n\nФайл містить виключно перелік усіх готових 3D деталей із назвою, моделлю принтера, пластиком, ціною, вагою та кількістю.",
         parse_mode=ParseMode.HTML,
     )
 
 
-@router.message(F.text.lower().in_(["🧵 звіт pdf котушок", "звіт pdf котушок", "звіт котушок pdf", "/pdf_spools", "pdf spools", "/csv_spools", "csv spools"]))
+@router.message(
+    F.text.lower().in_(
+        [
+            "🧵 звіт котушок (pdf)",
+            "звіт котушок (pdf)",
+            "🧵 звіт pdf котушок",
+            "звіт pdf котушок",
+            "звіт котушок pdf",
+            "звіт котушок",
+            "/pdf_spools",
+            "pdf spools",
+            "/csv_spools",
+            "csv spools",
+        ]
+    )
+)
 async def handle_spools_pdf_report_bot(message: Message, app: Any):
     spools = await app.storage.load_spools()
 
@@ -754,7 +979,30 @@ async def handle_spools_pdf_report_bot(message: Message, app: Any):
     )
 
 
-@router.message(F.text.lower().in_(["📊 звіт pdf", "📊 звіт pdf склада", "звіт pdf склада", "звіт pdf", "pdf склад", "📊 pdf report", "pdf report", "/pdf_warehouse", "pdf warehouse", "📊 звіт csv", "📊 звіт csv склада", "звіт csv склада", "звіт csv", "csv склад", "/csv_warehouse", "csv warehouse", "📊 csv report"]))
+@router.message(
+    F.text.lower().in_(
+        [
+            "🏢 загальний звіт складу (pdf)",
+            "загальний звіт складу (pdf)",
+            "🏢 загальний звіт (pdf)",
+            "загальний звіт (pdf)",
+            "📊 звіт pdf склада",
+            "звіт pdf склада",
+            "звіт всього складу",
+            "звіт всього складу (pdf)",
+            "pdf склад",
+            "📊 pdf warehouse",
+            "pdf warehouse",
+            "/pdf_warehouse",
+            "/warehouse_report",
+            "📊 звіт csv склада",
+            "звіт csv склада",
+            "csv склад",
+            "/csv_warehouse",
+            "csv warehouse",
+        ]
+    )
+)
 async def handle_warehouse_pdf_report_bot(message: Message, app: Any):
     spools = await app.storage.load_spools()
     parts = await app.storage.load_parts()

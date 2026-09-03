@@ -20,7 +20,8 @@ def get_main_keyboard(is_admin: bool, lang: str = "uk") -> ReplyKeyboardMarkup:
         [
             [KeyboardButton(text=t("btn_printers", lang)), KeyboardButton(text=t("btn_farm_status", lang))],
             [KeyboardButton(text=t("btn_warehouse", lang)), KeyboardButton(text=t("btn_parts_warehouse", lang))],
-            [KeyboardButton(text=t("btn_commercial", lang)), KeyboardButton(text=t("btn_notify_settings", lang))],
+            [KeyboardButton(text=t("btn_history", lang)), KeyboardButton(text=t("btn_commercial", lang))],
+            [KeyboardButton(text=t("btn_notify_settings", lang))],
         ]
     )
     if is_admin:
@@ -210,9 +211,10 @@ def get_spool_presets_inline_keyboard() -> InlineKeyboardMarkup:
 
 def get_filament_menu_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text=t("btn_add_spool", lang)), KeyboardButton(text=t("btn_mount_spool", lang))],
+        [KeyboardButton(text=t("btn_add_spool", lang)), KeyboardButton(text=t("btn_rfid_sync", lang))],
+        [KeyboardButton(text=t("btn_mount_spool", lang)), KeyboardButton(text=t("btn_unmount_spool", lang))],
         [KeyboardButton(text=t("btn_edit_spool", lang)), KeyboardButton(text=t("btn_delete_spool", lang))],
-        [KeyboardButton(text=t("btn_rfid_sync", lang)), KeyboardButton(text=t("btn_back", lang))],
+        [KeyboardButton(text=t("btn_back", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -360,14 +362,9 @@ def get_parts_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
         [
             KeyboardButton(text="🔍 Пошук" if not is_en else "🔍 Search"),
             KeyboardButton(text="➕ Добавити" if not is_en else "➕ Add"),
-            KeyboardButton(text="📊 Звіт PDF" if not is_en else "📊 PDF Report"),
         ],
         [
-            KeyboardButton(text="🚀 Кинути на друк" if not is_en else "🚀 Send to Print"),
-            KeyboardButton(text="✏️ Редагувати" if not is_en else "✏️ Edit"),
-        ],
-        [
-            KeyboardButton(text="🗑️ Видалити" if not is_en else "🗑️ Delete"),
+            KeyboardButton(text="📊 Звіт деталей (PDF)" if not is_en else "📊 Parts Report (PDF)"),
             KeyboardButton(text=t("btn_main_menu", lang)),
         ],
     ]
@@ -400,11 +397,20 @@ def construct_part_info_keyboard(part: dict[str, Any], lang: str = "uk") -> Inli
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_printer_select_inline_keyboard(part_id: str, printers: dict[str, Any], part: dict[str, Any] | None = None, lang: str = "uk", spools_map: dict | None = None) -> InlineKeyboardMarkup:
+def get_printer_select_inline_keyboard(
+    part_id: str,
+    printers: dict[str, Any],
+    part: dict[str, Any] | None = None,
+    lang: str = "uk",
+    spools_map: dict | None = None,
+) -> InlineKeyboardMarkup:
     from services.gcode_parser import check_compatibility, get_printer_active_filament
+    if isinstance(part, str):
+        lang = part
+        part = None
     buttons = []
-    printer_model = part.get("printer_model", "") if part else ""
-    filament_type = part.get("filament_type", "") if part else ""
+    printer_model = part.get("printer_model", "") if isinstance(part, dict) else ""
+    filament_type = part.get("filament_type", "") if isinstance(part, dict) else ""
 
     for p_id, p in printers.items():
         state_str = f" ({getattr(p, 'gcode_state', 'IDLE')})"
@@ -425,6 +431,9 @@ def get_part_action_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
         ],
         [
             KeyboardButton(text="🗑️ Видалити" if not is_en else "🗑️ Delete"),
+            KeyboardButton(text="⬅️ До списку деталей" if not is_en else "⬅️ Back to Parts"),
+        ],
+        [
             KeyboardButton(text=t("btn_main_menu", lang)),
         ],
     ]

@@ -214,17 +214,28 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             obj_id = parts[2]
             printer = app.printers.get(p_id)
             if printer:
-                await callback.answer(f"🚫 Пропускаю об'єкт #{obj_id}...")
-                ok, msg = await printer.skip_objects_async([int(obj_id)])
+                try:
+                    int_id = int(obj_id)
+                except ValueError:
+                    await callback.answer("⚠️ Некоректний ID об'єкта", show_alert=True)
+                    return
+
+                ok, msg = await printer.skip_objects_async([int_id])
                 if ok:
-                    await callback.answer(f"✅ Об'єкт {obj_id} успішно пропущено!", show_alert=True)
+                    await callback.answer(f"✅ Об'єкт #{obj_id} позначено на пропуск!", show_alert=True)
                     try:
                         from bot.keyboards import build_skip_objects_keyboard
-                        await callback.message.edit_reply_markup(
-                            reply_markup=build_skip_objects_keyboard(printer)
-                        )
-                    except Exception:
-                        pass
+                        if callback.message:
+                            await callback.message.edit_reply_markup(
+                                reply_markup=build_skip_objects_keyboard(printer)
+                            )
+                            await callback.message.answer(
+                                f"🚫 <b>Команду пропуску об'єкта #{obj_id} надіслано на принтер {html.escape(printer.name)}!</b>\n"
+                                f"ℹ️ Принтер омине цей об'єкт на наступних шарах друку.",
+                                parse_mode=ParseMode.HTML,
+                            )
+                    except Exception as e:
+                        logger.warning(f"Failed to update skip objects message: {e}")
                 else:
                     await callback.answer(f"⚠️ {msg}", show_alert=True)
                 return

@@ -248,7 +248,7 @@ def fetch_bambu_ftps_info(ip: str, access_code: str, target_filename: str = "") 
             return {}
 
         files = []
-        for folder in ["/", "/cache"]:
+        for folder in ["/sdcard", "/sdcard/cache", "/", "/cache"]:
             try:
                 flist = ftps.nlst(folder)
                 for f in flist:
@@ -285,7 +285,12 @@ def fetch_bambu_ftps_info(ip: str, access_code: str, target_filename: str = "") 
 
         clean_filename = chosen_file.split("/")[-1]
         buf = io.BytesIO()
-        ftps.retrbinary(f"RETR {clean_filename}", buf.write)
+        try:
+            ftps.retrbinary(f"RETR {clean_filename}", buf.write)
+        except Exception:
+            # Fallback to full path RETR if relative failed
+            ftps.cwd("/")
+            ftps.retrbinary(f"RETR {chosen_file}", buf.write)
 
         data_bytes = buf.getvalue()
         if not data_bytes:

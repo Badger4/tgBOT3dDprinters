@@ -323,14 +323,37 @@ class StorageManager:
             },
         }
         data = await self.load_json(self.spools_file, default_spools)
+        raw_dict = {}
         if isinstance(data, list):
-            return {s["id"]: s for s in data if isinstance(s, dict) and "id" in s}
-        if isinstance(data, dict):
-            return data
-        return default_spools
+            raw_dict = {s["id"]: s for s in data if isinstance(s, dict) and "id" in s}
+        elif isinstance(data, dict):
+            raw_dict = data
+        else:
+            raw_dict = default_spools
+
+        # Filter out depleted spools (remaining_grams <= 0.0)
+        filtered = {}
+        for s_id, s in raw_dict.items():
+            if isinstance(s, dict):
+                try:
+                    rem_g = float(s.get("remaining_grams", 1000.0))
+                except (ValueError, TypeError):
+                    rem_g = 1000.0
+                if rem_g > 0.0:
+                    filtered[s_id] = s
+        return filtered
 
     async def save_spools(self, spools: dict[str, dict[str, Any]]) -> bool:
-        return await self.save_json(self.spools_file, spools)
+        filtered = {}
+        for s_id, s in spools.items():
+            if isinstance(s, dict):
+                try:
+                    rem_g = float(s.get("remaining_grams", 1000.0))
+                except (ValueError, TypeError):
+                    rem_g = 1000.0
+                if rem_g > 0.0:
+                    filtered[s_id] = s
+        return await self.save_json(self.spools_file, filtered)
 
     async def load_parts(self) -> dict[str, dict[str, Any]]:
         data = await self.load_json(self.parts_file, {})

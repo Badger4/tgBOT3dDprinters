@@ -43,16 +43,27 @@ async def handle_list_printers(message: Message, app):
 
 
 def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False) -> str:
+    is_online = getattr(target_printer, "is_online", True)
     st_code = getattr(target_printer, "gcode_state", "IDLE")
-    if st_code == "RUNNING":
+
+    if not is_online or st_code in ["OFFLINE", "DISCONNECTED", "UNKNOWN"]:
+        state_emoji = "🔴"
+        state_label = "🔴 Офлайн (Вимкнений)" if not is_en else "🔴 Offline (Powered off)"
+    elif st_code in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PRINTING"]:
         state_emoji = "🟢"
         state_label = "🟢 Друкує" if not is_en else "🟢 Printing"
-    elif st_code == "PAUSE":
+    elif st_code in ["PAUSE", "PAUSED"]:
         state_emoji = "⏸️"
         state_label = "⏸️ Пауза" if not is_en else "⏸️ Paused"
+    elif st_code == "FINISH":
+        state_emoji = "🎉"
+        state_label = "🎉 Друк завершено" if not is_en else "🎉 Finished"
+    elif st_code in ["FAILED", "CANCEL"]:
+        state_emoji = "⚠️"
+        state_label = "⚠️ Помилка/Скасовано" if not is_en else "⚠️ Failed/Cancelled"
     else:
         state_emoji = "⚪"
-        state_label = "⚪ Готовий" if not is_en else "⚪ Ready"
+        state_label = "⚪ Готовий до друку" if not is_en else "⚪ Ready"
 
     nozzle_target = getattr(target_printer, "nozzle_target_temper", 0)
     bed_target = getattr(target_printer, "bed_target_temper", 0)
@@ -419,17 +430,19 @@ async def handle_add_printer_start(message: Message, app):
     )
 
 
-@router.message(
-    F.func(
-        lambda m: (
-            m.text
-            and (
-                m.text.startswith("🖨️ ")
-                or any(m.text.lower() == p.name.lower() for p in getattr(m, "_app_printers", {}).values())
-            )
-        )
-    )
-)
+async def printer_by_name_filter(message: Message, app) -> bool:
+    if not message.text:
+        return False
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    state = user.get("state", "idle")
+    if state not in ["idle", "printer_menu", "printers_list"]:
+        return False
+    text = message.text.strip()
+    return text.startswith("🖨️ ") or any(text.lower() == p.name.lower() for p in app.printers.values())
+
+
+@router.message(printer_by_name_filter)
 async def handle_select_printer_by_name(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -523,6 +536,8 @@ async def printer_state_filter(message: Message, app) -> bool:
     state = user.get("state", "idle")
     if state in PRINTER_STATES:
         return True
+    if state not in ["idle", "printer_menu", "printers_list"]:
+        return False
     text = message.text.strip()
     for printer in app.printers.values():
         if text == f"🖨️ {printer.name}" or text.lower() == printer.name.lower():

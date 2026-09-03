@@ -26,6 +26,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "uk": "🧩 Склад деталей",
         "en": "🧩 Parts Stock",
     },
+    "btn_history": {
+        "uk": "📜 Історія друку",
+        "en": "📜 Print History",
+    },
     "btn_commercial": {
         "uk": "💰 Комерція",
         "en": "💰 Commercial",
@@ -48,8 +52,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "➕ Add Spool",
     },
     "btn_mount_spool": {
-        "uk": "🔗 Монтаж / Зняття",
-        "en": "🔗 Mount / Unmount",
+        "uk": "🔗 Встановити на принтер",
+        "en": "🔗 Mount to Printer",
     },
     "btn_unmount_spool": {
         "uk": "🔓 Зняти з принтера",

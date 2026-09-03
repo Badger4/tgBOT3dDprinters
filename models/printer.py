@@ -261,6 +261,20 @@ class BambuPrinter:
         return None
 
     @property
+    def is_online(self) -> bool:
+        """Checks if the printer is actively connected and responding to MQTT telemetry."""
+        if not getattr(self, "is_mqtt_connected", False):
+            return False
+        last_time = getattr(self, "last_mqtt_msg_time", 0.0)
+        if last_time > 0 and (time.time() - last_time > 20.0):
+            return False
+        return True
+
+    @property
+    def online(self) -> bool:
+        return self.is_online
+
+    @property
     def filament_grams(self) -> float:
         """Returns the current remaining grams for the active slot or printer."""
         return self.get_slot_grams()
@@ -379,9 +393,12 @@ class BambuPrinter:
 
     def _on_disconnect(self, client: Any, userdata: Any, rc: int) -> None:
         self.is_mqtt_connected = False
+        self.gcode_state = "OFFLINE"
         logger.warning(f"⚠️ MQTT disconnected for [{self.name}] (code: {rc})")
 
     def _on_error(self, client: Any, userdata: Any, rc: Any) -> None:
+        self.is_mqtt_connected = False
+        self.gcode_state = "OFFLINE"
         logger.error(f"❌ MQTT error [{self.name}]: {rc}")
 
     def _trigger_save(self) -> None:
@@ -755,7 +772,7 @@ class BambuPrinter:
                                 except Exception:
                                     pass
 
-                        note_text = "Успішно виконано" if self.gcode_state == "FINISH" else "Завершено"
+                        note_text = "Завершено"
 
                         raw_title = getattr(self, "_custom_job_name", None) or str(self.subtask_name or "").strip()
                         raw_title = raw_title.replace("Metadata/", "").replace("metadata/", "").strip()
@@ -979,8 +996,11 @@ class BambuPrinter:
         Sends MQTT print.skip_objects command to skip specific object IDs on the current plate.
         Does not stop the print job.
         """
-        if not self._client or not self._client.is_connected():
-            return False, "Принтер не підключений по MQTT"
+        is_conn = (self._client and hasattr(self._client, "is_connected") and self._client.is_connected()) or getattr(self, "is_mqtt_connected", False)
+        if not self._client or not is_conn:
+            return False, "Принтер не підключений по MQTT або вимкнений"
+        if not self.serial_number:
+            return False, "Серійний номер принтера не вказано"
         if not obj_ids or not isinstance(obj_ids, list):
             return False, "Необхідно вказати список ID об'єктів для пропуску"
 
@@ -996,9 +1016,12 @@ class BambuPrinter:
             }
         }
         topic = f"device/{self.serial_number}/request"
-        result = self._client.publish(topic, json.dumps(payload), qos=1)
-        if result.rc != mqtt.MQTT_ERR_SUCCESS:
-            return False, "Не вдалося відправити MQTT команду пропуску об'єктів"
+        try:
+            result = self._client.publish(topic, json.dumps(payload), qos=1)
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                return False, f"Не вдалося відправити MQTT команду (код {result.rc})"
+        except Exception as e:
+            return False, f"Помилка відправки команди: {e}"
 
         for oid in int_obj_ids:
             if oid not in self.skipped_objects:
@@ -1228,8 +1251,12 @@ class BambuPrinter:
 
     @property
     def mapped_state(self) -> str:
-        """Maps internal gcode_state into 3 canonical user-facing states: RUNNING, PAUSE, IDLE."""
+        """Maps internal gcode_state into canonical user-facing states: RUNNING, PAUSE, IDLE, OFFLINE."""
+        if not getattr(self, "is_online", True):
+            return "OFFLINE"
         st = str(self.gcode_state or "IDLE").upper()
+        if st in ["OFFLINE", "DISCONNECTED", "UNKNOWN"]:
+            return "OFFLINE"
         if st in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PRINTING", "SLICING", "BUSY", "CHANGING_FILAMENT", "MAM_CLEANING"]:
             return "RUNNING"
         if st in ["PAUSE", "PAUSED"]:

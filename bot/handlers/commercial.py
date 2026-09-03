@@ -8,6 +8,7 @@ import uuid
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import (
+    BufferedInputFile,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -82,13 +83,59 @@ def get_commercial_menu_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     is_en = lang == "en"
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🧮 Quick Price Calculation" if is_en else "🧮 Швидкий розрахунок ціни")],
-            [KeyboardButton(text="➕ Create Preset" if is_en else "➕ Створити пресет"), KeyboardButton(text="📋 Copy Preset" if is_en else "📋 Копіювати пресет")],
-            [KeyboardButton(text="✏️ Edit Preset" if is_en else "✏️ Редагувати пресет"), KeyboardButton(text="🗑️ Delete Preset" if is_en else "🗑️ Видалити пресет")],
+            [
+                KeyboardButton(text="🧮 Quick Price Calculation" if is_en else "🧮 Швидкий розрахунок ціни"),
+                KeyboardButton(text="📊 Commercial Report (PDF)" if is_en else "📊 Комерційний звіт (PDF)"),
+            ],
+            [
+                KeyboardButton(text="➕ Create Preset" if is_en else "➕ Створити пресет"),
+                KeyboardButton(text="📋 Copy Preset" if is_en else "📋 Копіювати пресет"),
+            ],
+            [
+                KeyboardButton(text="✏️ Edit Preset" if is_en else "✏️ Редагувати пресет"),
+                KeyboardButton(text="🗑️ Delete Preset" if is_en else "🗑️ Видалити пресет"),
+            ],
             [KeyboardButton(text="⬅️ Main Menu" if is_en else "⬅️ Головне меню")],
         ],
         resize_keyboard=True,
     )
+
+
+@router.message(
+    F.text.lower().in_(
+        [
+            "📊 комерційний звіт (pdf)",
+            "комерційний звіт (pdf)",
+            "📊 commercial report (pdf)",
+            "commercial report (pdf)",
+            "📊 звіт pdf",
+            "звіт pdf",
+            "комерційний звіт",
+            "commercial report",
+        ]
+    )
+)
+async def handle_commercial_pdf_report(message: Message, app):
+    chat_id = str(message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        return
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    presets = await get_user_presets(app)
+
+    import time
+    from services.report_generator import generate_commercial_pdf_report
+
+    pdf_bytes = generate_commercial_pdf_report(presets, lang=u_lang)
+    now_f = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"commercial_report_{now_f}.pdf"
+    doc_file = BufferedInputFile(pdf_bytes, filename=filename)
+    cap = (
+        "📊 <b>Комерційний PDF-звіт пресетів та розрахунку</b>"
+        if u_lang != "en"
+        else "📊 <b>Commercial PDF Presets & Calculation Report</b>"
+    )
+    await message.answer_document(doc_file, caption=cap, parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text.lower().in_(["💰 комерція", "комерція", "калькулятор ціни", "пресети", "💰 commercial", "commercial"]))
@@ -112,9 +159,15 @@ async def handle_commercial_menu(message: Message, app):
             "<b>📋 Available Presets:</b>\n"
         )
         for p in presets.values():
+            p_name = html.escape(str(p.get("name", "Preset")))
+            p_pr = p.get("price_per_g", 0.85)
+            p_el = p.get("electricity_rate_uah", 4.32)
+            p_depr = p.get("depreciation_val", "10")
+            p_cons = p.get("consumables_val", "5")
+            p_prof = p.get("profit_val", "100%")
             txt += (
-                f"• <b>{html.escape(p['name'])}</b>\n"
-                f"  <i>Filament: {p['price_per_g']}UAH/g | Power: {p['electricity_rate_uah']}UAH | Depr: {p['depreciation_val']} | Consumables: {p['consumables_val']} | Margin: {p['profit_val']}</i>\n"
+                f"• <b>{p_name}</b>\n"
+                f"  <i>Filament: {p_pr}UAH/g | Power: {p_el}UAH | Depr: {p_depr} | Consumables: {p_cons} | Margin: {p_prof}</i>\n"
             )
     else:
         txt = (
@@ -123,9 +176,15 @@ async def handle_commercial_menu(message: Message, app):
             "<b>📋 Наявні пресети:</b>\n"
         )
         for p in presets.values():
+            p_name = html.escape(str(p.get("name", "Пресет")))
+            p_pr = p.get("price_per_g", 0.85)
+            p_el = p.get("electricity_rate_uah", 4.32)
+            p_depr = p.get("depreciation_val", "10")
+            p_cons = p.get("consumables_val", "5")
+            p_prof = p.get("profit_val", "100%")
             txt += (
-                f"• <b>{html.escape(p['name'])}</b>\n"
-                f"  <i>Пластик: {p['price_per_g']}грн/г | Світло: {p['electricity_rate_uah']}грн | Аморт: {p['depreciation_val']} | Витрат: {p['consumables_val']} | Маржа: {p['profit_val']}</i>\n"
+                f"• <b>{p_name}</b>\n"
+                f"  <i>Пластик: {p_pr}грн/г | Світло: {p_el}грн | Аморт: {p_depr} | Витрат: {p_cons} | Маржа: {p_prof}</i>\n"
             )
 
     await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_commercial_menu_keyboard(lang=u_lang))
@@ -392,42 +451,55 @@ async def handle_commercial_wizard(message: Message, app):
         user["state"] = "edit_preset_field_choice"
         await app.storage.save_user(user)
 
+        p_name = target.get("name", "Пресет")
+        p_pr = target.get("price_per_g", 0.85)
+        p_el = target.get("electricity_rate_uah", 4.32)
+        p_depr = target.get("depreciation_val", "10")
+        p_cons = target.get("consumables_val", "5")
+        p_prof = target.get("profit_val", "100%")
+        p_id = target.get("id", "")
         inline_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=f"🧵 Ціна пластику ({target['price_per_g']}грн/г)",
-                        callback_data=f"edit_p_field_price_{target['id']}",
+                        text=f"🏷️ Назва ({p_name})",
+                        callback_data=f"edit_p_field_name_{p_id}",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        text=f"⚡ Світло ({target['electricity_rate_uah']}грн)",
-                        callback_data=f"edit_p_field_elec_{target['id']}",
+                        text=f"🧵 Ціна пластику ({p_pr}грн/г)",
+                        callback_data=f"edit_p_field_price_{p_id}",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        text=f"🔧 Амортизація ({target['depreciation_val']})",
-                        callback_data=f"edit_p_field_depr_{target['id']}",
+                        text=f"⚡ Світло ({p_el}грн)",
+                        callback_data=f"edit_p_field_elec_{p_id}",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        text=f"🧼 Витратники ({target['consumables_val']})",
-                        callback_data=f"edit_p_field_cons_{target['id']}",
+                        text=f"🔧 Амортизація ({p_depr})",
+                        callback_data=f"edit_p_field_depr_{p_id}",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        text=f"💼 Прибуток ({target['profit_val']})",
-                        callback_data=f"edit_p_field_profit_{target['id']}",
+                        text=f"🧼 Витратники ({p_cons})",
+                        callback_data=f"edit_p_field_cons_{p_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text=f"💼 Прибуток ({p_prof})",
+                        callback_data=f"edit_p_field_profit_{p_id}",
                     )
                 ],
             ]
         )
         await message.answer(
-            f"✏️ <b>Редагування пресету: {html.escape(target['name'])}</b>\nОберіть параметр для зміни:",
+            f"✏️ <b>Редагування пресету: {html.escape(p_name)}</b>\nОберіть параметр для зміни:",
             parse_mode=ParseMode.HTML,
             reply_markup=inline_kb,
         )
@@ -509,7 +581,22 @@ async def handle_commercial_wizard(message: Message, app):
             f"-----------------------------------\n"
             f"🏷️ <b>ПІДСУМКОВА ВАРТІСТЬ ДЛЯ КЛІЄНТА:</b> <code>{res['total_price']:.2f} грн</code>"
         )
-        await message.answer(calc_txt, parse_mode=ParseMode.HTML, reply_markup=get_commercial_menu_keyboard())
+        u_lang = user.get("language", "uk")
+        inline_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📄 Завантажити розрахунок (PDF)" if u_lang != "en" else "📄 Download Quote (PDF)",
+                        callback_data=f"comm_quote_pdf_{target['id']}_{int(w)}_{int(t_mins)}",
+                    )
+                ]
+            ]
+        )
+        await message.answer(
+            calc_txt,
+            parse_mode=ParseMode.HTML,
+            reply_markup=inline_kb,
+        )
         return True
 
     # 6. INLINE FIELD EDIT VALUE
@@ -523,7 +610,9 @@ async def handle_commercial_wizard(message: Message, app):
             await handle_commercial_menu(message, app)
             return True
 
-        if field == "price_per_g":
+        if field == "name":
+            p["name"] = text.strip()
+        elif field == "price_per_g":
             try:
                 v = float(text.replace(",", "."))
                 p["price_per_g"] = v / 1000.0 if v >= 50 else v
@@ -557,9 +646,10 @@ async def handle_edit_preset_field_callback(callback: CallbackQuery, app):
     parts = callback.data.split("_")
     if len(parts) >= 5:
         field_type = parts[3]
-        pid = parts[4]
+        pid = "_".join(parts[4:])
 
         field_map = {
+            "name": ("name", "Введіть нову назву для цього пресету:"),
             "price": ("price_per_g", "Введіть нову ціну нитки (грн/г або грн/кг, наприклад: 0.85 або 850):"),
             "elec": ("electricity_rate_uah", "Введіть новий тариф електроенергії (грн/кВт·год, наприклад: 4.32):"),
             "depr": ("depreciation_val", "Введіть нову амортизацію (наприклад: 10 або 15%):"),
@@ -578,3 +668,42 @@ async def handle_edit_preset_field_callback(callback: CallbackQuery, app):
 
             await callback.answer()
             await callback.message.reply(prompt_txt, parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data.startswith("comm_quote_pdf_"))
+async def handle_commercial_quote_pdf_callback(callback: CallbackQuery, app):
+    parts = callback.data.split("_")
+    if len(parts) >= 6:
+        pid = "_".join(parts[3:-2])
+        try:
+            w = float(parts[-2])
+            t_mins = int(parts[-1])
+        except ValueError:
+            w = 100.0
+            t_mins = 60
+        presets = await get_user_presets(app)
+        target = presets.get(pid)
+        if not target:
+            await callback.answer("⚠️ Пресет не знайдено!", show_alert=True)
+            return
+        user = await app.storage.load_user(str(callback.from_user.id))
+        u_lang = user.get("language", "uk")
+        pending_file = user.get("context_data", {}).get("pending_file", {})
+        fname = pending_file.get("filename") if pending_file else None
+
+        import time
+        from services.report_generator import generate_commercial_calc_pdf
+
+        pdf_bytes = generate_commercial_calc_pdf(res, filename=fname, lang=u_lang)
+        now_f = time.strftime("%Y%m%d_%H%M%S")
+        clean_fn = f"_{fname.rsplit('.', 1)[0]}" if fname else ""
+        filename = f"commercial_quote{clean_fn}_{now_f}.pdf"
+        doc_file = BufferedInputFile(pdf_bytes, filename=filename)
+        file_label = f" ({html.escape(fname)})" if fname else ""
+        cap = (
+            f"💼 <b>Комерційний розрахунок для клієнта: {html.escape(target['name'])}{file_label}</b>"
+            if u_lang != "en"
+            else f"💼 <b>Commercial Quotation: {html.escape(target['name'])}{file_label}</b>"
+        )
+        await callback.message.answer_document(doc_file, caption=cap, parse_mode=ParseMode.HTML)
+        await callback.answer()

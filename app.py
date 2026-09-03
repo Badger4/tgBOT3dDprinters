@@ -147,6 +147,11 @@ class PrinterBotApp:
                     p._main_loop = main_loop
                     if not getattr(p, "storage", None):
                         p.storage = self.storage
+
+                    is_online = getattr(p, "is_online", True)
+                    if not is_online and p.gcode_state not in ["OFFLINE", "UNKNOWN"]:
+                        p.gcode_state = "OFFLINE"
+
                     if p.id not in self.printer_states:
                         self.printer_states[p.id] = {
                             "lastState": p.gcode_state,
@@ -160,7 +165,7 @@ class PrinterBotApp:
                     st = self.printer_states[p.id]
                     curr_state = p.gcode_state
 
-                    if curr_state == "RUNNING":
+                    if curr_state == "RUNNING" and is_online:
                         is_any_printing = True
 
                     # 1. Start Notification & Filament Warning
@@ -234,31 +239,45 @@ class PrinterBotApp:
                                     st[time_key] = False
 
                     # Low Filament Threshold Warning
-                    all_users = await self.storage.load_all_users()
-                    for chat_id, udata in all_users.items():
-                        if udata.get("chat_active") is False:
-                            continue
-                        is_app = udata.get("is_approved", False) or await self.is_user_admin(chat_id)
-                        if not is_app:
-                            continue
-                        u_notify = udata.get("notify", {})
-                        raw_fil = u_notify.get("min_filament")
-                        min_fil = float(raw_fil) if raw_fil and float(raw_fil) > 0 else 100.0
+                    is_printer_online = getattr(p, "online", False) and getattr(p, "is_mqtt_connected", True) and p.gcode_state not in ["OFFLINE", "UNKNOWN"]
+                    if is_printer_online and p.filament_grams > 0.0:
+                        all_users = await self.storage.load_all_users()
+                        for chat_id, udata in all_users.items():
+                            if udata.get("chat_active") is False:
+                                continue
+                            is_app = udata.get("is_approved", False) or await self.is_user_admin(chat_id)
+                            if not is_app:
+                                continue
+                            u_notify = udata.get("notify", {})
+                            raw_fil = u_notify.get("min_filament")
+                            try:
+                                min_fil = float(raw_fil) if raw_fil is not None else 0.0
+                            except (ValueError, TypeError):
+                                min_fil = 0.0
 
-                        fil_key = f"notifiedLowFilament_{chat_id}_{p.id}"
-                        if p.filament_grams <= min_fil:
-                            if not st.get(fil_key):
-                                fil_txt = (
-                                    f"📦 *Гей! Автоматичне попередження про малий залишок нитки!*\n"
-                                    f"🖨️ **Принтер:** *{p.name}*\n"
-                                    f"🧵 **Залишок на бабіні:** *{p.filament_grams}g* (поріг: ≤{int(min_fil)}g)\n"
-                                    f"⚠️ На бабіні замало пластику! Підготуй нову котушку, не кажи потім, що я не попереджала, Бака! 😤"
-                                )
-                                sent = await self.safe_send_message(chat_id, fil_txt, parse_mode=ParseMode.MARKDOWN)
-                                if sent:
-                                    st[fil_key] = True
-                        elif p.filament_grams > min_fil:
-                            st[fil_key] = False
+                            # If threshold is <= 0, warning is disabled for this user
+                            if min_fil <= 0.0:
+                                continue
+
+                            fil_key = f"notifiedLowFilament_{chat_id}_{p.id}"
+                            if p.filament_grams <= min_fil:
+                                if not st.get(fil_key):
+                                    fil_txt = (
+                                        f"📦 *Гей! Автоматичне попередження про малий залишок нитки!*\n"
+                                        f"🖨️ **Принтер:** *{p.name}*\n"
+                                        f"🧵 **Залишок на бабіні:** *{p.filament_grams}g* (поріг: ≤{int(min_fil)}g)\n"
+                                        f"⚠️ На бабіні замало пластику! Підготуй нову котушку, не кажи потім, що я не попереджала, Бака! 😤"
+                                    )
+                                    sent = await self.safe_send_message(chat_id, fil_txt, parse_mode=ParseMode.MARKDOWN)
+                                    if sent:
+                                        st[fil_key] = True
+                            elif p.filament_grams > min_fil:
+                                st[fil_key] = False
+                    elif p.filament_grams <= 0.0 or not is_printer_online:
+                        # Reset low filament flags if spool was removed or printer is off/disconnected
+                        for k in list(st.keys()):
+                            if k.startswith("notifiedLowFilament_"):
+                                st[k] = False
 
                     # 2. Pause Notification
                     if curr_state == "PAUSE" and st["lastState"] != "PAUSE":
@@ -327,7 +346,7 @@ class PrinterBotApp:
                                 "subtask_name": clean_subtask,
                                 "weight_g": round(float(final_weight), 1),
                                 "filament_type": p.filament_type,
-                                "note": "Успішно виконано",
+                                "note": "Завершено",
                             }
                             await self.storage.add_history_entry(entry)
                             p._history_recorded = True

@@ -81,6 +81,12 @@ async def handle_save_spool(request: web.Request) -> web.Response:
         new_weight = float(data.get("remaining_grams", 1000.0))
         spool_name = data.get("name", existing.get("name", "Котушка"))
 
+        if new_weight <= 0.0:
+            if spool_id in spools:
+                del spools[spool_id]
+            await app_obj.storage.save_spools(spools)
+            return web.json_response({"status": "deleted", "spool_id": spool_id, "message": "Котушку видалено через нульову вагу"})
+
         spools[spool_id] = {
             "id": spool_id,
             "name": spool_name,
