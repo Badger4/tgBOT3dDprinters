@@ -7,7 +7,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from bot.states import PartEditingStates
-from functions.i18n import get_user_lang
+from utils.i18n import get_user_lang
 
 router = Router()
 

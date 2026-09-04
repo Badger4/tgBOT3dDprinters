@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from bot.keyboards import get_part_action_reply_keyboard, construct_part_info_keyboard
 from bot.states import PartCreatingStates, PartEditingStates
-from functions.i18n import get_user_lang
+from utils.i18n import get_user_lang
 from bot.handlers.parts.view import send_part_info
 
 router = Router()

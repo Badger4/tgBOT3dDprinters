@@ -8,8 +8,8 @@ from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup
 from bot.keyboards import get_filament_menu_keyboard, get_spool_presets_inline_keyboard
-from functions.math_eval import safe_eval_math
-from functions.filament_utils import extract_filament_type_from_name
+from utils.math_eval import safe_eval_math
+from utils.filament_utils import extract_filament_type_from_name
 
 router = Router()
 

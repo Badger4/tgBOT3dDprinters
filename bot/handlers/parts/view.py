@@ -17,7 +17,7 @@ from bot.keyboards import (
     get_parts_reply_keyboard,
 )
 from bot.states import PartEditingStates
-from functions.i18n import get_user_lang
+from utils.i18n import get_user_lang
 
 router = Router()
 
