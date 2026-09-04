@@ -29,18 +29,25 @@ class StorageManager:
         self.settings_file = self.base_dir / "global_settings.json"
         self.spools_file = self.base_dir / "spools.json"
         self.parts_file = self.base_dir / "parts.json"
+        self.presets_file = self.base_dir / "presets.json"
         self.history_file = self.base_dir / "history.json"
         self.movements_file = self.base_dir / "warehouse_movements.json"
         self._file_locks: dict[Path, asyncio.Lock] = {}
+        self._kv_cache: dict[str, Any] = {}
+        self._user_cache: dict[str, Any] = {}
 
         self._init_db()
 
+    def _get_db(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, timeout=20.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        return conn
+
     def _init_db(self) -> None:
         """Initializes SQLite schema with WAL mode for SD card flash protection."""
-        conn = sqlite3.connect(self.db_path, timeout=20.0)
+        conn = self._get_db()
         try:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA synchronous=NORMAL;")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS kv_store (
                     key TEXT PRIMARY KEY,
@@ -70,7 +77,7 @@ class StorageManager:
             key = path.name
 
             def _query_db() -> Any:
-                conn = sqlite3.connect(self.db_path, timeout=20.0)
+                conn = self._get_db()
                 try:
                     cur = conn.execute("SELECT val FROM kv_store WHERE key = ?", (key,))
                     row = cur.fetchone()
@@ -97,7 +104,7 @@ class StorageManager:
                     now = time.time()
 
                     def _save_imported() -> None:
-                        conn = sqlite3.connect(self.db_path, timeout=20.0)
+                        conn = self._get_db()
                         try:
                             conn.execute(
                                 "INSERT INTO kv_store (key, val, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET val=excluded.val, updated_at=excluded.updated_at",
@@ -121,7 +128,7 @@ class StorageManager:
             now = time.time()
 
             def _write_db() -> bool:
-                conn = sqlite3.connect(self.db_path, timeout=20.0)
+                conn = self._get_db()
                 try:
                     conn.execute(
                         "INSERT INTO kv_store (key, val, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET val=excluded.val, updated_at=excluded.updated_at",
@@ -141,15 +148,8 @@ class StorageManager:
         user_id_str = str(user_id)
 
         def _get_user_db() -> dict[str, Any] | None:
-            conn = sqlite3.connect(self.db_path, timeout=20.0)
+            conn = self._get_db()
             try:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        user_id TEXT PRIMARY KEY,
-                        data TEXT NOT NULL,
-                        updated_at REAL NOT NULL
-                    );
-                """)
                 cur = conn.execute("SELECT data FROM users WHERE user_id = ?", (user_id_str,))
                 row = cur.fetchone()
                 return json.loads(row[0]) if row else None
@@ -220,15 +220,8 @@ class StorageManager:
         now = time.time()
 
         def _save_user_db() -> None:
-            conn = sqlite3.connect(self.db_path, timeout=20.0)
+            conn = self._get_db()
             try:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        user_id TEXT PRIMARY KEY,
-                        data TEXT NOT NULL,
-                        updated_at REAL NOT NULL
-                    );
-                """)
                 conn.execute(
                     "INSERT INTO users (user_id, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
                     (user_id_str, val_str, now),
@@ -249,7 +242,7 @@ class StorageManager:
             return False
 
         def _delete_db() -> bool:
-            conn = sqlite3.connect(self.db_path, timeout=20.0)
+            conn = self._get_db()
             try:
                 conn.execute("DELETE FROM users WHERE user_id = ?", (user_id_str,))
                 conn.commit()
@@ -277,7 +270,7 @@ class StorageManager:
 
     async def load_all_users(self) -> dict[str, dict[str, Any]]:
         def _get_all_db_users() -> dict[str, dict[str, Any]]:
-            conn = sqlite3.connect(self.db_path, timeout=20.0)
+            conn = self._get_db()
             try:
                 cur = conn.execute("SELECT user_id, data FROM users")
                 return {row[0]: json.loads(row[1]) for row in cur.fetchall()}
@@ -365,6 +358,18 @@ class StorageManager:
 
     async def save_parts(self, parts: dict[str, dict[str, Any]]) -> bool:
         return await self.save_json(self.parts_file, parts)
+
+    async def load_presets(self) -> dict[str, dict[str, Any]]:
+        data = await self.load_json(self.presets_file, {})
+        if isinstance(data, list):
+            return {p["id"]: p for p in data if isinstance(p, dict) and "id" in p}
+        if isinstance(data, dict):
+            return data
+        return {}
+
+    async def save_presets(self, presets: dict[str, dict[str, Any]]) -> bool:
+        return await self.save_json(self.presets_file, presets)
+
 
     async def load_spool_movements(self) -> list[dict[str, Any]]:
         """Loads warehouse movement audit history."""

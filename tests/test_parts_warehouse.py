@@ -123,7 +123,7 @@ class TestPartsWarehouseAPI(AioHTTPTestCase):
 
         resp = await self.client.get("/api/parts/export_csv")
         self.assertEqual(resp.status, 200)
-        self.assertIn("text/csv", resp.headers.get("Content-Type", ""))
+        self.assertIn("application/pdf", resp.headers.get("Content-Type", ""))
 
     async def test_parts_print_compatibility_and_errors(self):
         part_payload = {

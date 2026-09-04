@@ -299,7 +299,7 @@ async def handle_delete_history(request: web.Request) -> web.Response:
 
 
 async def handle_export_history_csv(request: web.Request) -> web.Response:
-    """GET /api/history/export - Exports completed print jobs history as CSV file."""
+    """GET /api/history/export - Exports completed print jobs history as PDF file."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
@@ -309,15 +309,15 @@ async def handle_export_history_csv(request: web.Request) -> web.Response:
     else:
         history = await app_obj.storage.load_json(app_obj.storage.history_file, [])
 
-    from services.report_generator import generate_csv_report
+    from services.report_generator import generate_history_pdf_report
 
-    csv_bytes = generate_csv_report(history)
-    filename = f"farm_history_{int(time.time())}.csv"
+    pdf_bytes = generate_history_pdf_report(history)
+    filename = f"farm_history_{int(time.time())}.pdf"
     return web.Response(
-        body=csv_bytes,
+        body=pdf_bytes,
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Type": "application/pdf",
         },
     )
 

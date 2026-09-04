@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated filament consumption tracking per AMS slot
 - Server-Sent Events (SSE) live dashboard
 - Commercial print cost calculator with flexible presets
-- Print history with CSV export (UTF-8-BOM for Excel)
+- Print history with PDF export
 - User access control with admin approval system
 - Maintenance hour tracking per printer component
 - OrcaSlicer post-processing hook integration

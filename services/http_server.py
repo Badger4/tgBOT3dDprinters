@@ -72,7 +72,9 @@ from services.http.routes_spools import (
     handle_export_warehouse_csv,
     handle_get_spool_movements,
     handle_get_spools,
+    handle_mount_spool,
     handle_save_spool,
+    handle_unmount_spool,
 )
 from services.http.routes_sse import handle_sse_stream
 
@@ -140,6 +142,8 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_get("/api/spools/movements", handle_get_spool_movements)
     web_app.router.add_get("/api/spools/movements/export_csv", handle_export_movements_csv)
     web_app.router.add_post("/api/spools", handle_save_spool)
+    web_app.router.add_post("/api/spools/{id}/mount", handle_mount_spool)
+    web_app.router.add_post("/api/spools/{id}/unmount", handle_unmount_spool)
     web_app.router.add_delete("/api/spools/{id}", handle_delete_spool)
     web_app.router.add_get("/api/spools/export_csv", handle_export_warehouse_csv)
     web_app.router.add_get("/api/spools/export_pdf", handle_export_spools_pdf)

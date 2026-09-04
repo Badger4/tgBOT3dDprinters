@@ -200,14 +200,11 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
 
         resp = await self.client.get("/api/history/export")
         assert resp.status == 200
-        assert "text/csv" in resp.headers["Content-Type"]
+        assert "application/pdf" in resp.headers["Content-Type"]
         assert "Content-Disposition" in resp.headers
 
-        text = await resp.text()
-        assert "Принтер" in text
-        assert "P1" in text
-        assert "Model" in text
-        assert "1000.0" in text
+        pdf_bytes = await resp.read()
+        assert pdf_bytes.startswith(b"%PDF")
 
     async def test_get_settings(self):
         resp = await self.client.get("/api/settings")

@@ -2759,7 +2759,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 history_title: "Аналітика & Історія",
                 refresh_btn: "Оновити",
                 clear_btn: "Очистити",
-                export_csv_btn: "Звіт (CSV)",
+                export_pdf_btn: "Звіт (PDF)",
                 total_jobs_label: "Всього друків",
                 total_filament_label: "Витрачено нитки",
                 completed_jobs_log: "Журнал виконаних робіт",
@@ -2835,7 +2835,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 history_title: "Analytics & History",
                 refresh_btn: "Refresh",
                 clear_btn: "Clear",
-                export_csv_btn: "Report (CSV)",
+                export_pdf_btn: "Report (PDF)",
                 total_jobs_label: "Total Prints",
                 total_filament_label: "Filament Used",
                 completed_jobs_log: "Completed Print Log",
@@ -3960,6 +3960,58 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
+
+    window.openSpoolMovementsModal = async function() {
+        const modal = document.getElementById("spool-movements-modal");
+        const tbody = document.getElementById("spool-movements-table-body");
+        if (!modal || !tbody) return;
+
+        modal.classList.add("active");
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center p-3"><i class="fa-solid fa-spinner fa-spin me-2"></i>Завантаження журналу аудиту...</td></tr>`;
+
+        try {
+            const res = await fetch("/api/spools/movements");
+            const data = await res.json();
+            if (!Array.isArray(data) || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted p-3">Записів у журналі аудиту поки немає</td></tr>`;
+                return;
+            }
+
+            const actionLabels = {
+                "initial_stock": "➕ Внесення",
+                "refill": "📦 Поповнення",
+                "manual_edit": "✏️ Коригування",
+                "print": "🖨️ Друк",
+                "write_off": "🗑️ Списання"
+            };
+
+            tbody.innerHTML = data.map(m => {
+                const dt = m.datetime || (m.timestamp ? new Date(m.timestamp * 1000).toLocaleString("uk-UA") : "-");
+                const changeG = Number(m.weight_change_g || 0);
+                const changeStr = changeG >= 0 ? `<span class="text-success">+${changeG.toFixed(1)}g</span>` : `<span class="text-danger">${changeG.toFixed(1)}g</span>`;
+                const actLabel = actionLabels[m.action] || escapeHtml(m.action || "Зміна");
+
+                return `
+                    <tr>
+                        <td style="white-space:nowrap; font-size:12px;">${escapeHtml(dt)}</td>
+                        <td><b>${escapeHtml(m.spool_name || "Котушка")}</b></td>
+                        <td>${actLabel}</td>
+                        <td>${changeStr}</td>
+                        <td><strong>${(Number(m.new_weight_g || 0)).toFixed(1)}g</strong></td>
+                        <td class="text-muted small">${escapeHtml(m.user || "System")}</td>
+                    </tr>
+                `;
+            }).join("");
+        } catch (e) {
+            console.error("Spool movements load error:", e);
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger p-3">Помилка завантаження журналу аудиту</td></tr>`;
+        }
+    };
+
+    window.closeSpoolMovementsModal = function() {
+        const modal = document.getElementById("spool-movements-modal");
+        if (modal) modal.classList.remove("active");
+    };
 
     refreshBtn.addEventListener("click", () => {
         triggerHaptic("light");

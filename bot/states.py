@@ -32,7 +32,40 @@ class SpoolManagementStates(StatesGroup):
     confirm_delete_spool = State()
 
 
+class AddSpoolStates(StatesGroup):
+    name = State()
+    type = State()
+    weight = State()
+    price = State()
+    color = State()
+
+
+class EditSpoolStates(StatesGroup):
+    select_spool = State()
+    select_field = State()
+    edit_grams = State()
+    edit_price = State()
+
+
+class DeleteSpoolStates(StatesGroup):
+    select_spool = State()
+    confirm = State()
+
+
+class MountSpoolStates(StatesGroup):
+    select_spool = State()
+    select_printer = State()
+    select_slot = State()
+
+
 class PartCreatingStates(StatesGroup):
+    name = State()
+    image = State()
+    count = State()
+    three_mf = State()
+
+
+class AddPartStates(StatesGroup):
     name = State()
     image = State()
     count = State()
@@ -47,5 +80,22 @@ class PartEditingStates(StatesGroup):
     select_part_for_edit = State()
     select_part_for_delete = State()
     search_query = State()
+
+
+class EditPartStates(StatesGroup):
+    select_part = State()
+    select_property = State()
+    edit_value = State()
+
+
+class DeletePartStates(StatesGroup):
+    select_part = State()
+    confirm = State()
+
+
+class PrintPartStates(StatesGroup):
+    select_part = State()
+    select_printer = State()
+
 
 

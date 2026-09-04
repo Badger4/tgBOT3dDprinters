@@ -1,6 +1,6 @@
 """
 Full coverage end-to-end unit tests for all Telegram bot handlers:
-Dashboard, History, CSV Export, Printer Status, Filament, AMS Slots, Maintenance, and Callbacks.
+Dashboard, History, PDF Export, Printer Status, Filament, AMS Slots, Maintenance, and Callbacks.
 """
 
 import unittest
@@ -90,12 +90,12 @@ class TestBotHandlersFull(unittest.TestCase):
             self.assertTrue(ans_dash2.called)
             self.assertIn("Bambu Lab P1S", ans_dash2.call_args[0][0])
 
-            # 3. History & CSV Export
+            # 3. History & PDF Export
             ans_hist = await self._send_msg("📜 Історія друку")
             self.assertTrue(ans_hist.called)
 
-            ans_csv = await self._send_msg("📥 Завантажити CSV звіт")
-            self.assertTrue(ans_csv.called)
+            ans_pdf = await self._send_msg("📥 Завантажити PDF звіт")
+            self.assertTrue(ans_pdf.called)
 
             # 4. Printers List & Status
             ans_p_list = await self._send_msg("🖨️ Принтери")

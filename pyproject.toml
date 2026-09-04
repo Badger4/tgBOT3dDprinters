@@ -18,6 +18,7 @@ source = [
     "services",
     "storage",
     "config",
+    "functions",
     "utils"
 ]
 omit = [
@@ -26,6 +27,7 @@ omit = [
     "webapp/*",
     "orca_hook.py",
     "printer.py",
+    "main.py",
     "app.py"
 ]
 

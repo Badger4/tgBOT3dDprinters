@@ -35,4 +35,5 @@ printers_storage/*
 cloudflared.exe
 scratch/
 NUL
+.gemini/
 

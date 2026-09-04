@@ -26,6 +26,16 @@ BAMBU_MODEL_MAP = {
 }
 
 
+# Pre-compiled regexes for performance
+RE_NUM = re.compile(r"#(\d+)")
+RE_STRIP_NUM = re.compile(r"\s*#\d+.*")
+RE_STRIP_PAREN = re.compile(r"\s*\(.*?\)")
+RE_DAYS = re.compile(r"\b(\d+)\s*d\b")
+RE_HOURS = re.compile(r"\b(\d+)\s*h\b")
+RE_MINS = re.compile(r"\b(\d+)\s*m\b")
+RE_SECS = re.compile(r"\b(\d+)\s*s\b")
+
+
 def sanitize_object_name(name: str) -> str:
     """Sanitizes object names, making parsing 100% idempotent and preventing spatial word multiplication."""
     if not name or not isinstance(name, str):
@@ -33,7 +43,7 @@ def sanitize_object_name(name: str) -> str:
     clean = str(name).strip()
 
     # Extract hashtag index if present (#1, #2)
-    m_num = re.search(r"#(\d+)", clean)
+    m_num = RE_NUM.search(clean)
     num_str = f" #{m_num.group(1)}" if m_num else ""
 
     # Extract unique spatial keywords once from clean string
@@ -59,8 +69,8 @@ def sanitize_object_name(name: str) -> str:
     pos_tag = f" ({spatial_str})" if spatial_str else ""
 
     # Strip ALL #N and ALL (...) from base name completely
-    base = re.sub(r"\s*#\d+.*", "", clean)
-    base = re.sub(r"\s*\(.*?\)", "", base).strip()
+    base = RE_STRIP_NUM.sub("", clean)
+    base = RE_STRIP_PAREN.sub("", base).strip()
     if not base:
         base = "Об'єкт"
 
@@ -78,10 +88,10 @@ def parse_time_str(time_str: str) -> int:
     elif "total estimated time =" in t_clean:
         t_clean = t_clean.split("total estimated time =")[-1]
 
-    d_match = re.search(r"\b(\d+)\s*d\b", t_clean)
-    h_match = re.search(r"\b(\d+)\s*h\b", t_clean)
-    m_match = re.search(r"\b(\d+)\s*m\b", t_clean)
-    s_match = re.search(r"\b(\d+)\s*s\b", t_clean)
+    d_match = RE_DAYS.search(t_clean)
+    h_match = RE_HOURS.search(t_clean)
+    m_match = RE_MINS.search(t_clean)
+    s_match = RE_SECS.search(t_clean)
 
     if d_match or h_match or m_match or s_match:
         days = int(d_match.group(1)) if d_match else 0

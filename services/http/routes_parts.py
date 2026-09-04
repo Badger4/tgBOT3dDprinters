@@ -267,7 +267,7 @@ async def handle_print_part(request: web.Request) -> web.Response:
 
 
 async def handle_export_parts_csv(request: web.Request) -> web.Response:
-    """GET /api/parts/export_csv - Download CSV report of printed parts warehouse."""
+    """GET /api/parts/export_csv - Download PDF report of printed parts warehouse."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
@@ -275,14 +275,14 @@ async def handle_export_parts_csv(request: web.Request) -> web.Response:
         app_obj = request.app["app_obj"]
         parts = await app_obj.storage.load_parts()
 
-        from services.report_generator import generate_parts_csv_report
-        csv_bytes = generate_parts_csv_report(parts)
+        from services.report_generator import generate_parts_pdf_report
+        pdf_bytes = generate_parts_pdf_report(parts)
 
         headers = {
-            "Content-Disposition": 'attachment; filename="parts_report.csv"; filename*=UTF-8\'\'parts_report.csv',
-            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": 'attachment; filename="parts_report.pdf"; filename*=UTF-8\'\'parts_report.pdf',
+            "Content-Type": "application/pdf",
         }
-        return web.Response(body=csv_bytes, headers=headers)
+        return web.Response(body=pdf_bytes, headers=headers)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 

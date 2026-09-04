@@ -2,6 +2,7 @@
 Spool inventory warehouse management endpoints with audit movement logs.
 """
 
+import asyncio
 import time
 from aiohttp import web
 
@@ -161,8 +162,83 @@ async def handle_delete_spool(request: web.Request) -> web.Response:
     return web.json_response({"error": "Spool not found"}, status=404)
 
 
+async def handle_mount_spool(request: web.Request) -> web.Response:
+    """POST /api/spools/{id}/mount - Assign a spool to a specific printer and AMS slot."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    spool_id = request.match_info.get("id", "")
+    try:
+        data = await request.json()
+        printer_id = data.get("printer_id", "").strip()
+        slot_key = str(data.get("slot_key", "0")).strip()
+
+        spools = await app_obj.storage.load_spools()
+        if spool_id not in spools:
+            return web.json_response({"error": "Spool not found"}, status=404)
+
+        target_printer = app_obj.printers.get(printer_id)
+        if not target_printer:
+            return web.json_response({"error": "Printer not found"}, status=404)
+
+        # Unmount any previously mounted spool in this same printer slot
+        for s_id, s in spools.items():
+            if s.get("assigned_printer_id") == printer_id and str(s.get("assigned_slot_key")) == slot_key:
+                s["assigned_printer_id"] = None
+                s["assigned_slot_key"] = None
+
+        spool = spools[spool_id]
+        spool["assigned_printer_id"] = printer_id
+        spool["assigned_slot_key"] = slot_key
+        await app_obj.storage.save_spools(spools)
+
+        # Update printer slot telemetry
+        rem_g = float(spool.get("remaining_grams", 1000.0))
+        target_printer.set_slot_grams(rem_g, slot_id=slot_key)
+        if hasattr(app_obj, "save_printers_config") and callable(app_obj.save_printers_config):
+            res = app_obj.save_printers_config()
+            if asyncio.iscoroutine(res) or asyncio.isfuture(res):
+                await res
+
+        return web.json_response({"status": "ok", "spool": spool})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def handle_unmount_spool(request: web.Request) -> web.Response:
+    """POST /api/spools/{id}/unmount - Unmount a spool from its assigned printer slot."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    spool_id = request.match_info.get("id", "")
+    spools = await app_obj.storage.load_spools()
+    if spool_id not in spools:
+        return web.json_response({"error": "Spool not found"}, status=404)
+
+    spool = spools[spool_id]
+    p_id = spool.get("assigned_printer_id")
+    slot_k = spool.get("assigned_slot_key")
+
+    spool["assigned_printer_id"] = None
+    spool["assigned_slot_key"] = None
+    await app_obj.storage.save_spools(spools)
+
+    if p_id and p_id in app_obj.printers:
+        p = app_obj.printers[p_id]
+        p.set_slot_grams(0.0, slot_id=str(slot_k or "0"))
+        if hasattr(app_obj, "save_printers_config") and callable(app_obj.save_printers_config):
+            res = app_obj.save_printers_config()
+            if asyncio.iscoroutine(res) or asyncio.isfuture(res):
+                await res
+
+    return web.json_response({"status": "ok", "spool": spool})
+
+
+
 async def handle_export_warehouse_csv(request: web.Request) -> web.Response:
-    """GET /api/warehouse/export_csv - Download structured CSV report of spools/parts warehouse."""
+    """GET /api/warehouse/export_csv - Download structured PDF report of spools/parts warehouse."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
@@ -172,15 +248,15 @@ async def handle_export_warehouse_csv(request: web.Request) -> web.Response:
         parts = await app_obj.storage.load_parts()
         report_type = request.query.get("type", "spools")
 
-        from services.report_generator import generate_warehouse_csv_report
-        csv_bytes = generate_warehouse_csv_report(spools, parts, report_type=report_type)
+        from services.report_generator import generate_warehouse_pdf_report
+        pdf_bytes = generate_warehouse_pdf_report(spools, parts, report_type=report_type)
 
-        filename = "parts_report.csv" if report_type == "parts" else "spools_report.csv"
+        filename = "parts_report.pdf" if report_type == "parts" else "spools_report.pdf"
         headers = {
             "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Type": "application/pdf",
         }
-        return web.Response(body=csv_bytes, headers=headers)
+        return web.Response(body=pdf_bytes, headers=headers)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
@@ -304,8 +380,8 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
-async def handle_export_movements_csv(request: web.Request) -> web.Response:
-    """GET /api/spools/movements/export_csv - Download CSV report of warehouse audit movement logs."""
+async def handle_export_movements_pdf(request: web.Request) -> web.Response:
+    """GET /api/spools/movements/export_pdf - Download PDF report of warehouse audit movement logs."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
@@ -313,13 +389,19 @@ async def handle_export_movements_csv(request: web.Request) -> web.Response:
         app_obj = request.app["app_obj"]
         movements = await app_obj.storage.load_spool_movements()
 
-        from services.report_generator import generate_movements_csv_report
-        csv_bytes = generate_movements_csv_report(movements)
+        from services.report_generator import generate_movements_pdf_report
+        pdf_bytes = generate_movements_pdf_report(movements)
 
         headers = {
-            "Content-Disposition": 'attachment; filename="spool_movements_audit.csv"; filename*=UTF-8\'\'spool_movements_audit.csv',
-            "Content-Type": "text/csv; charset=utf-8-sig",
+            "Content-Disposition": 'attachment; filename="spool_movements_audit.pdf"; filename*=UTF-8\'\'spool_movements_audit.pdf',
+            "Content-Type": "application/pdf",
         }
-        return web.Response(body=csv_bytes, headers=headers)
+        return web.Response(body=pdf_bytes, headers=headers)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_export_movements_csv(request: web.Request) -> web.Response:
+    """GET /api/spools/movements/export_csv - Redirect/Return PDF report."""
+    return await handle_export_movements_pdf(request)
+

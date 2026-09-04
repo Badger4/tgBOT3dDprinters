@@ -162,9 +162,12 @@
             <section id="tab-materials" class="tab-page">
                 <div class="section-header">
                     <h2><i class="fa-solid fa-boxes-packing"></i> <span data-i18n="materials_stock_title">Склад пластику</span></h2>
-                    <div class="d-flex gap-2">
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" id="btn-view-spool-movements" class="btn btn-outline btn-sm" onclick="window.openSpoolMovementsModal()">
+                            <i class="fa-solid fa-clock-rotate-left"></i> 📜 Аудит руху
+                        </button>
                         <a href="/api/spools/export_pdf" id="btn-export-spools-pdf" class="btn btn-primary btn-sm" target="_blank">
-                            <i class="fa-solid fa-file-pdf"></i> <span data-i18n="export_pdf_btn">Звіт (PDF)</span>
+                            <i class="fa-solid fa-file-pdf"></i> PDF
                         </a>
                         <button type="button" id="add-spool-btn" class="btn btn-primary btn-sm" onclick="window.openAddSpoolModal()">
                             <i class="fa-solid fa-plus"></i> <span data-i18n="new_spool_btn">Нова котушка</span>
@@ -185,9 +188,9 @@
             <section id="tab-parts" class="tab-page">
                 <div class="section-header">
                     <h2><i class="fa-solid fa-puzzle-piece"></i> <span data-i18n="parts_stock_title">Склад готових деталей</span></h2>
-                    <div class="d-flex gap-2">
+                    <div class="d-flex gap-2 flex-wrap">
                         <a href="/api/parts/export_pdf" id="btn-export-parts-pdf" class="btn btn-primary btn-sm" target="_blank">
-                            <i class="fa-solid fa-file-pdf"></i> <span data-i18n="export_pdf_btn">Звіт (PDF)</span>
+                            <i class="fa-solid fa-file-pdf"></i> PDF
                         </a>
                         <button id="add-part-btn" class="btn btn-primary btn-sm" onclick="window.openAddPartModal()">
                             <i class="fa-solid fa-plus"></i> <span data-i18n="new_part_btn">Нова деталь</span>
@@ -218,7 +221,7 @@
             <section id="tab-history" class="tab-page">
                 <div class="section-header">
                     <h2><i class="fa-solid fa-chart-pie"></i> <span data-i18n="history_title">Аналітика & Історія</span></h2>
-                    <div class="d-flex gap-2">
+                    <div class="d-flex gap-2 flex-wrap">
                         <button id="btn-refresh-history" class="btn btn-outline btn-sm">
                             <i class="fa-solid fa-rotate"></i> <span data-i18n="refresh_btn">Оновити</span>
                         </button>
@@ -226,7 +229,7 @@
                             <i class="fa-solid fa-trash"></i> <span data-i18n="clear_btn">Очистити</span>
                         </button>
                         <a href="/api/history/export_pdf" id="btn-export-history-pdf" class="btn btn-primary btn-sm" target="_blank">
-                            <i class="fa-solid fa-file-pdf"></i> <span data-i18n="export_pdf_btn">Звіт (PDF)</span>
+                            <i class="fa-solid fa-file-pdf"></i> PDF
                         </a>
                     </div>
                 </div>
@@ -987,6 +990,38 @@
                         </div>
                         <button id="confirm-assign-spool-btn" class="btn btn-primary w-100 mt-2">Встановити на принтер</button>
                     </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- SPOOL MOVEMENTS AUDIT LOG MODAL -->
+        <div id="spool-movements-modal" class="modal-backdrop" onclick="if(event.target===this)window.closeSpoolMovementsModal()">
+            <div class="modal-window" style="max-width: 700px;">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-clock-rotate-left color-amber"></i> 📜 Журнал аудиту руху котушок</h3>
+                    <div class="d-flex gap-2 align-items-center">
+                        <a href="/api/spools/movements/export_pdf" class="btn btn-xs btn-outline" target="_blank"><i class="fa-solid fa-file-pdf"></i> PDF</a>
+                        <button type="button" class="icon-btn-close" onclick="window.closeSpoolMovementsModal()"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Дата/Час</th>
+                                    <th>Котушка</th>
+                                    <th>Дія</th>
+                                    <th>Зміна (г)</th>
+                                    <th>Залишок</th>
+                                    <th>Користувач</th>
+                                </tr>
+                            </thead>
+                            <tbody id="spool-movements-table-body">
+                                <tr><td colspan="6" class="text-center">Завантаження журналу...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>

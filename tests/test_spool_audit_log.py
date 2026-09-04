@@ -71,12 +71,11 @@ class TestSpoolAuditLog(AioHTTPTestCase):
         mov_list2 = await res_mov2.json()
         self.assertEqual(len(mov_list2), 3)
 
-        # 5. Export movements CSV
-        res_csv = await self.client.get("/api/spools/movements/export_csv", headers=self.headers)
-        self.assertEqual(res_csv.status, 200)
-        csv_text = (await res_csv.read()).decode("utf-8-sig")
-        self.assertIn("Audit PLA Red", csv_text)
-        self.assertIn("refill", csv_text)
+        # 5. Export movements PDF
+        res_pdf = await self.client.get("/api/spools/movements/export_csv", headers=self.headers)
+        self.assertEqual(res_pdf.status, 200)
+        pdf_bytes = await res_pdf.read()
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
 
         # 6. Delete spool -> triggers "write_off" audit entry
         res_del = await self.client.delete("/api/spools/spool_audit_1", headers=self.headers)
@@ -86,3 +85,40 @@ class TestSpoolAuditLog(AioHTTPTestCase):
         mov_list3 = await res_mov3.json()
         self.assertEqual(len(mov_list3), 4)
         self.assertEqual(mov_list3[0]["action"], "write_off")
+
+    async def test_mount_and_unmount_spool_api(self):
+        # Create dummy printer
+        mock_p = type("Printer", (), {
+            "id": "p_test_1",
+            "name": "Bambu A1",
+            "set_slot_grams": lambda self, g, slot_id="0": None
+        })()
+        self.app_obj.printers["p_test_1"] = mock_p
+        self.app_obj.save_printers_config = lambda: None
+
+        spool_data = {
+            "id": "spool_mount_1",
+            "name": "Mount Test Spool",
+            "type": "PETG",
+            "remaining_grams": 800.0
+        }
+        await self.client.post("/api/spools", json=spool_data, headers=self.headers)
+
+        # Mount spool
+        res_mount = await self.client.post(
+            "/api/spools/spool_mount_1/mount",
+            json={"printer_id": "p_test_1", "slot_key": "0"},
+            headers=self.headers
+        )
+        self.assertEqual(res_mount.status, 200)
+        data_mount = await res_mount.json()
+        self.assertEqual(data_mount["spool"]["assigned_printer_id"], "p_test_1")
+        self.assertEqual(data_mount["spool"]["assigned_slot_key"], "0")
+
+        # Unmount spool
+        res_unmount = await self.client.post("/api/spools/spool_mount_1/unmount", json={}, headers=self.headers)
+        self.assertEqual(res_unmount.status, 200)
+        data_unmount = await res_unmount.json()
+        self.assertIsNone(data_unmount["spool"]["assigned_printer_id"])
+        self.assertIsNone(data_unmount["spool"]["assigned_slot_key"])
+

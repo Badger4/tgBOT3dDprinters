@@ -19,34 +19,26 @@ MAX_UPLOADS_PER_MINUTE = 30
 MAX_CONTROL_PER_MINUTE = 20
 
 
-def _apply_cors_and_security_headers(request: web.Request, response: web.StreamResponse) -> None:
-    origin = request.headers.get("Origin", "")
-    webapp_clean = WEBAPP_URL.rstrip("/") if WEBAPP_URL else ""
-    allowed_origins = {
-        webapp_clean,
-        "https://web.telegram.org",
-        f"http://localhost:{HTTP_PORT}",
-        f"http://127.0.0.1:{HTTP_PORT}",
-    }
-    allowed_origins.discard("")
+_WEBAPP_CLEAN = WEBAPP_URL.rstrip("/") if WEBAPP_URL else ""
+ALLOWED_ORIGINS = {
+    _WEBAPP_CLEAN,
+    "https://web.telegram.org",
+    f"http://localhost:{HTTP_PORT}",
+    f"http://127.0.0.1:{HTTP_PORT}",
+}
+ALLOWED_ORIGINS.discard("")
 
-    if origin and origin.rstrip("/") in allowed_origins:
-        response.headers["Access-Control-Allow-Origin"] = origin
-    else:
-        response.headers["Access-Control-Allow-Origin"] = "null"
-
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, PUT, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = (
-        "Content-Type, X-Telegram-Init-Data, X-API-Key, Bypass-Tunnel-Reminder, Authorization"
-    )
-    response.headers["Access-Control-Max-Age"] = "86400"
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = (
+STATIC_SECURITY_HEADERS = {
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, PUT, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-API-Key, Bypass-Tunnel-Reminder, Authorization",
+    "Access-Control-Max-Age": "86400",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "X-Content-Type-Options": "nosniff",
+    "X-XSS-Protection": "1; mode=block",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Content-Security-Policy": (
         "default-src 'self' https: data: blob:; "
         "script-src 'self' https://telegram.org https://cdnjs.cloudflare.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
@@ -54,8 +46,19 @@ def _apply_cors_and_security_headers(request: web.Request, response: web.StreamR
         "img-src 'self' data: blob: https:; "
         "connect-src 'self' https: wss: ws:; "
         "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org;"
-    )
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    ),
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+}
+
+
+def _apply_cors_and_security_headers(request: web.Request, response: web.StreamResponse) -> None:
+    origin = request.headers.get("Origin", "")
+    if origin and origin.rstrip("/") in ALLOWED_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "null"
+
+    response.headers.update(STATIC_SECURITY_HEADERS)
 
 
 @web.middleware

@@ -19,7 +19,7 @@ from services.gcode_parser import (
     parse_3mf_file,
     parse_time_str,
 )
-from services.report_generator import generate_csv_report
+from services.report_generator import generate_history_pdf_report
 from storage.manager import StorageManager
 
 
@@ -178,9 +178,9 @@ class TestQATelegramBotSecurityAndErrors(unittest.TestCase):
 
 
 class TestQAReportGenerator(unittest.TestCase):
-    """QA tests for CSV report generation with special characters."""
+    """QA tests for PDF report generation with special characters."""
 
-    def test_csv_report_special_chars(self):
+    def test_pdf_report_special_chars(self):
         history = [
             {
                 "timestamp": "2026-08-08 19:00:00",
@@ -190,15 +190,10 @@ class TestQAReportGenerator(unittest.TestCase):
                 "status": "FINISHED",
             }
         ]
-        import csv
-        import io
 
-        csv_bytes = generate_csv_report(history)
-        self.assertTrue(csv_bytes.startswith(b"\xef\xbb\xbf"))  # UTF-8-BOM check
-        decoded = csv_bytes.decode("utf-8-sig")
-        reader = list(csv.reader(io.StringIO(decoded), delimiter=";"))
-        self.assertEqual(len(reader), 2)
-        self.assertEqual(reader[1][2], 'Bambu "P1S" Special, Name')
+        pdf_bytes = generate_history_pdf_report(history)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+        self.assertTrue(len(pdf_bytes) > 1000)
 
 
 if __name__ == "__main__":

@@ -159,10 +159,6 @@ async def handle_history(message: Message, app):
             "експорт pdf",
             "pdf",
             "звіт pdf",
-            "📥 завантажити csv звіт",
-            "завантажити csv звіт",
-            "експорт csv",
-            "csv",
             "/export_history",
             "/export",
             "/pdf_history",
@@ -170,10 +166,7 @@ async def handle_history(message: Message, app):
             "📥 download pdf report",
             "download pdf report",
             "export pdf",
-            "pdf report",
-            "📥 download csv report",
-            "download csv report",
-            "export csv"
+            "pdf report"
         ]
     )
 )
