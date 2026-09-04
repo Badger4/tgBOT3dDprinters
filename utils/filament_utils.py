@@ -4,8 +4,6 @@ Utility functions for parsing filament type and AMS slot keys.
 
 import re
 
-from models.enums import AMSSlot
-
 KNOWN_FILAMENT_TYPES = [
     "ASA-AERO",
     "PETG-CF",
@@ -45,6 +43,8 @@ KNOWN_FILAMENT_TYPES = [
 
 def parse_slot_key_from_text(text: str) -> str:
     """Parses text like 'A1', 'Slot 2', 'зовнішній' into canonical AMS slot ID string."""
+    from models.enums import AMSSlot
+
     clean = text.lower()
     if "a1" in clean or "slot 1" in clean:
         return AMSSlot.A1.value

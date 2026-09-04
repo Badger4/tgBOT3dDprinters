@@ -11,6 +11,7 @@ import zipfile
 from typing import Any
 
 from config import logger
+from utils.retry import async_retry
 
 
 class ImplicitFTP_TLS(ftplib.FTP_TLS):
@@ -314,7 +315,21 @@ def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = ""
     info = fetch_bambu_ftps_info(ip, access_code, target_filename)
     return float(info.get("weight_g") or 0.0)
 
-    return 0.0
+
+@async_retry(retries=3, delay=0.5, backoff=1.5, exceptions=(TimeoutError, ConnectionError, OSError, ftplib.Error))
+async def async_fetch_bambu_ftps_info(ip: str, access_code: str, target_filename: str = "") -> dict[str, Any]:
+    """Async wrapper for fetch_bambu_ftps_info with automatic retry on transient network failures."""
+    import asyncio
+
+    return await asyncio.to_thread(fetch_bambu_ftps_info, ip, access_code, target_filename)
+
+
+@async_retry(retries=3, delay=0.5, backoff=1.5, exceptions=(TimeoutError, ConnectionError, OSError, ftplib.Error))
+async def async_upload_3mf_to_bambu(ip: str, access_code: str, file_bytes: bytes, filename: str) -> str | None:
+    """Async wrapper for upload_3mf_to_bambu with automatic retry on transient network failures."""
+    import asyncio
+
+    return await asyncio.to_thread(upload_3mf_to_bambu, ip, access_code, file_bytes, filename)
 
 
 def bambu_storbinary(ftps: ftplib.FTP, cmd: str, fp: io.BytesIO, blocksize: int = 8192) -> str:
