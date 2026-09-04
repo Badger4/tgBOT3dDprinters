@@ -244,7 +244,7 @@ def render_plate_diagram(
             except Exception:
                 tx, ty = px1 + 6, py1 + 6
 
-            _safe_draw_text(draw, (tx, ty), badge_text, fill=text_col, font=dyn_font)
+            _safe_draw_text(draw, (int(tx), int(ty)), badge_text, fill=text_col, font=dyn_font)
 
         buffer = io.BytesIO()
         img.save(buffer, format="JPEG", quality=88)
@@ -288,7 +288,7 @@ def render_plate_gif(
         cols = 3 if n_objs >= 4 else (2 if n_objs >= 2 else 1)
         rows = (n_objs + cols - 1) // cols if cols > 0 else 1
 
-        processed_objs = []
+        processed_objs: list[dict[str, Any]] = []
         for idx, obj in enumerate(objects):
             obj_id = str(obj.get("id", idx + 1)).strip()
             raw_name = str(obj.get("name", f"Об'єкт #{obj_id}")).strip()
@@ -338,7 +338,7 @@ def render_plate_gif(
             _safe_draw_text(draw, (img_w // 2 - 25, by1 - 20), "Ззаду", fill="#7a7a8c", font=font_small)
 
             for obj in processed_objs:
-                obj_id = obj["id"]
+                obj_id = str(obj["id"])
                 is_highlighted = obj_id == h_obj["id"]
                 is_skipped = obj_id in skipped_set or (
                     obj_id.isdigit() and int(obj_id) in [int(s) for s in skipped_set if s.isdigit()]
@@ -400,7 +400,7 @@ def render_plate_gif(
                     except Exception:
                         tx, ty = px1 + 6, py1 + 6
 
-                    _safe_draw_text(draw, (tx, ty), tag, fill="#ff4444" if is_skipped else "#00ffaa", font=dyn_font)
+                    _safe_draw_text(draw, (int(tx), int(ty)), tag, fill="#ff4444" if is_skipped else "#00ffaa", font=dyn_font)
 
             frames.append(img)
 

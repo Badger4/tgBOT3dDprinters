@@ -329,7 +329,8 @@ class StorageManager:
         for s_id, s in raw_dict.items():
             if isinstance(s, dict):
                 try:
-                    rem_g = float(s.get("remaining_grams", 1000.0))
+                    rem_val: Any = s.get("remaining_grams", 1000.0)
+                    rem_g = float(rem_val)
                 except (ValueError, TypeError):
                     rem_g = 1000.0
                 if rem_g > 0.0:

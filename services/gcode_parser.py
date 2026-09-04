@@ -179,7 +179,7 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
     Parses a .3mf file bytes to extract Bambu Studio / OrcaSlicer slice metadata.
     Returns dict with keys: printer_model, filament_type, weight_g, time_mins, filename, plate_name.
     """
-    objects_list: list[dict[str, str]] = []
+    objects_list: list[dict[str, Any]] = []
     bbox_list: list[dict[str, Any]] = []
     result: dict[str, Any] = {
         "filename": filename,
@@ -218,7 +218,7 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                                         oname_str = str(oname).strip() if oname else f"Об'єкт {oid_str}"
                                         existing = next((o for o in objects_list if str(o["id"]) == oid_str), None)
                                         if not existing:
-                                            entry = {"id": oid_str, "name": oname_str}
+                                            entry: dict[str, Any] = {"id": oid_str, "name": oname_str}
                                             if obbox and isinstance(obbox, list):
                                                 entry["bbox"] = obbox
                                             objects_list.append(entry)
@@ -564,7 +564,7 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                         break
 
         # Filter out phantom objects lacking bbox if other objects have bbox
-        objs_with_bbox = [o for o in objects_list if o.get("bbox") and isinstance(o.get("bbox"), list) and len(o.get("bbox")) >= 4]
+        objs_with_bbox = [o for o in objects_list if isinstance(o.get("bbox"), list) and len(o["bbox"]) >= 4]
         if objs_with_bbox and len(objs_with_bbox) < len(objects_list):
             discarded = [o for o in objects_list if o not in objs_with_bbox]
             for d in discarded:

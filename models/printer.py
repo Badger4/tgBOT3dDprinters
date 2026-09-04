@@ -136,6 +136,8 @@ class BambuPrinter:
         self.last_job_grams = 0.0
         self.current_job_objects: list[dict[str, Any]] = []
         self.skipped_objects: list[int] = []
+        self._plate_gif_cache: bytes | None = None
+        self._plate_diagram_cache: bytes | None = None
         self._ftps_fetching = False
         self._ftps_attempted = False
         self._main_loop: asyncio.AbstractEventLoop | None = None
