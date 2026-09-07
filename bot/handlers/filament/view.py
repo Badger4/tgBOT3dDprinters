@@ -25,6 +25,8 @@ router = Router()
             "склад котушок",
             "📦 warehouse",
             "warehouse",
+            "🧵 filament",
+            "filament",
         ]
     )
 )
@@ -301,3 +303,80 @@ async def handle_rfid_sync(message: Message, app):
         )
 
     await message.answer(msg_txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard(lang=u_lang))
+
+
+@router.message(F.text.lower().in_(["🌈 слоти ams", "слоти ams", "ams", "🌈 ams slots", "ams slots"]))
+async def handle_ams_slots(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+
+    if not target_printer:
+        await message.answer("⚠️ Спочатку оберіть принтер у меню «🖨️ Принтери».")
+        return
+
+    ams_units = getattr(target_printer, "ams_units", [])
+    if not ams_units:
+        await message.answer(
+            f"<b>🌈 AMS Module for {html.escape(target_printer.name)}</b>\n\n⚠️ <i>AMS data is updating or AMS is not connected.</i>"
+            if is_en
+            else f"<b>🌈 Модуль AMS для {html.escape(target_printer.name)}</b>\n\n⚠️ <i>Дані AMS оновлюються або модуль AMS не підключено.</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    hum_map = {
+        5: "🟢 Level 5 (Perfectly Dry)" if is_en else "🟢 Рівень 5 (Ідеально сухо)",
+        4: "🟢 Level 4 (Optimal Dry)" if is_en else "🟢 Рівень 4 (Оптимально сухо)",
+        3: "🟡 Level 3 (Moderate)" if is_en else "🟡 Рівень 3 (Помірна вологість)",
+        2: "🟠 Level 2 (Humid - drying required)" if is_en else "🟠 Рівень 2 (Волого - потрібна сушка)",
+        1: "🔴 Level 1 (Critical - replace desiccant)" if is_en else "🔴 Рівень 1 (Критично волого - замініть десикант)",
+    }
+    hum_str = hum_map.get(getattr(target_printer, "ams_humidity_idx", 0), f"Level {getattr(target_printer, 'ams_humidity_idx', 0)}")
+    temp_val = getattr(target_printer, "ams_temp", 0.0)
+
+    ams_txt = (
+        f"<b>🌈 AMS Module — {html.escape(target_printer.name)}</b>\n"
+        f"💧 <b>AMS Humidity:</b> {hum_str}\n"
+        f"🌡️ <b>AMS Temp:</b> {temp_val}°C\n"
+        f"-----------------------------------\n\n"
+    ) if is_en else (
+        f"<b>🌈 Модуль AMS — {html.escape(target_printer.name)}</b>\n"
+        f"💧 <b>Вологість в AMS:</b> {hum_str}\n"
+        f"🌡️ <b>Температура AMS:</b> {temp_val}°C\n"
+        f"-----------------------------------\n\n"
+    )
+
+    for u_idx, unit in enumerate(ams_units, 1):
+        ams_letter = chr(64 + u_idx) if 1 <= u_idx <= 26 else f"U{u_idx}"
+        trays = unit.get("tray", [])
+        for t in trays:
+            t_id = t.get("id", "0")
+            t_type = t.get("tray_type", "Порожньо" if not is_en else "Empty")
+            t_sub = t.get("tray_sub_brands", "")
+            t_color = t.get("tray_color", "FFFFFF")
+
+            raw_rem = t.get("remain")
+            try:
+                t_rem = int(raw_rem) if raw_rem is not None else -1
+            except (ValueError, TypeError):
+                t_rem = -1
+
+            try:
+                slot_num = (int(t_id) % 4) + 1
+            except (ValueError, TypeError):
+                slot_num = 1
+
+            active_mark = " ⚡" if t.get("is_active") else ""
+            rem_str = f"{t_rem}%" if t_rem >= 0 else f"~{target_printer.filament_grams}g"
+
+            ams_txt += (
+                f"<b>Слот {ams_letter}{slot_num}:</b> 🧵 <b>{html.escape(str(t_type))}</b> {html.escape(str(t_sub))}{active_mark}\n"
+                f"   🎨 Колір: <code>#{str(t_color)[:6]}</code> | 📊 Залишок: <b>{rem_str}</b>\n\n"
+            )
+
+    await message.answer(ams_txt, parse_mode=ParseMode.HTML)
+

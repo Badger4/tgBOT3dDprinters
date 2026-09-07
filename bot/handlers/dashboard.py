@@ -38,21 +38,20 @@ async def handle_dashboard(message: Message, app):
     for pid, p in app.printers.items():
         p_name = html.escape(p.name)
         is_p_online = getattr(p, "is_online", True)
-        if not is_p_online or p.gcode_state in ["OFFLINE", "DISCONNECTED", "UNKNOWN"]:
+        mapped_st = getattr(p, "mapped_state", "ONLINE")
+
+        if not is_p_online or mapped_st == "OFFLINE":
             st_emoji = "🔴"
-            st_str = "OFFLINE"
-        elif p.gcode_state == "RUNNING":
-            st_emoji = "🖨️"
-            st_str = p.gcode_state
-        elif p.gcode_state == "PAUSE":
+            st_str = "Офлайн" if not is_en else "OFFLINE"
+        elif mapped_st == "RUNNING":
+            st_emoji = "🟢"
+            st_str = "Друкує" if not is_en else "PRINTING"
+        elif mapped_st == "PAUSE":
             st_emoji = "⏸️"
-            st_str = p.gcode_state
-        elif p.gcode_state == "FINISH":
-            st_emoji = "🎉"
-            st_str = p.gcode_state
+            st_str = "Пауза" if not is_en else "PAUSE"
         else:
-            st_emoji = "💤"
-            st_str = p.gcode_state
+            st_emoji = "⚪"
+            st_str = "Онлайн" if not is_en else "ONLINE"
 
         spd_str = (
             f" ({p.spd_mag}%)"
@@ -62,9 +61,9 @@ async def handle_dashboard(message: Message, app):
 
         dash_txt += f"{st_emoji} <b>{p_name}</b>: <code>{st_str}</code>{spd_str}\n"
 
-        if not is_p_online or p.gcode_state in ["OFFLINE", "DISCONNECTED", "UNKNOWN"]:
+        if not is_p_online or mapped_st == "OFFLINE":
             dash_txt += f"   🔌 <i>{'Вимкнений або немає зв\'язку' if not is_en else 'Offline / Powered off'}</i>\n"
-        elif p.gcode_state in ["RUNNING", "PAUSE"]:
+        elif mapped_st in ["RUNNING", "PAUSE"]:
             sub_task = html.escape(p.subtask_name or ("Model" if is_en else "Модель"))
             min_lbl = "min" if is_en else "хв"
             dash_txt += f"   📄 <i>{sub_task}</i> ({p.mc_percent}%) | ~{p.mc_remaining_time} {min_lbl}\n"

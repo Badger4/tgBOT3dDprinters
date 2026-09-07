@@ -27,6 +27,8 @@ router = Router()
             "сповіщення",
             "🔔 notification settings",
             "notification settings",
+            "🔔 notifications",
+            "notifications",
         ]
     )
 )

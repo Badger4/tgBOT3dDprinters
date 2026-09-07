@@ -28,3 +28,76 @@ async def handle_edit_spool_start(message: Message, app):
         parse_mode=ParseMode.HTML,
         reply_markup=get_spools_keyboard(spools, lang=u_lang),
     )
+
+
+@router.message(
+    F.text.lower().in_(
+        [
+            "⚖️ змінити залишок ваги",
+            "змінити залишок ваги",
+            "✏️ ручне введення ваги",
+            "ручне введення ваги",
+            "✏️ manual weight input",
+            "manual weight input",
+            "✏️ змінити вагу",
+            "змінити вагу",
+            "✏️ edit weight",
+            "edit weight",
+        ]
+    )
+)
+async def handle_manual_weight_start(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+
+    if not target_printer:
+        await message.answer(
+            "⚠️ Спочатку оберіть принтер у меню «🖨️ Принтери»."
+            if u_lang != "en"
+            else "⚠️ Please select a printer first in «🖨️ Printers»."
+        )
+        return
+
+    user["state"] = "edit_filament_weight"
+    await app.storage.save_user(user)
+    await message.answer(
+        f"Поточний залишок для <b>{html.escape(target_printer.name)}</b>: <b>{target_printer.filament_grams}g</b>\n\n"
+        f"Введіть нову залишкову вагу філаменту в грамах (наприклад <code>850</code>):"
+        if u_lang != "en"
+        else f"Current remaining for <b>{html.escape(target_printer.name)}</b>: <b>{target_printer.filament_grams}g</b>\n\n"
+        f"Enter new filament remaining weight in grams (e.g. <code>850</code>):",
+        parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")]],
+            resize_keyboard=True,
+        ),
+    )
+
+
+@router.message(F.text.lower().in_(["💰 ціна 1 кг (грн)", "ціна 1 кг (грн)", "💰 price 1 kg", "price 1 kg"]))
+async def handle_manual_price_start(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+
+    if not target_printer:
+        return
+
+    user["state"] = "edit_filament_price"
+    await app.storage.save_user(user)
+    await message.answer(
+        f"Введіть вартість 1 кг пластику у грн для <b>{html.escape(target_printer.name)}</b> (поточна: {getattr(target_printer, 'price_per_kg', 850.0)} грн):"
+        if u_lang != "en"
+        else f"Enter cost of 1 kg filament in UAH for <b>{html.escape(target_printer.name)}</b> (current: {getattr(target_printer, 'price_per_kg', 850.0)} UAH):",
+        parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")]],
+            resize_keyboard=True,
+        ),
+    )
+

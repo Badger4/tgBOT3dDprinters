@@ -119,6 +119,8 @@ FILAMENT_STATES = {
     "edit_spool_price",
     "select_spool_to_delete",
     "confirm_delete_spool",
+    "edit_filament_weight",
+    "edit_filament_price",
 }
 
 
@@ -407,6 +409,45 @@ async def handle_filament_states(message: Message, app) -> bool:
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
             )
+        return True
+
+    if state == "edit_filament_weight" and target_printer:
+        clean_text = text.replace("g", "").replace("г", "").strip()
+        val = safe_eval_math(clean_text)
+        if val is not None and val >= 0:
+            target_printer.filament_grams = float(val)
+            await app.save_printers_config()
+            user["state"] = "printer_menu"
+            await app.storage.save_user(user)
+            from bot.keyboards import get_single_printer_filament_keyboard
+            await message.answer(
+                f"✅ Залишок філаменту для {html.escape(target_printer.name)} змінено на <b>{val}g</b>!"
+                if u_lang != "en"
+                else f"✅ Filament remaining for {html.escape(target_printer.name)} updated to <b>{val}g</b>!",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
+            )
+        else:
+            await message.answer("⚠️ Будь ласка, введіть числове значення у грамах (наприклад: <code>750</code>):", parse_mode=ParseMode.HTML)
+        return True
+
+    if state == "edit_filament_price" and target_printer:
+        val = safe_eval_math(text)
+        if val is not None and val >= 0:
+            target_printer.price_per_kg = float(val)
+            await app.save_printers_config()
+            user["state"] = "printer_menu"
+            await app.storage.save_user(user)
+            from bot.keyboards import get_single_printer_filament_keyboard
+            await message.answer(
+                f"✅ Вартість 1 кг пластику для {html.escape(target_printer.name)} встановлено на <b>{val} грн</b>!"
+                if u_lang != "en"
+                else f"✅ Price per 1 kg for {html.escape(target_printer.name)} set to <b>{val} UAH</b>!",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
+            )
+        else:
+            await message.answer("⚠️ Будь ласка, введіть числове значення ціни у грн (наприклад: <code>850</code>):", parse_mode=ParseMode.HTML)
         return True
 
     return False

@@ -526,14 +526,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function getPrinterStatusInfo(rawState) {
-        const st = String(rawState || "IDLE").toUpperCase();
-        if (st === "RUNNING" || st === "PREPARE" || st === "PRINTING" || st === "CHANGING_FILAMENT" || st === "SLICING" || st === "BUILDING" || st === "BUSY") {
+        const st = String(rawState || "ONLINE").toUpperCase();
+        if (st === "OFFLINE" || st === "OFF" || st === "DISCONNECTED" || st === "UNKNOWN") {
+            return { code: "OFFLINE", label: "🔴 Офлайн", badgeClass: "status-OFFLINE" };
+        }
+        if (st === "RUNNING" || st === "PREPARE" || st === "PREPARATION" || st === "PRINTING" || st === "CHANGING_FILAMENT" || st === "SLICING" || st === "BUILDING" || st === "BUSY") {
             return { code: "RUNNING", label: "🟢 Друкує", badgeClass: "status-RUNNING" };
         }
         if (st === "PAUSE" || st === "PAUSED") {
             return { code: "PAUSE", label: "⏸️ Пауза", badgeClass: "status-PAUSE" };
         }
-        return { code: "IDLE", label: "⚪ Готовий", badgeClass: "status-IDLE" };
+        return { code: "ONLINE", label: "⚪ Онлайн", badgeClass: "status-ONLINE" };
     }
 
     function updateFilterBadges(printers) {
@@ -541,24 +544,28 @@ document.addEventListener("DOMContentLoaded", () => {
         const total = printers.length;
         let running = 0;
         let pause = 0;
-        let idle = 0;
+        let online = 0;
+        let offline = 0;
 
         printers.forEach(p => {
             const info = getPrinterStatusInfo(p.state);
             if (info.code === "RUNNING") running++;
             else if (info.code === "PAUSE") pause++;
-            else idle++;
+            else if (info.code === "OFFLINE") offline++;
+            else online++;
         });
 
         const cAll = document.getElementById("count-filter-all");
         const cRun = document.getElementById("count-filter-running");
         const cPause = document.getElementById("count-filter-pause");
-        const cIdle = document.getElementById("count-filter-idle");
+        const cIdle = document.getElementById("count-filter-idle") || document.getElementById("count-filter-online");
+        const cOffline = document.getElementById("count-filter-offline");
 
         if (cAll) cAll.textContent = total;
         if (cRun) cRun.textContent = running;
         if (cPause) cPause.textContent = pause;
-        if (cIdle) cIdle.textContent = idle;
+        if (cIdle) cIdle.textContent = online;
+        if (cOffline) cOffline.textContent = offline;
     }
 
     function applyPrinterFilters() {
@@ -569,7 +576,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         document.querySelectorAll(".printer-card").forEach(card => {
             const name = (card.getAttribute("data-name") || "").toLowerCase();
-            const state = (card.getAttribute("data-state") || "IDLE").toUpperCase();
+            const state = (card.getAttribute("data-state") || "ONLINE").toUpperCase();
             const statusInfo = getPrinterStatusInfo(state);
 
             const matchesQuery = !rawQuery || name.includes(rawQuery);
@@ -578,8 +585,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 matchesFilter = statusInfo.code === "RUNNING";
             } else if (filterState === "PAUSE") {
                 matchesFilter = statusInfo.code === "PAUSE";
-            } else if (filterState === "IDLE") {
-                matchesFilter = statusInfo.code === "IDLE";
+            } else if (filterState === "IDLE" || filterState === "ONLINE") {
+                matchesFilter = statusInfo.code === "ONLINE";
+            } else if (filterState === "OFFLINE") {
+                matchesFilter = statusInfo.code === "OFFLINE";
             }
 
             card.style.display = (matchesQuery && matchesFilter) ? "" : "none";
@@ -771,23 +780,22 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function updatePrinterModalContent(p) {
-        const st = String(p.state || "IDLE").toUpperCase();
-        const isPrinting = ["RUNNING", "PREPARE", "PRINTING", "CHANGING_FILAMENT"].includes(st);
+        const statusInfo = getPrinterStatusInfo(p.state);
+        const st = statusInfo.code;
+        const isPrinting = (st === "RUNNING");
         let progress = p.progress_pct !== undefined ? p.progress_pct : 0;
-        if (st === "FINISH") progress = 100;
-        if (st === "OFFLINE" || st === "OFF") progress = 0;
+        if (st === "OFFLINE" || st === "ONLINE") progress = 0;
 
         let timeStr = formatRemainingTime(p.remaining_mins);
-        if (st === "FINISH") timeStr = "Завершено";
-        else if (st === "FAILED") timeStr = "Збій";
-        else if (st === "IDLE") timeStr = "Вільний";
+        if (st === "OFFLINE") timeStr = "Офлайн";
+        else if (st === "ONLINE") timeStr = "Онлайн";
         else if (!timeStr && isPrinting) timeStr = "Підготовка...";
 
-        const layerStr = (st === "IDLE" && p.current_layer === 0) ? "—" : `${p.current_layer} / ${p.total_layers}`;
+        const layerStr = (st === "ONLINE" || st === "OFFLINE") ? "—" : `${p.current_layer} / ${p.total_layers}`;
 
         modalNameEl.textContent = p.name;
-        modalStatusEl.textContent = st;
-        modalStatusEl.className = `status-pill status-${st}`;
+        modalStatusEl.textContent = statusInfo.label;
+        modalStatusEl.className = `status-pill ${statusInfo.badgeClass}`;
 
         modalNozzleTemp.textContent = `${p.nozzle_temp}°C`;
         modalBedTemp.textContent = `${p.bed_temp}°C`;
@@ -2734,8 +2742,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 add_printer_btn: "Додати принтер",
                 active_label: "активні",
                 filter_all: "Всі",
-                filter_running: "Друк 🟢",
-                filter_idle: "Готовий ⚪",
+                filter_running: "Друкує 🟢",
+                filter_pause: "Пауза ⏸️",
+                filter_idle: "Онлайн ⚪",
                 filter_offline: "Офлайн 🔴",
                 loading_printers: "Завантаження принтерів...",
                 commercial_title: "Комерція & Калькулятор",
@@ -2811,7 +2820,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 active_label: "active",
                 filter_all: "All",
                 filter_running: "Printing 🟢",
-                filter_idle: "Idle ⚪",
+                filter_pause: "Pause ⏸️",
+                filter_idle: "Online ⚪",
                 filter_offline: "Offline 🔴",
                 loading_printers: "Loading printers...",
                 commercial_title: "Commercial & Pricing",

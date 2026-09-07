@@ -290,10 +290,16 @@ def get_notify_keyboard(u_notify: dict, lang: str = "uk") -> ReplyKeyboardMarkup
         else ("❌ Clear Bed Alert: Off" if is_en else "❌ Нагадування зняти деталь: Викл")
     )
 
-    t_val = u_notify.get("min_time_to_end", 0)
-    btn_time = f"⏳ {t_val} min before finish" if (is_en and t_val > 0) else (f"⏳ Повідомити за {t_val} хв до кінця" if t_val > 0 else "⏳ Сповіщення за N хв (Вимк)")
+    try:
+        t_val = int(u_notify.get("min_time_to_end", 0) or 0)
+    except (TypeError, ValueError):
+        t_val = 0
 
-    f_val = u_notify.get("min_filament", 0)
+    try:
+        f_val = int(u_notify.get("min_filament", 0) or 0)
+    except (TypeError, ValueError):
+        f_val = 0
+    btn_time = f"⏳ {t_val} min before finish" if (is_en and t_val > 0) else (f"⏳ Повідомити за {t_val} хв до кінця" if t_val > 0 else "⏳ Сповіщення за N хв (Вимк)")
     btn_fil = f"📦 Filament < {f_val}g" if (is_en and f_val > 0) else (f"📦 Попередження нитки < {f_val}g" if f_val > 0 else "📦 Попередження нитки < Xg (Вимк)")
 
     cur_lang_label = "🇬🇧 English" if is_en else "🇺🇦 Українська"
@@ -325,7 +331,9 @@ def get_printer_select_notification_keyboard(printers: dict[str, Any], lang: str
 def get_printer_notification_inline_keyboard(printer: Any, lang: str = "uk") -> InlineKeyboardMarkup:
     """Builds per-printer notification controls inline keyboard matching WebApp structure."""
     is_en = lang == "en"
-    p_notify = printer.get_notify_dict() if hasattr(printer, "get_notify_dict") else {}
+    p_notify = printer.get_notify_dict() if hasattr(printer, "get_notify_dict") and callable(getattr(printer, "get_notify_dict")) else {}
+    if not isinstance(p_notify, dict):
+        p_notify = {}
     p_id = printer.id
 
     start_icon = "✅" if p_notify.get("start", True) else "❌"
@@ -334,10 +342,16 @@ def get_printer_notification_inline_keyboard(printer: Any, lang: str = "uk") -> 
     hms_icon = "✅" if p_notify.get("hms", True) else "❌"
     clear_icon = "✅" if p_notify.get("remind_clear", True) else "❌"
 
-    time_val = p_notify.get("min_time_to_end", 0)
+    try:
+        time_val = int(p_notify.get("min_time_to_end", 0) or 0)
+    except (TypeError, ValueError):
+        time_val = 0
     time_str = f"⏳ {time_val} хв" if time_val > 0 else "❌ Вимк"
 
-    fil_val = p_notify.get("min_filament", 0)
+    try:
+        fil_val = int(p_notify.get("min_filament", 0) or 0)
+    except (TypeError, ValueError):
+        fil_val = 0
     fil_str = f"📦 <{fil_val}g" if fil_val > 0 else "❌ Вимк"
 
     maint_val = round(getattr(printer, "maintenance_hours_counter", 0.0), 1)
@@ -413,7 +427,14 @@ def get_printer_select_inline_keyboard(
     filament_type = part.get("filament_type", "") if isinstance(part, dict) else ""
 
     for p_id, p in printers.items():
-        state_str = f" ({getattr(p, 'gcode_state', 'IDLE')})"
+        mapped = getattr(p, "mapped_state", "ONLINE")
+        st_labels = {
+            "ONLINE": "Онлайн" if lang != "en" else "Online",
+            "OFFLINE": "Офлайн" if lang != "en" else "Offline",
+            "RUNNING": "Друкує" if lang != "en" else "Printing",
+            "PAUSE": "Пауза" if lang != "en" else "Pause",
+        }
+        state_str = f" ({st_labels.get(mapped, mapped)})"
         active_fil = get_printer_active_filament(p, spools_map)
         comp = check_compatibility(printer_model, filament_type, p.name, active_fil) if printer_model else {"compatible": True}
         icon = "✅" if comp.get("compatible", True) else ("🛑" if comp.get("reason_type") == "FILAMENT" else "⚠️")

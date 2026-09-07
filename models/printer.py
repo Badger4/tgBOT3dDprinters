@@ -268,7 +268,7 @@ class BambuPrinter:
         if not getattr(self, "is_mqtt_connected", False):
             return False
         last_time = getattr(self, "last_mqtt_msg_time", 0.0)
-        if last_time > 0 and (time.time() - last_time > 20.0):
+        if last_time > 0 and (time.time() - last_time > 90.0):
             return False
         return True
 
@@ -380,15 +380,25 @@ class BambuPrinter:
             self._client.disconnect()
             logger.info(f"🛑 Disconnected MQTT for [{self.name}]")
 
+    def request_pushall(self) -> None:
+        """Requests a full status report from the printer over MQTT."""
+        if getattr(self, "_client", None) and getattr(self, "is_mqtt_connected", False) and getattr(self, "serial_number", None):
+            try:
+                push_req = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}})
+                self._client.publish(f"device/{self.serial_number}/request", push_req)
+            except Exception as e:
+                logger.warning(f"Failed to request pushall for [{self.name}]: {e}")
+
     def _on_connect(self, client: Any, userdata: Any, flags: Any, rc: int) -> None:
         if rc == 0:
             self.is_mqtt_connected = True
             self.last_mqtt_msg_time = time.time()
+            if self.gcode_state in ["OFFLINE", "UNKNOWN", "DISCONNECTED"]:
+                self.gcode_state = "IDLE"
             logger.info(f"✅ Connected to Bambu MQTT [{self.name}] ({self.ip})")
             if self.serial_number:
                 client.subscribe(f"device/{self.serial_number}/report")
-                push_req = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}})
-                client.publish(f"device/{self.serial_number}/request", push_req)
+                self.request_pushall()
         else:
             self.is_mqtt_connected = False
             logger.error(f"❌ MQTT connection error [{self.name}] code: {rc}")
@@ -457,6 +467,8 @@ class BambuPrinter:
         try:
             self.is_mqtt_connected = True
             self.last_mqtt_msg_time = time.time()
+            if self.gcode_state in ["OFFLINE", "UNKNOWN", "DISCONNECTED"]:
+                self.gcode_state = "IDLE"
             parsed = parse_mqtt_payload(msg.payload)
             if not parsed:
                 return
@@ -1253,17 +1265,17 @@ class BambuPrinter:
 
     @property
     def mapped_state(self) -> str:
-        """Maps internal gcode_state into canonical user-facing states: RUNNING, PAUSE, IDLE, OFFLINE."""
+        """Maps internal gcode_state into 4 canonical user-facing states: RUNNING, PAUSE, ONLINE, OFFLINE."""
         if not getattr(self, "is_online", True):
             return "OFFLINE"
-        st = str(self.gcode_state or "IDLE").upper()
-        if st in ["OFFLINE", "DISCONNECTED", "UNKNOWN"]:
-            return "OFFLINE"
+        st = str(self.gcode_state or "ONLINE").upper()
         if st in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PRINTING", "SLICING", "BUSY", "CHANGING_FILAMENT", "MAM_CLEANING"]:
             return "RUNNING"
         if st in ["PAUSE", "PAUSED"]:
             return "PAUSE"
-        return "IDLE"
+        if st in ["OFFLINE", "DISCONNECTED", "UNKNOWN"]:
+            return "ONLINE" if getattr(self, "is_online", False) else "OFFLINE"
+        return "ONLINE"
 
     def to_dict(self, for_storage: bool = False) -> dict[str, Any]:
         return {

@@ -17,8 +17,8 @@ from bot.handlers.parts.view import send_part_info
 router = Router()
 
 
-@router.message(PartEditingStates.in_parts_list, F.text.in_(["Добавити", "➕ Додати деталь", "Add Part"]))
-@router.message(F.text.in_(["Добавити", "➕ Додати деталь", "Add Part"]))
+@router.message(PartEditingStates.in_parts_list, F.text.lower().in_(["добавити", "➕ добавити", "додати", "➕ додати", "➕ додати деталь", "add", "➕ add", "add part"]))
+@router.message(F.text.lower().in_(["добавити", "➕ добавити", "додати", "➕ додати", "➕ додати деталь", "add", "➕ add", "add part"]))
 async def handle_add_part_start(message: Message, state: FSMContext, app: Any) -> None:
     await state.set_state(PartCreatingStates.name)
     await message.answer("Введіть назву нової деталі:")

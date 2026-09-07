@@ -151,6 +151,13 @@ class PrinterBotApp:
                     is_online = getattr(p, "is_online", True)
                     if not is_online and p.gcode_state not in ["OFFLINE", "UNKNOWN"]:
                         p.gcode_state = "OFFLINE"
+                    elif is_online and p.gcode_state in ["OFFLINE", "UNKNOWN", "DISCONNECTED"]:
+                        p.gcode_state = "IDLE"
+
+                    # Keep idle printer telemetry fresh via periodic pushall (every 30s)
+                    if getattr(p, "is_mqtt_connected", False) and hasattr(p, "request_pushall"):
+                        if (time.time() - getattr(p, "last_mqtt_msg_time", 0.0)) > 30.0:
+                            p.request_pushall()
 
                     if p.id not in self.printer_states:
                         self.printer_states[p.id] = {

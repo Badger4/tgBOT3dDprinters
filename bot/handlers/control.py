@@ -13,7 +13,18 @@ from bot.keyboards import get_printer_control_keyboard, get_printer_menu_keyboar
 router = Router()
 
 
-@router.message(F.text.lower().in_(["🎛️ керування принтером", "керування принтером", "керування"]))
+@router.message(
+    F.text.lower().in_(
+        [
+            "🎛️ керування принтером",
+            "керування принтером",
+            "керування",
+            "🎛️ printer control",
+            "printer control",
+            "control",
+        ]
+    )
+)
 async def handle_control_menu(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -31,7 +42,7 @@ async def handle_control_menu(message: Message, app):
     )
 
 
-@router.message(F.text.lower().in_(["🚫 пропустити об'єкт", "пропустити об'єкт"]))
+@router.message(F.text.lower().in_(["🚫 пропустити об'єкт", "пропустити об'єкт", "🚫 skip object", "skip object"]))
 async def handle_skip_objects_menu(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -154,7 +165,7 @@ async def handle_skip_objects_menu(message: Message, app):
     )
 
 
-@router.message(F.text.lower().in_(["⏸️ пауза", "пауза"]))
+@router.message(F.text.lower().in_(["⏸️ пауза", "пауза", "⏸️ pause", "pause"]))
 async def handle_pause_print(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -174,7 +185,7 @@ async def handle_pause_print(message: Message, app):
         await message.answer("⚠️ Не вдалося відправити паузу (MQTT не підключено).")
 
 
-@router.message(F.text.lower().in_(["▶️ відновити друк", "відновити друк", "відновити", "продовжити"]))
+@router.message(F.text.lower().in_(["▶️ відновити друк", "відновити друк", "відновити", "продовжити", "▶️ resume", "resume", "▶️ resume print", "resume print"]))
 async def handle_resume_print(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -194,7 +205,7 @@ async def handle_resume_print(message: Message, app):
         await message.answer("⚠️ Не вдалося відправити команду відновлення (MQTT не підключено).")
 
 
-@router.message(F.text.lower().in_(["⏹️ зупинити друк", "зупинити друк", "зупинити"]))
+@router.message(F.text.lower().in_(["⏹️ зупинити друк", "зупинити друк", "зупинити", "⏹️ stop print", "stop print", "⏹️ stop", "stop"]))
 async def handle_stop_print_request(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
@@ -252,3 +263,109 @@ async def handle_control_states(message: Message, app):
             await message.answer("Зупинку друку скасовано.", reply_markup=get_printer_menu_keyboard(target_printer))
         return True
     return False
+
+
+@router.message(F.text.lower().in_(["💡 підсвітка", "підсвітка", "💡 light", "light"]))
+async def handle_toggle_light(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+    if not target_printer:
+        return
+
+    u_lang = user.get("language", "uk")
+    if hasattr(target_printer, "toggle_chamber_light"):
+        target_printer.toggle_chamber_light("toggle")
+    elif hasattr(target_printer, "toggle_light"):
+        target_printer.toggle_light()
+
+    st_val = getattr(target_printer, "chamber_light_state", "off").upper()
+    await message.answer(
+        f"💡 Підсвітка для <b>{html.escape(target_printer.name)}</b>: <b>{st_val}</b>! 💡"
+        if u_lang != "en"
+        else f"💡 Light for <b>{html.escape(target_printer.name)}</b>: <b>{st_val}</b>! 💡",
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_printer_control_keyboard(target_printer, lang=u_lang),
+    )
+
+
+@router.message(F.text.lower().in_(["⚡ швидкість", "швидкість", "⚡ speed", "speed"]))
+async def handle_speed_menu(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+    if not target_printer:
+        return
+
+    u_lang = user.get("language", "uk")
+    spd_kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🐢 Silent (50%)"), KeyboardButton(text="🚗 Standard (100%)")],
+            [KeyboardButton(text="🏎️ Sport (124%)"), KeyboardButton(text="🚀 Ludicrous (166%)")],
+            [KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")],
+        ],
+        resize_keyboard=True,
+    )
+    cur_mag = getattr(target_printer, "spd_mag", 100)
+    await message.answer(
+        f"⚡ <b>Оберіть режим швидкості для {html.escape(target_printer.name)}:</b>\nПоточна швидкість: <b>{cur_mag}%</b>"
+        if u_lang != "en"
+        else f"⚡ <b>Select speed mode for {html.escape(target_printer.name)}:</b>\nCurrent speed: <b>{cur_mag}%</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=spd_kb,
+    )
+
+
+@router.message(F.text.in_(["🐢 Silent (50%)", "🚗 Standard (100%)", "🏎️ Sport (124%)", "🚀 Ludicrous (166%)"]))
+async def handle_set_speed(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+    if not target_printer:
+        return
+
+    u_lang = user.get("language", "uk")
+    lvl_map = {"🐢 Silent (50%)": 1, "🚗 Standard (100%)": 2, "🏎️ Sport (124%)": 3, "🚀 Ludicrous (166%)": 4}
+    lvl = lvl_map.get(message.text, 2)
+    ok = target_printer.set_speed_level(lvl) if hasattr(target_printer, "set_speed_level") else target_printer.set_speed_profile(lvl)
+    if ok:
+        await message.answer(
+            f"✅ Встановлено режим швидкості: <b>{html.escape(message.text)}</b> для {html.escape(target_printer.name)}! 🚀"
+            if u_lang != "en"
+            else f"✅ Speed mode set to: <b>{html.escape(message.text)}</b> for {html.escape(target_printer.name)}! 🚀",
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_printer_control_keyboard(target_printer, lang=u_lang),
+        )
+    else:
+        await message.answer("⚠️ Не вдалося змінити швидкість (MQTT не підключено).")
+
+
+@router.message(F.text.lower().in_(["🧹 скинути лічильник то", "скинути лічильник то", "провести то", "🧹 reset maintenance", "reset maintenance"]))
+async def handle_reset_maintenance(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+    if not target_printer:
+        return
+
+    if hasattr(target_printer, "reset_maintenance_counter"):
+        target_printer.reset_maintenance_counter()
+    elif hasattr(target_printer, "reset_maintenance"):
+        target_printer.reset_maintenance("all")
+    await app.save_printers_config()
+
+    u_lang = user.get("language", "uk")
+    interval = getattr(target_printer, "maintenance_interval_hours", 150.0)
+    await message.answer(
+        f"🧹 <b>Лічильник ТО для {html.escape(target_printer.name)} успішно скинуто!</b>\n"
+        f"⏱️ Новий відлік до наступного ТО: <b>{interval} год</b>."
+        if u_lang != "en"
+        else f"🧹 <b>Maintenance counter for {html.escape(target_printer.name)} reset successfully!</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_printer_control_keyboard(target_printer, lang=u_lang),
+    )
+
