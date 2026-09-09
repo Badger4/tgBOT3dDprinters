@@ -10,11 +10,11 @@ from bot.handlers.parts.delete import router as delete_router, handle_delete_par
 from bot.handlers.parts.print_job import router as print_router, handle_print_part_start
 
 router = Router()
-router.include_router(view_router)
 router.include_router(add_router)
 router.include_router(edit_router)
 router.include_router(delete_router)
 router.include_router(print_router)
+router.include_router(view_router)
 
 __all__ = [
     "router",

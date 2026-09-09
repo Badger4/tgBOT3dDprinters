@@ -8,10 +8,11 @@ from typing import Any
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardMarkup, Message, ReplyKeyboardMarkup, FSInputFile
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
 from config import logger
 from bot.keyboards import (
     construct_part_info_keyboard,
+    get_main_keyboard,
     get_part_action_reply_keyboard,
     get_parts_inline_keyboard,
     get_parts_reply_keyboard,
@@ -20,6 +21,64 @@ from bot.states import PartEditingStates
 from utils.i18n import get_user_lang
 
 router = Router()
+
+
+async def extract_image_from_message(message: Message) -> str:
+    """Extracts Telegram photo file_id or downloads PNG/JPEG/WEBP image document to uploads with compression."""
+    if message.photo:
+        try:
+            import config
+            import time
+            file_info = await message.bot.get_file(message.photo[-1].file_id)
+            file_bytes_io = await message.bot.download_file(file_info.file_path)
+            file_bytes = file_bytes_io.read()
+
+            from utils.image_utils import compress_part_photo
+            compressed = compress_part_photo(file_bytes)
+
+            file_token = f"img_{int(time.time())}_{message.photo[-1].file_id[:10]}.jpg"
+            upload_dir = config.STORAGE_DIR / "uploads"
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            save_path = upload_dir / file_token
+            save_path.write_bytes(compressed)
+            return f"/uploads/{file_token}"
+        except Exception as e:
+            logger.warning(f"Error compressing photo message: {e}")
+            return message.photo[-1].file_id
+
+    if message.document:
+        doc = message.document
+        mime = str(doc.mime_type or "").lower()
+        fname = str(doc.file_name or "").lower()
+        if mime.startswith("image/") or fname.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+            try:
+                import config
+                import re
+                import time
+                file_info = await message.bot.get_file(doc.file_id)
+                file_bytes_io = await message.bot.download_file(file_info.file_path)
+                file_bytes = file_bytes_io.read()
+
+                from utils.image_utils import compress_part_photo
+                compressed = compress_part_photo(file_bytes)
+
+                clean_fname = re.sub(r"[^a-zA-Z0-9_]", "_", doc.file_name.rsplit(".", 1)[0] if doc.file_name else "image")
+                file_token = f"img_{int(time.time())}_{clean_fname}.jpg"
+
+                upload_dir = config.STORAGE_DIR / "uploads"
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                save_path = upload_dir / file_token
+                save_path.write_bytes(compressed)
+
+                return f"/uploads/{file_token}"
+            except Exception as e:
+                logger.warning(f"Error downloading image document: {e}")
+                return doc.file_id
+
+    if message.text:
+        return message.text.strip()
+
+    return ""
 
 
 async def open_parts_list(message: Message, state: FSMContext, app: Any, lang: str = "uk") -> None:
@@ -80,6 +139,108 @@ async def send_part_info(target_message: Message, part: dict[str, Any], text_key
 
     if not photo_sent:
         await target_message.answer(caption_text, parse_mode=ParseMode.HTML, reply_markup=inline_keyboard)
+
+
+@router.callback_query(F.data.startswith("part_view_"))
+async def handle_select_part_view(callback: CallbackQuery, state: FSMContext, app: Any) -> None:
+    part_id = callback.data.replace("part_view_", "")
+    parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
+
+    if part_id not in parts:
+        await callback.answer("⚠️ Деталь не знайдено!", show_alert=True)
+        return
+
+    current_state = await state.get_state()
+    part = parts[part_id]
+    u_data = await app.storage.load_user(callback.from_user.id)
+    lang = get_user_lang(u_data)
+
+    if current_state == PartEditingStates.select_part_for_edit:
+        await state.set_state(PartEditingStates.in_part_info)
+        await state.update_data(selected_part_id=part_id)
+        ikb = construct_part_info_keyboard(part, lang)
+        await callback.message.answer(
+            f"✏️ <b>Редагування деталі «{html.escape(part.get('name', 'Деталь'))}»:</b>\nОберіть поле для зміни:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=ikb,
+        )
+        await callback.answer()
+        return
+
+    if current_state == PartEditingStates.select_part_for_delete:
+        del parts[part_id]
+        await app.storage.save_json(app.storage.parts_file, parts)
+        await callback.message.answer("✅ <b>Деталь успішно видалено!</b>", parse_mode=ParseMode.HTML)
+        await open_parts_list(callback.message, state, app, lang)
+        await callback.answer()
+        return
+
+    if current_state == PartEditingStates.select_part_for_print:
+        three_mf = part.get("three_mf")
+        if not three_mf:
+            await callback.answer("⚠️ Для цієї деталі ще не завантажено файл .3mf!", show_alert=True)
+            return
+        if not app.printers:
+            await callback.answer("⚠️ Немає підключених принтерів у фермі!", show_alert=True)
+            return
+        from bot.keyboards import get_printer_select_inline_keyboard
+        spools_map = await app.storage.load_spools() if hasattr(app, "storage") else None
+        kb = get_printer_select_inline_keyboard(part_id, app.printers, part=part, lang=lang, spools_map=spools_map)
+        model_str = f"\n🖨️ <b>Модель у файлі:</b> {html.escape(part.get('printer_model'))}" if part.get('printer_model') and part.get('printer_model') != 'Unknown' else ""
+        await callback.message.answer(
+            f"🚀 Оберіть принтер для відправки та запуску друку деталі <b>{html.escape(part.get('name', 'Деталь'))}</b>{model_str}:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb,
+        )
+        await callback.answer()
+        return
+
+    await state.set_state(PartEditingStates.in_part_info)
+    await state.update_data(selected_part_id=part_id)
+
+    text_keyboard = get_part_action_reply_keyboard(lang)
+    inline_keyboard = construct_part_info_keyboard(part, lang)
+
+    await send_part_info(callback.message, part, text_keyboard, inline_keyboard)
+
+    three_mf = part.get("three_mf")
+    if three_mf:
+        try:
+            is_file_id = bool(
+                three_mf
+                and not three_mf.startswith(("/", "\\", "http://", "https://"))
+                and "." not in three_mf
+                and "/" not in three_mf
+                and "\\" not in three_mf
+                and len(three_mf) >= 20
+            )
+            if is_file_id:
+                await callback.message.answer(".3mf:")
+                await callback.message.answer_document(three_mf)
+            else:
+                import config
+                clean_name = three_mf.replace("\\", "/").split("/")[-1]
+                clean_rel = three_mf.lstrip("/").lstrip("\\")
+                possible_paths = [
+                    config.STORAGE_DIR / "uploads" / clean_name,
+                    config.STORAGE_DIR / "parts_files" / clean_name,
+                    config.STORAGE_DIR / clean_name,
+                    config.STORAGE_DIR / clean_rel,
+                    Path(three_mf),
+                ]
+                found_path = None
+                for p in possible_paths:
+                    if p.exists() and p.is_file():
+                        found_path = p
+                        break
+                if found_path:
+                    doc_fname = part.get("three_mf_name") or clean_name
+                    await callback.message.answer(".3mf:")
+                    await callback.message.answer_document(FSInputFile(found_path, filename=doc_fname))
+        except Exception as e:
+            logger.warning(f"Error sending .3mf document: {e}")
+
+    await callback.answer()
 
 
 @router.message(

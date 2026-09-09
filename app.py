@@ -49,7 +49,10 @@ class PrinterBotApp:
         self.global_settings = await self.storage.load_json(self.storage.settings_file, self.global_settings)
 
     async def save_printers_config(self) -> None:
-        printers_list = [p.to_storage_dict() for p in self.printers.values()]
+        printers_list = [
+            p.to_storage_dict() if hasattr(p, "to_storage_dict") else p
+            for p in self.printers.values()
+        ]
         await self.storage.save_json(self.storage.printers_file, printers_list)
 
     async def is_user_admin(self, user_id: str) -> bool:
@@ -107,6 +110,17 @@ class PrinterBotApp:
         from utils.spool_fingerprint import build_spool_fingerprint, delete_active_print_context, load_active_print_context
 
         for p_id, p in list(self.printers.items()):
+            if isinstance(p, dict):
+                try:
+                    p_obj = BambuPrinter(p, self.storage, save_callback=self.save_printers_config)
+                    p_obj._main_loop = main_loop
+                    asyncio.create_task(asyncio.to_thread(p_obj.init_mqtt, main_loop))
+                    self.printers[p_id] = p_obj
+                    p = p_obj
+                except Exception as e:
+                    logger.error(f"Failed to auto-heal dict printer {p_id}: {e}")
+                    self.printers.pop(p_id, None)
+                    continue
             p._main_loop = main_loop
             if not getattr(p, "storage", None):
                 p.storage = self.storage
@@ -144,6 +158,17 @@ class PrinterBotApp:
 
                 is_any_printing = False
                 for p_id, p in list(self.printers.items()):
+                    if isinstance(p, dict):
+                        try:
+                            p_obj = BambuPrinter(p, self.storage, save_callback=self.save_printers_config)
+                            p_obj._main_loop = main_loop
+                            asyncio.create_task(asyncio.to_thread(p_obj.init_mqtt, main_loop))
+                            self.printers[p_id] = p_obj
+                            p = p_obj
+                        except Exception as e:
+                            logger.error(f"Failed to auto-heal dict printer {p_id}: {e}")
+                            self.printers.pop(p_id, None)
+                            continue
                     p._main_loop = main_loop
                     if not getattr(p, "storage", None):
                         p.storage = self.storage
@@ -492,5 +517,9 @@ class PrinterBotApp:
                 except Exception as e:
                     logger.warning(f"Error stopping ngrok tunnel on bot shutdown: {e}")
             for p in self.printers.values():
-                p.destroy()
+                if hasattr(p, "destroy"):
+                    try:
+                        p.destroy()
+                    except Exception:
+                        pass
             await self.bot.session.close()

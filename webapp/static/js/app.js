@@ -674,21 +674,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const slotGrams = (p.ams_slots && p.ams_slots[displaySlotKey] !== undefined)
                 ? p.ams_slots[displaySlotKey]
-                : (assignedSpool ? assignedSpool.remaining_grams : (p.filament_grams_left !== undefined ? p.filament_grams_left : 1000));
+                : (assignedSpool ? assignedSpool.remaining_grams : (p.filament_grams_left !== undefined ? p.filament_grams_left : 0));
 
             const slotTag = (hasAms && slotLabels[displaySlotKey]) ? `[${slotLabels[displaySlotKey]}] ` : "";
+
+            const hasAmsTray = Boolean(p.ams_trays_info && p.ams_trays_info[displaySlotKey] && p.ams_trays_info[displaySlotKey].type && !p.ams_trays_info[displaySlotKey].empty);
+            const hasAssigned = Boolean(assignedSpool && (assignedSpool.remaining_grams > 0 || assignedSpool.name));
+            const hasPhysicalSpool = hasAssigned || hasAmsTray || (p.filament_type && p.filament_type !== "Невизначено" && slotGrams > 0);
 
             let filamentDisplay = "";
             if (assignedSpool) {
                 filamentDisplay = `${slotTag}${escapeHtml(assignedSpool.name)} (${slotGrams}g)`;
-            } else if (p.ams_trays_info && p.ams_trays_info[displaySlotKey] && p.ams_trays_info[displaySlotKey].type) {
+            } else if (hasAmsTray) {
                 const tInfo = p.ams_trays_info[displaySlotKey];
                 const name = tInfo.sub_brands ? `Bambu ${tInfo.type} ${tInfo.sub_brands}` : `Bambu ${tInfo.type}`;
                 filamentDisplay = `${slotTag}${escapeHtml(name)} (${slotGrams}g)`;
-            } else if (p.filament_type && p.filament_type !== "Невизначено") {
+            } else if (p.filament_type && p.filament_type !== "Невизначено" && slotGrams > 0) {
                 filamentDisplay = `${slotTag}${escapeHtml(p.filament_type)} (${slotGrams}g)`;
             } else {
-                filamentDisplay = `${slotTag}${slotGrams}g`;
+                filamentDisplay = `${slotTag}Порожньо`;
             }
 
             const serialVal = p.serial || p.serial_number || p.serialNumber || p.sn || "";
@@ -702,7 +706,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 p.subtask_name,
                 filamentDisplay,
                 p.filament_type,
-                `${slotGrams}g`,
+                hasPhysicalSpool ? `${slotGrams}g` : "",
                 `${progress}%`,
                 timeStr
             ].filter(Boolean).join(" ").toLowerCase();
@@ -734,7 +738,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <span><i class="fa-solid fa-temperature-high color-red"></i> ${p.nozzle_temp}°C</span>
                         <span><i class="fa-solid fa-hot-tub-person color-orange"></i> ${p.bed_temp}°C</span>
                         <span><i class="fa-solid fa-layer-group color-blue"></i> ${layerStr}</span>
-                        <span><i class="fa-solid fa-spool color-purple"></i> ${filamentDisplay}</span>
+                        <span><i class="fa-solid fa-spool ${hasPhysicalSpool ? 'color-purple' : 'text-muted'}" style="${hasPhysicalSpool ? '' : 'opacity:0.4;'}"></i> ${filamentDisplay}</span>
                     </div>
                 </div>`;
         }).join("");
@@ -892,25 +896,47 @@ document.addEventListener("DOMContentLoaded", () => {
             const spoolsList = Object.values(window.latestSpools || {});
 
             amsSlotsContainer.innerHTML = slotKeys.map(k => {
-                const rawGrams = slots[k] !== undefined ? slots[k] : (slots["255"] !== undefined && k === "254" ? slots["255"] : 1000);
+                const rawGrams = slots[k] !== undefined ? slots[k] : (slots["255"] !== undefined && k === "254" ? slots["255"] : 0);
                 const isActive = (k === activeKey || (k === "254" && activeKey === "255") || (k === "255" && activeKey === "254"));
                 const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && (String(s.assigned_slot_key) === k || (k === "254" && String(s.assigned_slot_key) === "255")));
                 const trayInfo = (p.ams_trays_info || {})[k] || (k === "254" ? (p.ams_trays_info || {})["255"] : {}) || {};
-                const isTrayEmpty = trayInfo.empty === true || (!assignedSpool && !trayInfo.type);
+                
+                const hasAmsTray = Boolean(!trayInfo.empty && trayInfo.type);
+                const hasAssigned = Boolean(assignedSpool && (assignedSpool.remaining_grams > 0 || assignedSpool.name));
+                const hasPhysicalSpool = hasAssigned || hasAmsTray || (isActive && p.filament_type && p.filament_type !== "Невизначено" && rawGrams > 0);
 
-                let spoolColor = '#334155';
-                let spoolName = 'Порожньо';
-                let spoolType = 'Порожньо';
+                if (!hasPhysicalSpool) {
+                    return `
+                        <div class="ams-slot-card empty-slot ${isActive ? 'active-slot' : ''}">
+                            <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
+                                <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
+                                <div class="d-flex gap-1">
+                                    <button class="btn btn-xs btn-outline-primary btn-assign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Встановити котушку зі Складу">
+                                        <i class="fa-solid fa-plus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="empty-slot-placeholder">
+                                <i class="fa-regular fa-circle-dashed"></i>
+                                <span>Порожній простір</span>
+                            </div>
+                        </div>`;
+                }
+
+                let spoolColor = '#3b82f6';
+                let spoolName = 'Котушка';
+                let spoolType = 'PLA';
                 let pct = 0;
-                let displayGrams = 0;
+                let displayGrams = rawGrams;
 
                 if (assignedSpool) {
                     spoolColor = assignedSpool.color || '#3b82f6';
                     spoolName = escapeHtml(assignedSpool.name);
                     spoolType = escapeHtml(assignedSpool.type);
-                    displayGrams = rawGrams;
-                    pct = Math.min(100, Math.max(0, Math.round((displayGrams / 1000) * 100)));
-                } else if (!isTrayEmpty && trayInfo.type) {
+                    displayGrams = assignedSpool.remaining_grams !== undefined ? assignedSpool.remaining_grams : rawGrams;
+                    const maxCap = assignedSpool.initial_grams || assignedSpool.total_grams || 1000;
+                    pct = Math.min(100, Math.max(0, Math.round((displayGrams / maxCap) * 100)));
+                } else if (hasAmsTray) {
                     spoolColor = trayInfo.color || (isActive ? '#22c55e' : '#3b82f6');
                     spoolType = escapeHtml(trayInfo.type);
                     spoolName = trayInfo.sub_brands ? `Bambu ${spoolType} ${escapeHtml(trayInfo.sub_brands)}` : `Bambu ${spoolType}`;
@@ -920,22 +946,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     } else {
                         pct = Math.min(100, Math.max(0, Math.round((displayGrams / 1000) * 100)));
                     }
-                } else if (isActive && !isTrayEmpty && (p.filament_type && p.filament_type !== "Невизначено")) {
+                } else if (isActive && p.filament_type && p.filament_type !== "Невизначено") {
                     spoolColor = '#22c55e';
                     spoolName = 'Активна нитка';
                     spoolType = escapeHtml(p.filament_type);
                     displayGrams = rawGrams;
                     pct = Math.min(100, Math.max(0, Math.round((displayGrams / 1000) * 100)));
-                } else {
-                    spoolColor = '#334155';
-                    spoolName = 'Порожньо';
-                    spoolType = 'Порожньо';
-                    pct = 0;
-                    displayGrams = 0;
                 }
 
                 return `
-                    <div class="ams-slot-card ${isActive ? 'active-slot' : ''} ${isTrayEmpty ? 'empty-slot' : ''}">
+                    <div class="ams-slot-card ${isActive ? 'active-slot' : ''}">
                         <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
                             <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
                             <div class="d-flex gap-1">
@@ -1609,41 +1629,53 @@ document.addEventListener("DOMContentLoaded", () => {
                             </div>
                             <div class="ams-slots-grid">
                                 ${slotKeys.map(k => {
-                                    const grams = slots[k] !== undefined ? slots[k] : (slots["255"] !== undefined && k === "254" ? slots["255"] : 1000);
+                                    const grams = slots[k] !== undefined ? slots[k] : (slots["255"] !== undefined && k === "254" ? slots["255"] : 0);
                                     const isActive = (k === activeKey || (k === "254" && activeKey === "255") || (k === "255" && activeKey === "254"));
                                     const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && (String(s.assigned_slot_key) === k || (k === "254" && String(s.assigned_slot_key) === "255")));
                                     const trayInfo = (p.ams_trays_info || {})[k] || (k === "254" ? (p.ams_trays_info || {})["255"] : {}) || {};
-                                    const isTrayEmpty = trayInfo.empty === true;
+                                    const hasAmsTray = Boolean(!trayInfo.empty && trayInfo.type);
+                                    const hasAssigned = Boolean(assignedSpool && (assignedSpool.remaining_grams > 0 || assignedSpool.name));
+                                    const hasPhysicalSpool = hasAssigned || hasAmsTray || (isActive && p.filament_type && p.filament_type !== "Невизначено" && grams > 0);
 
-                                    let spoolColor = '#64748b';
-                                    let spoolName = 'Порожньо';
-                                    let spoolType = '—';
+                                    if (!hasPhysicalSpool) {
+                                        return `
+                                            <div class="ams-slot-card empty-slot ${isActive ? 'active-slot' : ''}">
+                                                <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
+                                                    <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
+                                                </div>
+                                                <div class="empty-slot-placeholder">
+                                                    <i class="fa-regular fa-circle-dashed"></i>
+                                                    <span>Порожній простір</span>
+                                                </div>
+                                            </div>`;
+                                    }
+
+                                    let spoolColor = '#3b82f6';
+                                    let spoolName = 'Котушка';
+                                    let spoolType = 'PLA';
                                     let pct = Math.min(100, Math.max(0, Math.round((grams / 1000) * 100)));
 
                                     if (assignedSpool) {
                                         spoolColor = assignedSpool.color || '#3b82f6';
                                         spoolName = escapeHtml(assignedSpool.name);
                                         spoolType = escapeHtml(assignedSpool.type);
-                                    } else if (!isTrayEmpty && (trayInfo.type || trayInfo.color)) {
+                                        const maxCap = assignedSpool.initial_grams || assignedSpool.total_grams || 1000;
+                                        pct = Math.min(100, Math.max(0, Math.round((grams / maxCap) * 100)));
+                                    } else if (hasAmsTray) {
                                         spoolColor = trayInfo.color || (isActive ? '#22c55e' : '#3b82f6');
                                         spoolType = escapeHtml(trayInfo.type);
-                                        spoolName = trayInfo.sub_brands ? `${spoolType} ${escapeHtml(trayInfo.sub_brands)}` : `Bambu ${spoolType}`;
+                                        spoolName = trayInfo.sub_brands ? `Bambu ${spoolType} ${escapeHtml(trayInfo.sub_brands)}` : `Bambu ${spoolType}`;
                                         if (trayInfo.remain !== undefined && trayInfo.remain >= 0) {
                                             pct = trayInfo.remain;
                                         }
-                                    } else if (isActive && !isTrayEmpty) {
+                                    } else if (isActive) {
                                         spoolColor = '#22c55e';
                                         spoolName = 'Активна нитка';
                                         spoolType = escapeHtml(p.filament_type || 'PLA');
-                                    } else if (isTrayEmpty) {
-                                        spoolColor = '#334155';
-                                        spoolName = 'Порожній слот';
-                                        spoolType = 'Порожньо';
-                                        pct = 0;
                                     }
 
                                     return `
-                                        <div class="ams-slot-card ${isActive ? 'active-slot' : ''} ${isTrayEmpty ? 'empty-slot' : ''}">
+                                        <div class="ams-slot-card ${isActive ? 'active-slot' : ''}">
                                             <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
                                                 <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
                                                 <div class="d-flex gap-1">

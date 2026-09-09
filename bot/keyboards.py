@@ -39,24 +39,22 @@ def get_webapp_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[btn]])
 
 
-def get_printers_keyboard(printers: dict[str, BambuPrinter], lang: str = "uk") -> ReplyKeyboardMarkup:
+def get_printers_keyboard(printers: dict[str, Any], lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard = []
     for p in printers.values():
-        keyboard.append([KeyboardButton(text=f"🖨️ {p.name}")])
+        p_name = p.name if hasattr(p, "name") else (p.get("name", "Printer") if isinstance(p, dict) else "Printer")
+        keyboard.append([KeyboardButton(text=f"🖨️ {p_name}")])
     keyboard.append([KeyboardButton(text=t("btn_add_printer", lang))])
     keyboard.append([KeyboardButton(text=t("btn_main_menu", lang))])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 def get_printer_menu_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyboardMarkup:
-    is_en = lang == "en"
-    notify_str = "🔔 Notifications" if is_en else "🔔 Сповіщення"
-
     keyboard = [
         [KeyboardButton(text=t("btn_status", lang)), KeyboardButton(text=t("btn_camera", lang))],
         [KeyboardButton(text=t("btn_control", lang)), KeyboardButton(text=t("btn_filament", lang))],
-        [KeyboardButton(text=notify_str), KeyboardButton(text=t("btn_edit_printer", lang))],
-        [KeyboardButton(text=t("btn_delete_printer", lang)), KeyboardButton(text=t("btn_back_to_printers", lang))],
+        [KeyboardButton(text=t("btn_edit_printer", lang)), KeyboardButton(text=t("btn_delete_printer", lang))],
+        [KeyboardButton(text=t("btn_back_to_printers", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -470,6 +468,34 @@ def get_part_editing_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
         ]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_spool_edit_fields_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    keyboard = [
+        [
+            KeyboardButton(text="🏷️ Name" if is_en else "🏷️ Назва"),
+            KeyboardButton(text="🎨 Type" if is_en else "🎨 Тип"),
+        ],
+        [
+            KeyboardButton(text="⚖️ Remaining (g)" if is_en else "⚖️ Залишок (г)"),
+            KeyboardButton(text="💰 Price per kg" if is_en else "💰 Вартість (грн)"),
+        ],
+        [KeyboardButton(text=t("btn_back", lang))],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_confirm_delete_spool_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    keyboard = [
+        [
+            KeyboardButton(text="🗑️ Yes, delete" if is_en else "🗑️ Так, видалити"),
+            KeyboardButton(text="❌ Cancel" if is_en else "❌ Скасувати"),
+        ],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
 
 
 

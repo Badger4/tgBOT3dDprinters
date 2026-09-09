@@ -26,7 +26,45 @@ __all__ = [
 ]
 
 
-def build_printer_telemetry(p: Any) -> dict:
+def build_printer_telemetry(p: Any) -> dict[str, Any]:
+    """Serializes printer live status and AMS telemetry for HTTP / SSE delivery."""
+    if isinstance(p, dict):
+        return {
+            "id": p.get("id", ""),
+            "name": p.get("name", "Bambu Printer"),
+            "ip": p.get("ip", ""),
+            "serial": p.get("serial_number", p.get("serialNumber", "")),
+            "state": p.get("gcode_state", "IDLE"),
+            "raw_state": p.get("gcode_state", "IDLE"),
+            "online": p.get("is_online", True),
+            "nozzle_temp": p.get("nozzle_temper", 0),
+            "bed_temp": p.get("bed_temper", 0),
+            "progress_pct": p.get("mc_percent", 0),
+            "remaining_mins": p.get("mc_remaining_time", 0),
+            "current_layer": p.get("layer_num", 0),
+            "total_layers": p.get("total_layer_num", 0),
+            "subtask_name": p.get("subtask_name", ""),
+            "filament_type": p.get("filament_type", "PLA"),
+            "filament_grams_left": 1000.0,
+            "job_weight_g": 0.0,
+            "chamber_light_state": "off",
+            "spd_lvl": 2,
+            "spd_mag": 100,
+            "maintenance_hours_counter": 0.0,
+            "maintenance_interval_hours": 100,
+            "maintenance_items": {},
+            "total_print_hours": 0.0,
+            "hms_errors": [],
+            "ams_slots": {},
+            "ams_trays_info": {},
+            "has_ams": False,
+            "external_spool_slot": "254",
+            "is_calibrating": False,
+            "last_mqtt_msg_time": 0.0,
+            "model": p.get("printer_model", "X1C"),
+            "access_code": p.get("accessCode", p.get("access_code", "")),
+            "serial_number": p.get("serialNumber", p.get("serial_number", "")),
+        }
     used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
     active_slot = p.get_active_slot_key() if hasattr(p, "get_active_slot_key") else "255"
     slot_grams = p.get_slot_grams(active_slot) if hasattr(p, "get_slot_grams") else getattr(p, "filament_grams", 1000.0)

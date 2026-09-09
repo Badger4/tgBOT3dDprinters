@@ -68,6 +68,41 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
         hours_val = 0.0
     hours_str = f"⏱️ <b>Напрацювання:</b> <code>{hours_val:.1f} год</code>\n" if not is_en else f"⏱️ <b>Print Hours:</b> <code>{hours_val:.1f} hrs</code>\n"
 
+    active_k = target_printer.get_active_slot_key() if hasattr(target_printer, "get_active_slot_key") else "254"
+    if callable(active_k):
+        try:
+            active_k = active_k()
+        except Exception:
+            active_k = "254"
+    if not isinstance(active_k, (str, int)):
+        active_k = "254"
+
+    raw_grams = target_printer.get_slot_grams(active_k) if hasattr(target_printer, "get_slot_grams") else getattr(target_printer, "filament_grams", 0.0)
+    if callable(raw_grams):
+        try:
+            raw_grams = raw_grams(active_k)
+        except Exception:
+            raw_grams = 0.0
+    try:
+        active_grams_val = float(raw_grams)
+    except (TypeError, ValueError):
+        active_grams_val = 0.0
+
+    trays = getattr(target_printer, "ams_trays_info", {})
+    if not isinstance(trays, dict):
+        trays = {}
+    t_info = trays.get(str(active_k), {})
+    if not isinstance(t_info, dict):
+        t_info = {}
+    has_tray = bool(t_info.get("type") and not t_info.get("empty", False))
+    f_type = getattr(target_printer, "filament_type", "")
+    f_type_str = str(f_type) if isinstance(f_type, str) else ""
+
+    has_spool = has_tray or (active_grams_val > 0 and f_type_str and f_type_str not in ["Невизначено", "None", ""])
+
+    spool_str = f"<b>{active_grams_val}g</b>" if has_spool else ("<i>Empty</i>" if is_en else "<i>Порожньо</i>")
+    type_str = f"<b>{f_type_str}</b>" if (has_spool and f_type_str and f_type_str not in ["Невизначено", "None", ""]) else "<i>—</i>"
+
     if is_en:
         status_txt = (
             f"<b>📊 Printer Status: {target_printer.name}</b>\n\n"
@@ -76,8 +111,8 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
             f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
             f"🔥 <b>Nozzle:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> | 🛏️ <b>Bed:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
-            f"🧵 <b>Filament Type:</b> <b>{target_printer.filament_type}</b>\n"
-            f"📦 <b>Spool Remaining:</b> <b>{target_printer.filament_grams}g</b>\n"
+            f"🧵 <b>Filament Type:</b> {type_str}\n"
+            f"📦 <b>Spool Remaining:</b> {spool_str}\n"
             f"{hours_str}"
         )
     else:
@@ -88,8 +123,8 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
             f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
             f"🔥 <b>Сопло:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> | 🛏️ <b>Стіл:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
-            f"🧵 <b>Тип пластику:</b> <b>{target_printer.filament_type}</b>\n"
-            f"📦 <b>Залишок на бабіні:</b> <b>{target_printer.filament_grams}g</b>\n"
+            f"🧵 <b>Тип пластику:</b> {type_str}\n"
+            f"📦 <b>Залишок на бабіні:</b> {spool_str}\n"
             f"{hours_str}"
         )
 
@@ -112,7 +147,15 @@ async def handle_printer_status(message: Message, app):
     await message.answer(card, parse_mode=ParseMode.HTML)
 
 
-@router.message(F.text.startswith("🖨️ "))
+async def printer_view_state_filter(message: Message, app) -> bool:
+    if not message.text or not message.text.startswith("🖨️ "):
+        return False
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    return user.get("state") in [None, "", "idle", "printer_menu", "printers_list", "main_menu"]
+
+
+@router.message(printer_view_state_filter)
 async def handle_select_printer(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):

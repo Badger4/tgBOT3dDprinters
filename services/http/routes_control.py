@@ -126,7 +126,7 @@ async def handle_printer_control(request: web.Request) -> web.Response:
         await app_obj.save_printers_config()
         return web.json_response({"status": "ok", "action": "assign_spool", "spool": target_spool, "slot_id": raw_slot if raw_slot is not None else "255"})
     elif action == "unassign_spool":
-        raw_slot = data.get("slot_id")
+        raw_slot = data.get("slot_id") or data.get("slot_key")
         slot_id = str(raw_slot) if raw_slot is not None else "255"
         slot_grams = p.get_slot_grams(slot_id) if hasattr(p, "get_slot_grams") else 1000.0
         spools = await app_obj.storage.load_spools()
@@ -138,12 +138,17 @@ async def handle_printer_control(request: web.Request) -> web.Response:
                 s["quantity"] = max(1, int(s.get("quantity", 1)))
                 spools[s_id] = s
         await app_obj.storage.save_spools(spools)
+        if hasattr(p, "set_slot_grams"):
+            p.set_slot_grams(0.0, slot_id=slot_id)
+        if hasattr(p, "ams_slots") and isinstance(p.ams_slots, dict):
+            p.ams_slots[slot_id] = 0.0
+        await app_obj.save_printers_config()
         return web.json_response(
             {
                 "status": "ok",
                 "action": "unassign_spool",
                 "slot_id": slot_id,
-                "remaining_grams": round(float(slot_grams), 1),
+                "remaining_grams": 0.0,
             }
         )
     elif action == "set_ams_enabled":

@@ -88,11 +88,14 @@ async def handle_save_spool(request: web.Request) -> web.Response:
             await app_obj.storage.save_spools(spools)
             return web.json_response({"status": "deleted", "spool_id": spool_id, "message": "Котушку видалено через нульову вагу"})
 
+        initial_g = float(existing.get("initial_grams") or data.get("initial_grams") or new_weight)
+
         spools[spool_id] = {
             "id": spool_id,
             "name": spool_name,
             "type": data.get("type", existing.get("type", "PLA")),
             "color": data.get("color", existing.get("color", "#ffffff")),
+            "initial_grams": initial_g,
             "remaining_grams": new_weight,
             "quantity": max(1, int(data.get("quantity", existing.get("quantity", 1)))),
             "price_per_kg": float(data.get("price_per_kg", existing.get("price_per_kg", 650.0))),
