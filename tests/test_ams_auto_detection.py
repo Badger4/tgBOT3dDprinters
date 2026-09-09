@@ -229,9 +229,78 @@ class TestAMSAutoDetectionAndMapping(unittest.TestCase):
             self.assertTrue(ok)
             self.printer._client.publish.assert_called()
             payload = json.loads(self.printer._client.publish.call_args[0][1])
-
             self.assertFalse(payload["print"]["use_ams"])
             self.assertEqual(payload["print"]["ams_mapping"], [])
+
+    def test_incremental_mqtt_does_not_reset_has_ams(self):
+        """Tests that incremental MQTT status updates without ams_items do NOT reset has_ams or wipe ams_trays_info."""
+        # 1. Full report with AMS
+        full_payload = {
+            "print": {
+                "ams": {
+                    "ams_exist_bits": "1",
+                    "tray_now": "1",
+                    "ams_items": [
+                        {
+                            "id": "0",
+                            "tray": [
+                                {"id": "0", "tray_type": "empty"},
+                                {"id": "1", "tray_type": "ABS", "tray_color": "161616FF"},
+                                {"id": "2", "tray_type": "PETG", "tray_color": "161616FF"},
+                                {"id": "3", "tray_type": "PETG", "tray_color": "161616FF"},
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+        msg_full = MagicMock()
+        msg_full.payload = json.dumps(full_payload).encode()
+        self.printer._on_message(None, None, msg_full)
+        self.assertTrue(self.printer.has_ams)
+        self.assertEqual(len(self.printer.ams_trays_info), 4)
+
+        # 2. Incremental report without ams_items (e.g. print finished or delta update)
+        delta_payload = {
+            "print": {
+                "ams": {
+                    "tray_now": "255",
+                    "tray_pre": "1"
+                }
+            }
+        }
+        msg_delta = MagicMock()
+        msg_delta.payload = json.dumps(delta_payload).encode()
+        self.printer._on_message(None, None, msg_delta)
+
+        # has_ams must remain True!
+        self.assertTrue(self.printer.has_ams)
+        # ams_trays_info must NOT be wiped!
+        self.assertEqual(self.printer.ams_trays_info["1"]["type"], "ABS")
+        self.assertEqual(self.printer.ams_trays_info["2"]["type"], "PETG")
+
+    def test_has_ams_property_detects_hardware_even_if_telemetry_flag_was_false(self):
+        """Tests that has_ams returns True if physical AMS spools are configured, even if _has_ams_telemetry was False."""
+        self.printer._has_ams_telemetry = False
+        self.printer.ams_trays_info = {
+            "0": {"id": "0", "type": "", "empty": True},
+            "1": {"id": "1", "type": "ABS", "empty": False},
+        }
+        self.assertTrue(self.printer.has_ams)
+
+    def test_explicit_ams_exist_bits_zero_sets_has_ams_false(self):
+        """Tests that explicit ams_exist_bits: '0' correctly marks has_ams as False."""
+        no_ams_payload = {
+            "print": {
+                "ams": {
+                    "ams_exist_bits": "0"
+                }
+            }
+        }
+        msg = MagicMock()
+        msg.payload = json.dumps(no_ams_payload).encode()
+        self.printer._on_message(None, None, msg)
+        self.assertFalse(self.printer.has_ams)
 
 
 if __name__ == "__main__":

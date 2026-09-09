@@ -188,6 +188,22 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
             except (ValueError, TypeError):
                 pass
 
+        if "humidity_raw" in ams_info:
+            try:
+                result["ams_humidity_raw"] = int(ams_info["humidity_raw"])
+            except (ValueError, TypeError):
+                pass
+        if "humidity" in ams_info:
+            try:
+                result["ams_humidity_idx"] = int(ams_info["humidity"])
+            except (ValueError, TypeError):
+                pass
+        if "temp" in ams_info:
+            try:
+                result["ams_temp"] = float(ams_info["temp"])
+            except (ValueError, TypeError):
+                pass
+
         # Support both ams_items and ams keys
         raw_units = ams_info.get("ams_items")
         if raw_units is None:
@@ -241,7 +257,7 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
                             result["ams_humidity_raw"] = int(unit["humidity_raw"])
                         except (ValueError, TypeError):
                             pass
-                    elif "humidity_raw" in ams_info:
+                    elif "humidity_raw" in ams_info and "ams_humidity_raw" not in result:
                         try:
                             result["ams_humidity_raw"] = int(ams_info["humidity_raw"])
                         except (ValueError, TypeError):
@@ -251,10 +267,17 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
                             result["ams_temp"] = float(unit["temp"])
                         except (ValueError, TypeError):
                             pass
-        else:
+        elif isinstance(raw_units, list) and len(raw_units) == 0:
             result["has_ams"] = False
             result["ams_units"] = []
             result["ams_trays_info"] = {}
+        elif "ams_exist_bits" in ams_info:
+            if ams_exist_bits_str in ["0", "0000"]:
+                result["has_ams"] = False
+                result["ams_units"] = []
+                result["ams_trays_info"] = {}
+            elif ams_exist_bits_str != "":
+                result["has_ams"] = True
     elif "ams" in print_data and print_data["ams"] is None:
         result["has_ams"] = False
         result["ams_units"] = []

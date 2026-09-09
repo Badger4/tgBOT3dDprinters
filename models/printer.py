@@ -200,7 +200,7 @@ class BambuPrinter:
         self.finish_timestamp: float = 0.0
         self.job_start_time: float = 0.0
         self.ams_units: list = []
-        self.ams_humidity_idx: int = 1
+        self.ams_humidity_idx: int = int(config.get("ams_humidity_idx", 0))
         self.ams_humidity_raw: int = int(config.get("ams_humidity_raw", 0))
         self.ams_temp: float = 0.0
         self.active_ams_tray: int = 255
@@ -221,16 +221,22 @@ class BambuPrinter:
         if self.ams_enabled is True:
             return True
 
-        if self._has_ams_telemetry is not None:
-            return self._has_ams_telemetry
+        if self._has_ams_telemetry is True:
+            return True
 
         # Check loaded trays in ams_trays_info (Slots 0..3)
-        for s_key in ["0", "1", "2", "3"]:
-            t = self.ams_trays_info.get(s_key)
-            if t and isinstance(t, dict):
-                t_type = str(t.get("type") or t.get("tray_type") or "").strip().lower()
-                if t_type and t_type != "empty" and not t.get("empty", False):
-                    return True
+        has_physical_trays = any(
+            isinstance(self.ams_trays_info.get(k), dict)
+            and not self.ams_trays_info[k].get("empty", False)
+            and str(self.ams_trays_info[k].get("type") or "").strip().lower() not in ["", "empty"]
+            for k in ["0", "1", "2", "3"]
+        )
+        if has_physical_trays:
+            return True
+
+        # Check active tray index (0..15 indicates active AMS slot feeding)
+        if self.active_ams_tray is not None and 0 <= self.active_ams_tray <= 15:
+            return True
 
         exist_bits = str(getattr(self, "ams_exist_bits", "")).strip()
         if exist_bits in ["0", "0000", ""]:
@@ -259,6 +265,9 @@ class BambuPrinter:
                 t_bits = str(getattr(self, "tray_exist_bits", "")).strip()
                 if t_bits and t_bits not in ["0", "0000"]:
                     return True
+
+        if self._has_ams_telemetry is False:
+            return False
 
         return False
 
@@ -698,12 +707,16 @@ class BambuPrinter:
             filament = None
             if self.active_ams_tray == 254 or not self.has_ams:
                 filament = print_data.get("vt_tray", {}).get("tray_type")
-            elif self.active_ams_tray in [0, 1, 2, 3] and self.ams_units:
-                for ams_b in self.ams_units:
-                    for tray in ams_b.get("tray", []):
-                        if str(tray.get("id")) == str(self.active_ams_tray) and tray.get("tray_type"):
-                            filament = tray.get("tray_type")
-                            break
+            elif self.active_ams_tray in [0, 1, 2, 3]:
+                if self.ams_units:
+                    for ams_b in self.ams_units:
+                        for tray in ams_b.get("tray", []):
+                            if str(tray.get("id")) == str(self.active_ams_tray) and tray.get("tray_type"):
+                                filament = tray.get("tray_type")
+                                break
+                if not filament and str(self.active_ams_tray) in self.ams_trays_info:
+                    tray_info = self.ams_trays_info[str(self.active_ams_tray)]
+                    filament = tray_info.get("type") or tray_info.get("tray_type")
             if filament:
                 self.filament_type = filament
 
