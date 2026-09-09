@@ -21,16 +21,16 @@ router = Router()
 
 
 def parse_slot_key_from_text(text: str) -> str:
-    clean = text.lower()
-    if "a1" in clean or "slot 1" in clean:
+    clean = text.lower().strip()
+    if any(x in clean for x in ["a1", "slot 1", "слот 1", "слот a1"]) or clean == "1":
         return "0"
-    elif "a2" in clean or "slot 2" in clean:
+    elif any(x in clean for x in ["a2", "slot 2", "слот 2", "слот a2"]) or clean == "2":
         return "1"
-    elif "a3" in clean or "slot 3" in clean:
+    elif any(x in clean for x in ["a3", "slot 3", "слот 3", "слот a3"]) or clean == "3":
         return "2"
-    elif "a4" in clean or "slot 4" in clean:
+    elif any(x in clean for x in ["a4", "slot 4", "слот 4", "слот a4"]) or clean == "4":
         return "3"
-    elif "зовнішн" in clean or "vt" in clean or "external" in clean:
+    elif any(x in clean for x in ["зовнішн", "vt", "external", "котушкотримач"]):
         return "254"
     return "0"
 
@@ -82,7 +82,7 @@ def get_mounted_spools_or_trays(app, spools: dict[str, Any]) -> list[dict[str, A
             except (ValueError, TypeError, AttributeError):
                 slot_g = 0.0
 
-            if (not is_empty and tray_type) or slot_g > 0:
+            if slot_g > 0:
                 s_label = slot_names.get(str(k), f"Слот {k}")
                 t_sub = str(tray_info.get("sub_brands") or "").strip()
                 mat_type = tray_type.upper() if tray_type else getattr(p, "filament_type", "PLA")

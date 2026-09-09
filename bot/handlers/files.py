@@ -105,10 +105,14 @@ async def handle_document_upload(message: Message, app):
         kb_buttons = []
         for p_id, p in app.printers.items():
             active_fil = get_printer_active_filament(p, spools_map)
-            c_info = check_compatibility(meta["printer_model"], meta["filament_type"], p.name, active_fil)
-            status_str = "✅ Сумісний" if c_info["compatible"] else (
-                "🛑 НЕСУМІСНИЙ (Пластик)" if c_info.get("reason_type") == "FILAMENT" else "🛑 НЕСУМІСНИЙ (Різна модель)"
-            )
+            c_info = check_compatibility(meta["printer_model"], meta["filament_type"], p.name, active_fil, printer=p)
+            if c_info["compatible"]:
+                if c_info.get("matched_ams_slot"):
+                    status_str = f"✅ Сумісний (AMS Слот {c_info['matched_ams_slot']})"
+                else:
+                    status_str = "✅ Сумісний"
+            else:
+                status_str = "🛑 НЕСУМІСНИЙ (Пластик)" if c_info.get("reason_type") == "FILAMENT" else "🛑 НЕСУМІСНИЙ (Різна модель)"
 
             comp_txt += f"• <b>{html.escape(p.name)}</b>: {status_str}\n"
             if c_info["compatible"]:
@@ -299,7 +303,7 @@ async def handle_select_printer_for_file(message: Message, app):
     fil_type = pending_file.get("filament_type", "PLA")
     spools_map = await app.storage.load_spools()
     active_fil = get_printer_active_filament(target_p, spools_map)
-    c_info = check_compatibility(sliced_model, fil_type, target_p.name, active_fil)
+    c_info = check_compatibility(sliced_model, fil_type, target_p.name, active_fil, printer=target_p)
     if not c_info["compatible"]:
         if c_info.get("reason_type") == "PRINTER":
             await message.answer(
@@ -311,11 +315,15 @@ async def handle_select_printer_for_file(message: Message, app):
                 parse_mode=ParseMode.HTML,
             )
         else:
+            ams_note = ""
+            if getattr(target_p, "has_ams", False) and hasattr(target_p, "get_loaded_ams_summary"):
+                ams_note = f"\n📋 <b>Заправлені слоти AMS:</b>\n{target_p.get_loaded_ams_summary()}\n"
             await message.answer(
                 f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n"
                 f"🛑 <b>Філамент несумісний з файлом!</b>\n"
                 f"• <b>Необхідний пластик:</b> <code>{html.escape(str(c_info.get('sliced_filament', fil_type)))}</code>\n"
-                f"• <b>Пластик на принтері:</b> <code>{html.escape(str(c_info.get('target_filament', active_fil or 'Невідомо')))}</code>\n\n"
+                f"• <b>Пластик на принтері:</b> <code>{html.escape(str(c_info.get('target_filament', active_fil or 'Невідомо')))}</code>\n"
+                f"{ams_note}\n"
                 f"<i>Будь ласка, встановіть відповідний пластик на принтер.</i>",
                 parse_mode=ParseMode.HTML,
             )
@@ -341,10 +349,19 @@ async def handle_select_printer_for_file(message: Message, app):
         resize_keyboard=True,
     )
 
+    slot_info_str = ""
+    if c_info.get("matched_ams_slot"):
+        slot_info_str = f"🎯 <b>Подача пластику:</b> AMS Слот {c_info['matched_ams_slot']} (<code>{html.escape(fil_type)}</code>)\n"
+    elif getattr(target_p, "has_ams", False):
+        slot_info_str = f"🎯 <b>Подача пластику:</b> AMS (Авто-пошук слоту)\n"
+    else:
+        slot_info_str = f"🧵 <b>Подача пластику:</b> Spool Holder (зовнішній тримач)\n"
+
     await message.answer(
         f"🚀 <b>Готовність до запуску друку:</b>\n"
         f"📄 <b>Файл:</b> <code>{html.escape(pending_file.get('filename', '3mf'))}</code>\n"
         f"🖨️ <b>Принтер:</b> <b>{html.escape(target_p.name)}</b>\n"
+        f"{slot_info_str}"
         f"⚖️ <b>Вага:</b> <b>{w_req}g</b> | ⏱️ <b>Час:</b> ~<b>{pending_file.get('time_mins', 0)} хв</b>\n"
         f"💰 <b>Розрахункова собівартість:</b> <code>{cost_info['total_cost']} грн</code>\n"
         f"{warn_txt}\n"

@@ -729,11 +729,12 @@ def check_compatibility(
     filament_type: str,
     target_printer_name: str,
     target_filament: str = "",
+    printer: Any = None,
 ) -> dict[str, Any]:
     """
     Checks G-code / model & filament compatibility between sliced 3MF metadata and target printer.
     Stage 1 (Hardware): Checks printer model code (@BBL A1M vs @BBL A1 vs @BBL X1C, etc).
-    Stage 2 (Material): Checks filament type (e.g. TPU vs ABS).
+    Stage 2 (Material): Checks filament type (e.g. TPU vs ABS), supporting multi-slot AMS auto-detection.
     """
     sliced_code = get_bambu_model_code(sliced_model)
     target_code = get_bambu_model_code(target_printer_name)
@@ -752,8 +753,48 @@ def check_compatibility(
 
     # Stage 2: Material Check (Filament Type)
     norm_sliced_fil = normalize_filament_name(filament_type)
-    norm_target_fil = normalize_filament_name(target_filament)
 
+    # If printer has AMS, check if ANY loaded AMS slot matches the sliced filament
+    if printer is not None and getattr(printer, "has_ams", False):
+        matched_slot = None
+        if hasattr(printer, "find_matching_ams_slot") and callable(getattr(printer, "find_matching_ams_slot")):
+            matched_slot = printer.find_matching_ams_slot(filament_type)
+        elif hasattr(printer, "ams_trays_info") and isinstance(printer.ams_trays_info, dict):
+            for s_idx in range(4):
+                t_info = printer.ams_trays_info.get(str(s_idx))
+                if t_info and not t_info.get("empty") and t_info.get("type"):
+                    if normalize_filament_name(t_info.get("type")) == norm_sliced_fil:
+                        matched_slot = s_idx
+                        break
+
+        if matched_slot is not None:
+            phys_num = matched_slot + 1
+            return {
+                "compatible": True,
+                "reason_type": "OK",
+                "level": "OK",
+                "reason": f"✅ Сумісність підтверджено! (Знайдено в AMS Слоті {phys_num})",
+                "sliced_model": sliced_model or sliced_code,
+                "target_model": target_printer_name or target_code,
+                "sliced_filament": filament_type,
+                "target_filament": f"AMS Слот {phys_num} ({filament_type})",
+                "matched_ams_slot": phys_num,
+            }
+        else:
+            summary = printer.get_loaded_ams_summary() if hasattr(printer, "get_loaded_ams_summary") else ""
+            return {
+                "compatible": False,
+                "reason_type": "FILAMENT",
+                "level": "BLOCK",
+                "reason": f"🛑 У AMS принтера немає пластику {filament_type} ({summary})" if summary else f"🛑 У AMS принтера немає пластику {filament_type}",
+                "sliced_model": sliced_model or sliced_code,
+                "target_model": target_printer_name or target_code,
+                "sliced_filament": filament_type,
+                "target_filament": target_filament or "AMS (пластик відсутній)",
+            }
+
+    # Standard fallback (single spool holder / non-AMS)
+    norm_target_fil = normalize_filament_name(target_filament)
     if norm_sliced_fil and norm_target_fil and norm_sliced_fil != norm_target_fil:
         return {
             "compatible": False,

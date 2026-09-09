@@ -46,14 +46,21 @@ async def handle_filament_menu(message: Message, app):
     is_printer_filament_btn = msg_low in ["🧵 філамент", "філамент", "🧵 filament", "filament"]
 
     if target_printer and is_printer_filament_btn:
+        active_k = target_printer.get_active_slot_key() if hasattr(target_printer, "get_active_slot_key") else "254"
+        active_grams = target_printer.get_slot_grams(active_k) if hasattr(target_printer, "get_slot_grams") else getattr(target_printer, "filament_grams", 0.0)
+        has_active_spool = active_grams > 0.0
+
+        fil_grams_str = f"<code>{active_grams}g</code>" if has_active_spool else ("<i>Порожньо</i>" if u_lang != "en" else "<i>Empty</i>")
+        fil_type_str = f"<code>{target_printer.filament_type}</code>" if (has_active_spool and target_printer.filament_type and target_printer.filament_type not in ["Невизначено", "None", "", "Порожньо", "Empty"]) else "<i>—</i>"
+
         txt = (
             f"<b>🧵 Філамент & AMS — {html.escape(target_printer.name)}</b>\n\n"
-            f"📦 <b>Залишок нитки на бабіні:</b> <code>{target_printer.filament_grams}g</code>\n"
-            f"🎨 <b>Тип пластику:</b> <code>{target_printer.filament_type}</code>\n\n"
+            f"📦 <b>Залишок нитки на бабіні:</b> {fil_grams_str}\n"
+            f"🎨 <b>Тип пластику:</b> {fil_type_str}\n\n"
         ) if u_lang != "en" else (
             f"<b>🧵 Filament & AMS — {html.escape(target_printer.name)}</b>\n\n"
-            f"📦 <b>Spool Remaining:</b> <code>{target_printer.filament_grams}g</code>\n"
-            f"🎨 <b>Filament Type:</b> <code>{target_printer.filament_type}</code>\n\n"
+            f"📦 <b>Spool Remaining:</b> {fil_grams_str}\n"
+            f"🎨 <b>Filament Type:</b> {fil_type_str}\n\n"
         )
 
         has_ams = bool(getattr(target_printer, "has_ams", False))
@@ -100,27 +107,22 @@ async def handle_filament_menu(message: Message, app):
             )
             tray_info = (getattr(target_printer, "ams_trays_info", {}) or {}).get(str(k), {})
             is_empty_tray = tray_info.get("empty", True) if tray_info else True
-            has_filament = bool(assigned) or (not is_empty_tray and bool(tray_info.get("type")))
+            raw_g = float(assigned.get("remaining_grams", slots.get(k, 1000.0))) if assigned else float(slots.get(k, 0.0 if is_empty_tray else 1000.0))
 
-            if assigned:
-                sp_title = f"{html.escape(assigned.get('name', ''))} ({html.escape(assigned.get('type', ''))})"
-                raw_g = float(assigned.get("remaining_grams", slots.get(k, 1000.0)))
-                sp_cap = float(assigned.get("initial_grams") or assigned.get("total_grams") or max(1000.0, raw_g))
-            elif not is_empty_tray and tray_info.get("type"):
-                t_type = html.escape(str(tray_info.get("type", "")))
-                t_sub = html.escape(str(tray_info.get("sub_brands", "")))
-                sp_title = f"Bambu {t_type} {t_sub}".strip()
-                raw_g = slots.get(k, 1000.0)
-                sp_cap = max(1000.0, raw_g)
-            else:
-                sp_title = "Порожньо" if u_lang != "en" else "Empty"
-                raw_g = 0.0
-                sp_cap = 1000.0
-
-            is_act = (str(k) == str(active_key) or (k == "254" and str(active_key) in ["254", "255"])) and has_filament
-            act_str = (" ⚡ [АКТИВНИЙ]" if u_lang != "en" else " ⚡ [ACTIVE]") if is_act else ""
+            has_filament = (raw_g > 0.0) and (bool(assigned) or (not is_empty_tray and bool(tray_info.get("type"))))
 
             if has_filament:
+                if assigned:
+                    sp_title = f"{html.escape(assigned.get('name', ''))} ({html.escape(assigned.get('type', ''))})"
+                    sp_cap = float(assigned.get("initial_grams") or assigned.get("total_grams") or max(1000.0, raw_g))
+                else:
+                    t_type = html.escape(str(tray_info.get("type", "")))
+                    t_sub = html.escape(str(tray_info.get("sub_brands", "")))
+                    sp_title = f"Bambu {t_type} {t_sub}".strip()
+                    sp_cap = max(1000.0, raw_g)
+
+                is_act = (str(k) == str(active_key) or (k == "254" and str(active_key) in ["254", "255"])) and has_filament
+                act_str = (" ⚡ [АКТИВНИЙ]" if u_lang != "en" else " ⚡ [ACTIVE]") if is_act else ""
                 pct = min(100, max(0, int((raw_g / sp_cap) * 100))) if sp_cap > 0 else 0
                 txt += f"   • <b>{s_name}</b>: {sp_title} — <b>{raw_g}g</b> ({pct}%){act_str}\n"
             else:
@@ -172,27 +174,22 @@ async def handle_filament_menu(message: Message, app):
                 )
                 tray_info = (getattr(p, "ams_trays_info", {}) or {}).get(str(k), {})
                 is_empty_tray = tray_info.get("empty", True) if tray_info else True
-                has_filament = bool(assigned) or (not is_empty_tray and bool(tray_info.get("type")))
+                raw_g = float(assigned.get("remaining_grams", slots.get(k, 1000.0))) if assigned else float(slots.get(k, 0.0 if is_empty_tray else 1000.0))
 
-                if assigned:
-                    sp_title = f"{html.escape(assigned.get('name', ''))} ({html.escape(assigned.get('type', ''))})"
-                    raw_g = float(assigned.get("remaining_grams", slots.get(k, 1000.0)))
-                    sp_cap = float(assigned.get("initial_grams") or assigned.get("total_grams") or max(1000.0, raw_g))
-                elif not is_empty_tray and tray_info.get("type"):
-                    t_type = html.escape(str(tray_info.get("type", "")))
-                    t_sub = html.escape(str(tray_info.get("sub_brands", "")))
-                    sp_title = f"Bambu {t_type} {t_sub}".strip()
-                    raw_g = slots.get(k, 1000.0)
-                    sp_cap = max(1000.0, raw_g)
-                else:
-                    sp_title = "Порожньо" if u_lang != "en" else "Empty"
-                    raw_g = 0.0
-                    sp_cap = 1000.0
-
-                is_act = (str(k) == str(active_key)) and has_filament
-                act_str = (" ⚡ [АКТИВНИЙ]" if u_lang != "en" else " ⚡ [ACTIVE]") if is_act else ""
+                has_filament = (raw_g > 0.0) and (bool(assigned) or (not is_empty_tray and bool(tray_info.get("type"))))
 
                 if has_filament:
+                    if assigned:
+                        sp_title = f"{html.escape(assigned.get('name', ''))} ({html.escape(assigned.get('type', ''))})"
+                        sp_cap = float(assigned.get("initial_grams") or assigned.get("total_grams") or max(1000.0, raw_g))
+                    else:
+                        t_type = html.escape(str(tray_info.get("type", "")))
+                        t_sub = html.escape(str(tray_info.get("sub_brands", "")))
+                        sp_title = f"Bambu {t_type} {t_sub}".strip()
+                        sp_cap = max(1000.0, raw_g)
+
+                    is_act = (str(k) == str(active_key)) and has_filament
+                    act_str = (" ⚡ [АКТИВНИЙ]" if u_lang != "en" else " ⚡ [ACTIVE]") if is_act else ""
                     pct = min(100, max(0, int((raw_g / sp_cap) * 100))) if sp_cap > 0 else 0
                     txt += f"   • <b>{s_name}</b>: {sp_title} — <b>{raw_g}g</b> ({pct}%){act_str}\n"
                 else:

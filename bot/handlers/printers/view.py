@@ -98,10 +98,10 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
     f_type = getattr(target_printer, "filament_type", "")
     f_type_str = str(f_type) if isinstance(f_type, str) else ""
 
-    has_spool = has_tray or (active_grams_val > 0 and f_type_str and f_type_str not in ["Невизначено", "None", ""])
+    has_spool = (active_grams_val > 0.0) and (has_tray or (f_type_str and f_type_str not in ["Невизначено", "None", "", "Порожньо", "Empty"]))
 
     spool_str = f"<b>{active_grams_val}g</b>" if has_spool else ("<i>Empty</i>" if is_en else "<i>Порожньо</i>")
-    type_str = f"<b>{f_type_str}</b>" if (has_spool and f_type_str and f_type_str not in ["Невизначено", "None", ""]) else "<i>—</i>"
+    type_str = f"<b>{f_type_str}</b>" if (has_spool and f_type_str and f_type_str not in ["Невизначено", "None", "", "Порожньо", "Empty"]) else "<i>—</i>"
 
     if is_en:
         status_txt = (

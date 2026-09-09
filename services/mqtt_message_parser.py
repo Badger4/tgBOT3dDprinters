@@ -188,22 +188,33 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
             except (ValueError, TypeError):
                 pass
 
-        if "ams" in ams_info and isinstance(ams_info["ams"], list):
-            result["ams_units"] = ams_info["ams"]
+        # Support both ams_items and ams keys
+        raw_units = ams_info.get("ams_items")
+        if raw_units is None:
+            raw_units = ams_info.get("ams")
+
+        ams_exist_bits_str = str(ams_info.get("ams_exist_bits", "")).strip()
+
+        if isinstance(raw_units, list) and raw_units and ams_exist_bits_str not in ["0", "0000"]:
+            result["has_ams"] = True
+            result["ams_units"] = raw_units
             trays_dict: dict[str, dict[str, Any]] = {}
-            for unit in ams_info["ams"]:
+            for unit in raw_units:
                 if isinstance(unit, dict) and "tray" in unit and isinstance(unit["tray"], list):
+                    ams_id = str(unit.get("id", "0"))
                     for tray in unit["tray"]:
                         if isinstance(tray, dict):
                             slot_id = str(tray.get("id", ""))
                             if slot_id != "":
-                                is_empty = bool(tray.get("empty", False))
+                                raw_type = str(tray.get("tray_type") or "").strip()
+                                is_empty = bool(tray.get("empty", False)) or (not raw_type) or (raw_type.lower() == "empty")
                                 raw_color = str(tray.get("tray_color") or "")
                                 hex_color = f"#{raw_color[:6]}" if len(raw_color) >= 6 else ""
                                 trays_dict[slot_id] = {
                                     "id": slot_id,
+                                    "ams_id": ams_id,
                                     "empty": is_empty,
-                                    "type": str(tray.get("tray_type") or ""),
+                                    "type": "" if is_empty else raw_type,
                                     "sub_brands": str(tray.get("tray_sub_brands") or ""),
                                     "color": hex_color,
                                     "remain": int(tray.get("remain", -1)),
@@ -215,11 +226,10 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
                                     "nozzle_temp_min": tray.get("nozzle_temp_min"),
                                     "nozzle_temp_max": tray.get("nozzle_temp_max"),
                                 }
-            if trays_dict:
-                result["ams_trays_info"] = trays_dict
+            result["ams_trays_info"] = trays_dict
 
-            if ams_info["ams"]:
-                unit = ams_info["ams"][0]
+            if raw_units:
+                unit = raw_units[0]
                 if isinstance(unit, dict):
                     if "humidity" in unit:
                         try:
@@ -241,6 +251,14 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
                             result["ams_temp"] = float(unit["temp"])
                         except (ValueError, TypeError):
                             pass
+        else:
+            result["has_ams"] = False
+            result["ams_units"] = []
+            result["ams_trays_info"] = {}
+    elif "ams" in print_data and print_data["ams"] is None:
+        result["has_ams"] = False
+        result["ams_units"] = []
+        result["ams_trays_info"] = {}
 
     if "vt_tray" in print_data and isinstance(print_data["vt_tray"], dict):
         vt = print_data["vt_tray"]

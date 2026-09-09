@@ -6,7 +6,7 @@ import html
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
-from bot.keyboards import get_filament_menu_keyboard, get_spools_keyboard
+from bot.keyboards import get_ams_slots_keyboard, get_filament_menu_keyboard, get_spools_keyboard
 
 router = Router()
 
@@ -61,6 +61,20 @@ async def handle_manual_weight_start(message: Message, app):
         )
         return
 
+    if getattr(target_printer, "has_ams", False):
+        user["state"] = "select_slot_for_weight"
+        await app.storage.save_user(user)
+        await message.answer(
+            f"📍 <b>Оберіть слот AMS або зовнішній слот (VT) для зміни залишку ваги принтера {html.escape(target_printer.name)}:</b>"
+            if u_lang != "en"
+            else f"📍 <b>Select AMS slot or external slot (VT) to edit remaining weight for {html.escape(target_printer.name)}:</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_ams_slots_keyboard(target_printer, lang=u_lang),
+        )
+        return
+
+    user.setdefault("context_data", {})["edit_weight_slot_key"] = "254"
+    user.setdefault("context_data", {})["edit_weight_slot_label"] = "VT"
     user["state"] = "edit_filament_weight"
     await app.storage.save_user(user)
     await message.answer(

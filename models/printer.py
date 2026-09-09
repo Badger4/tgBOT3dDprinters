@@ -42,25 +42,50 @@ DEFAULT_MAINTENANCE_ITEMS = {
 }
 
 
-def build_ams_mapping(active_slot: str | None, has_ams: bool, use_ams: bool) -> tuple[list[int], bool]:
+def build_ams_mapping(active_slot: int | str | None, has_ams: bool = True, use_ams: bool = True) -> tuple[list[int], bool]:
     """
-    Constructs compliant Bambu Lab MQTT ams_mapping (5 elements, right-aligned / invert-indexing).
-    For single-color print on AMS slot X (0-3): [-1, -1, -1, -1, X], use_ams=True
-    For print without AMS / external spool (254 or None): [], use_ams=False
+    Constructs compliant Bambu Lab MQTT ams_mapping array: [Virtual_T0, Virtual_T1, Virtual_T2, Virtual_T3].
+    Values must be 0-indexed integers representing physical slots (0 for Slot 1, 3 for Slot 4).
+    Unused slots are -1.
+    For single-color print using physical Slot X (1-4): [slot_idx, -1, -1, -1], use_ams=True.
+    For physical Slot 4: [3, -1, -1, -1].
+    For physical Slot 1: [0, -1, -1, -1].
+    For print without AMS / external spool (254, 255, None or use_ams=False): [], use_ams=False.
     """
-    if not has_ams or not use_ams or active_slot is None or active_slot in ["254", "255"]:
+    if not has_ams or not use_ams or active_slot is None:
         return [], False
 
-    try:
-        slot_num = int(active_slot)
-    except (ValueError, TypeError):
+    str_slot = str(active_slot).strip().upper()
+    if str_slot in ["254", "255", "VT", "EXTERNAL", "NONE", ""]:
         return [], False
 
-    if not (0 <= slot_num <= 3):
+    # Check for slot designations like A1, A2, A3, A4
+    if str_slot in ["A1", "SLOT 1", "SLOT1"]:
+        slot_idx = 0
+    elif str_slot in ["A2", "SLOT 2", "SLOT2"]:
+        slot_idx = 1
+    elif str_slot in ["A3", "SLOT 3", "SLOT3"]:
+        slot_idx = 2
+    elif str_slot in ["A4", "SLOT 4", "SLOT4"]:
+        slot_idx = 3
+    else:
+        try:
+            slot_num = int(str_slot)
+            if 1 <= slot_num <= 4:
+                # 1-indexed physical slot number 1-4 -> 0-indexed 0-3
+                slot_idx = slot_num - 1
+            elif slot_num == 0:
+                # 0-indexed slot 0 (Slot 1)
+                slot_idx = 0
+            else:
+                return [], False
+        except (ValueError, TypeError):
+            return [], False
+
+    if not (0 <= slot_idx <= 3):
         return [], False
 
-    mapping = [-1, -1, -1, -1, -1]
-    mapping[4] = slot_num  # For single color print, 5th element is target slot
+    mapping = [slot_idx, -1, -1, -1]
     return mapping, True
 
 
@@ -182,7 +207,8 @@ class BambuPrinter:
         self.ams_exist_bits: str = str(config.get("ams_exist_bits", "0"))
         raw_ams_enabled = config.get("ams_enabled")
         self.ams_enabled: bool | None = bool(raw_ams_enabled) if raw_ams_enabled is not None else None
-        self.ams_trays_info: dict[str, dict] = {}
+        self.ams_trays_info: dict[str, dict] = dict(config.get("ams_trays_info", {}))
+        self._has_ams_telemetry: bool | None = config.get("has_ams")
 
     @property
     def has_ams(self) -> bool:
@@ -195,6 +221,17 @@ class BambuPrinter:
         if self.ams_enabled is True:
             return True
 
+        if self._has_ams_telemetry is not None:
+            return self._has_ams_telemetry
+
+        # Check loaded trays in ams_trays_info (Slots 0..3)
+        for s_key in ["0", "1", "2", "3"]:
+            t = self.ams_trays_info.get(s_key)
+            if t and isinstance(t, dict):
+                t_type = str(t.get("type") or t.get("tray_type") or "").strip().lower()
+                if t_type and t_type != "empty" and not t.get("empty", False):
+                    return True
+
         exist_bits = str(getattr(self, "ams_exist_bits", "")).strip()
         if exist_bits in ["0", "0000", ""]:
             return False
@@ -205,25 +242,107 @@ class BambuPrinter:
 
         for unit in units:
             if isinstance(unit, dict) and unit:
-                # 1. Standard AMS reports environmental sensors (humidity / temperature)
+                # 1. Environmental sensors
                 if unit.get("humidity") is not None or unit.get("humidity_raw") is not None or unit.get("temp") is not None:
                     return True
 
-                # 2. Check tray slots in unit
+                # 2. Check non-empty tray slots
                 trays = unit.get("tray", [])
                 if isinstance(trays, list) and len(trays) > 0:
                     for t in trays:
                         if isinstance(t, dict):
-                            # Non-empty / real AMS tray
-                            if t.get("tray_type") or not t.get("empty", True) or t.get("tag_uid") or t.get("tray_uuid") or t.get("tray_color"):
+                            t_type = str(t.get("tray_type", "")).strip().lower()
+                            if t_type and t_type != "empty" and not t.get("empty", False):
                                 return True
 
-                # 3. Check tray_exist_bits bitmask (if any tray is detected in AMS)
+                # 3. Check tray_exist_bits bitmask
                 t_bits = str(getattr(self, "tray_exist_bits", "")).strip()
                 if t_bits and t_bits not in ["0", "0000"]:
                     return True
 
         return False
+
+    def find_matching_ams_slot(self, filament_type: str) -> int | None:
+        """
+        Looks up which physical AMS slot (0-3) contains the filament type matching filament_type.
+        Returns 0-indexed slot number (0 for Slot 1, 3 for Slot 4), or None if not found.
+        """
+        if not filament_type or not self.has_ams:
+            return None
+
+        from services.gcode_parser import normalize_filament_name
+
+        req_norm = normalize_filament_name(filament_type)
+
+        # 1. Exact or normalized type match across AMS slots 0..3
+        for slot_idx in range(4):
+            slot_k = str(slot_idx)
+            if self.get_slot_grams(slot_k) <= 0:
+                continue
+            tray = self.ams_trays_info.get(slot_k)
+            if not tray or tray.get("empty", False):
+                continue
+            tray_type = str(tray.get("type") or tray.get("tray_type") or "").strip()
+            if not tray_type or tray_type.lower() == "empty":
+                continue
+            norm_tray = normalize_filament_name(tray_type)
+            if norm_tray and norm_tray == req_norm:
+                return slot_idx
+
+        # 2. Substring match fallback (e.g. PLA in PLA-CF, or PETG in PETG-HF)
+        req_upper = req_norm.upper() if req_norm else str(filament_type).strip().upper()
+        if req_upper:
+            for slot_idx in range(4):
+                slot_k = str(slot_idx)
+                if self.get_slot_grams(slot_k) <= 0:
+                    continue
+                tray = self.ams_trays_info.get(slot_k)
+                if not tray or tray.get("empty", False):
+                    continue
+                tray_type = str(tray.get("type") or tray.get("tray_type") or "").strip().upper()
+                if not tray_type or tray_type == "EMPTY":
+                    continue
+                if req_upper in tray_type or tray_type in req_upper:
+                    return slot_idx
+
+        return None
+
+    def get_loaded_ams_summary(self) -> str:
+        """Returns human-readable summary of loaded AMS slots (Slots 1-4)."""
+        parts = []
+        for slot_idx in range(4):
+            slot_k = str(slot_idx)
+            phys_num = slot_idx + 1
+            tray = self.ams_trays_info.get(slot_k)
+            slot_grams = self.get_slot_grams(slot_k)
+            if not tray or tray.get("empty", False) or not tray.get("type") or str(tray.get("type", "")).lower() == "empty" or slot_grams <= 0:
+                parts.append(f"Слот {phys_num}: порожній")
+            else:
+                t_type = tray.get("type")
+                t_color = tray.get("color", "")
+                color_str = f" ({t_color})" if t_color else ""
+                remain = tray.get("remain", -1)
+                remain_str = f" [{remain}%]" if remain >= 0 else ""
+                parts.append(f"Слот {phys_num}: {t_type}{color_str}{remain_str}")
+        return " | ".join(parts)
+
+    def get_loaded_filaments(self) -> list[dict[str, Any]]:
+        """Returns list of all non-empty loaded slots (AMS 0..3 and External 254)."""
+        res = []
+        for slot_k in ["0", "1", "2", "3", "254"]:
+            t_info = self.ams_trays_info.get(slot_k)
+            slot_grams = self.get_slot_grams(slot_k)
+            if t_info and not t_info.get("empty", False) and slot_grams > 0:
+                t_type = str(t_info.get("type") or t_info.get("tray_type") or "").strip()
+                if t_type and t_type.lower() != "empty":
+                    res.append({
+                        "slot_id": slot_k,
+                        "physical_slot": int(slot_k) + 1 if slot_k != "254" else "Зовнішня",
+                        "type": t_type,
+                        "color": t_info.get("color", ""),
+                        "remain": t_info.get("remain", -1),
+                    })
+        return res
 
     def get_notify_dict(self) -> dict[str, Any]:
         """Returns normalized notification settings dictionary for this printer."""
@@ -309,7 +428,8 @@ class BambuPrinter:
             s_key = AMSSlot.EXTERNAL.value
         g_val = max(0.0, round(float(grams), 2))
         self.ams_slots[s_key] = g_val
-        self._filament_grams = g_val
+        if s_key == self.get_active_slot_key():
+            self._filament_grams = g_val
 
     def _get_active_event_loop(self) -> asyncio.AbstractEventLoop | None:
         if self._main_loop and self._main_loop.is_running():
@@ -532,6 +652,8 @@ class BambuPrinter:
             if "skipped_objects" in parsed:
                 self.skipped_objects = parsed["skipped_objects"]
 
+            if "has_ams" in parsed:
+                self._has_ams_telemetry = parsed["has_ams"]
             if "ams_exist_bits" in parsed:
                 self.ams_exist_bits = parsed["ams_exist_bits"]
             if "active_ams_tray" in parsed:
@@ -540,6 +662,8 @@ class BambuPrinter:
                 self.ams_units = parsed["ams_units"]
             if "ams_trays_info" in parsed:
                 self.ams_trays_info.update(parsed["ams_trays_info"])
+            elif parsed.get("has_ams") is False:
+                self.ams_trays_info = {k: v for k, v in self.ams_trays_info.items() if k == "254"}
             if "ams_humidity_idx" in parsed:
                 self.ams_humidity_idx = parsed["ams_humidity_idx"]
             if "ams_humidity_raw" in parsed:
@@ -1046,10 +1170,18 @@ class BambuPrinter:
         return True, f"Об'єкт(и) {int_obj_ids} успішно пропущено"
 
     async def start_print_job_async(
-        self, file_bytes: bytes, filename: str, plate_name: str = "plate_1.gcode", use_ams: bool = True, part_name: str | None = None
+        self,
+        file_bytes: bytes,
+        filename: str,
+        plate_name: str = "plate_1.gcode",
+        use_ams: bool = True,
+        part_name: str | None = None,
+        ams_slot: int | str | None = None,
+        ams_mapping: list[int] | None = None,
     ) -> tuple[bool, str]:
         """
         Uploads 3MF file via FTPS to printer SD card and publishes MQTT project_file command to start printing.
+        Accepts selected physical AMS slot number (1-4) or explicit ams_mapping list [Virtual_T0..3].
         Returns (success: bool, user_message: str).
         """
         import re
@@ -1121,6 +1253,7 @@ class BambuPrinter:
         self._custom_job_name = clean_subtask
 
         # Pre-calculate filament weight & extract plate objects from uploaded 3MF file
+        m_info: dict[str, Any] = {}
         try:
             m_info = parse_3mf_file(file_bytes, filename)
             self.current_job_objects = m_info.get("objects", [])
@@ -1145,27 +1278,71 @@ class BambuPrinter:
                 self._current_job_grams = w_g
                 self._job_deducted = False
                 logger.info(f"⚖️ Parsed 3MF weight {w_g}g for [{self.name}]")
-
-                # Deduct immediately from active slot
-                active_key = self.get_active_spool_key()
-                if active_key is not None:
-                    old_w = self.get_slot_grams(active_key)
-                    new_w = max(0.0, round(old_w - w_g, 2))
-                    self.set_slot_grams(new_w, active_key)
-                    self._job_deducted = True
-                    self.last_job_grams = w_g
-                    logger.info(
-                        f"💾 Auto-deducted {w_g}g from Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
-                    )
-                    self._trigger_save()
         except Exception as e_w:
             logger.warning(f"Could not parse 3MF weight in start_print_job_async: {e_w}")
 
-        timestamp_id = str(int(time.time()))
         has_ams_hardware = bool(getattr(self, "has_ams", False))
-        active_slot = str(self.get_active_slot_key())
+        req_fil = str(m_info.get("filament_type") or "PLA").strip() if m_info else "PLA"
+        target_slot = ams_slot
 
-        ams_mapping_list, use_ams_bool = build_ams_mapping(active_slot, has_ams_hardware, use_ams)
+        # Automatic AMS slot detection if not explicitly passed
+        if target_slot is None:
+            if has_ams_hardware and use_ams:
+                matched_idx = self.find_matching_ams_slot(req_fil)
+                if matched_idx is not None:
+                    target_slot = matched_idx + 1  # 1-indexed physical slot (1-4)
+                    logger.info(
+                        f"🎯 [AMS Auto-Select] Matched 3MF filament '{req_fil}' to physical Slot {target_slot} on [{self.name}]"
+                    )
+                else:
+                    ams_summary = self.get_loaded_ams_summary()
+                    err_msg = (
+                        f"⚠️ <b>Невідповідність філаменту в AMS!</b>\n"
+                        f"Для файлу <code>{html.escape(filename)}</code> потрібен пластик <b>{html.escape(req_fil)}</b>, "
+                        f"але в AMS принтера <b>{html.escape(self.name)}</b> його не знайдено.\n\n"
+                        f"📋 <b>Заправлені слоти:</b>\n{ams_summary}\n\n"
+                        f"<i>Будь ласка, заправте {html.escape(req_fil)} в AMS або оберіть інший принтер.</i>"
+                    )
+                    logger.warning(f"AMS filament mismatch for [{self.name}]: required '{req_fil}', slots: {ams_summary}")
+                    return False, err_msg
+            else:
+                target_slot = None
+                use_ams = False
+
+        # Deduct weight from selected slot or active slot
+        w_g = getattr(self, "_current_job_grams", 0.0)
+        if w_g > 0 and not getattr(self, "_job_deducted", False):
+            deduct_key = None
+            if target_slot is not None and str(target_slot) not in ["254", "255", "VT", "EXTERNAL"]:
+                try:
+                    v = int(target_slot)
+                    if 1 <= v <= 4:
+                        deduct_key = str(v - 1)
+                    elif v == 0:
+                        deduct_key = "0"
+                except (ValueError, TypeError):
+                    pass
+            if deduct_key is None:
+                deduct_key = self.get_active_spool_key() or self.get_active_slot_key()
+
+            if deduct_key is not None:
+                old_w = self.get_slot_grams(deduct_key)
+                new_w = max(0.0, round(old_w - w_g, 2))
+                self.set_slot_grams(new_w, deduct_key)
+                self._job_deducted = True
+                self.last_job_grams = w_g
+                logger.info(
+                    f"💾 Auto-deducted {w_g}g from Slot {deduct_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
+                )
+                self._trigger_save()
+
+        timestamp_id = str(int(time.time()))
+
+        if ams_mapping is not None:
+            ams_mapping_list = ams_mapping
+            use_ams_bool = bool(ams_mapping_list) and use_ams and has_ams_hardware
+        else:
+            ams_mapping_list, use_ams_bool = build_ams_mapping(target_slot, has_ams_hardware, use_ams)
 
         payload = {
             "print": {
@@ -1329,6 +1506,8 @@ class BambuPrinter:
             "ams_humidity_idx": self.ams_humidity_idx,
             "ams_temp": self.ams_temp,
             "ams_trays_info": self.ams_trays_info,
+            "has_ams": self.has_ams,
+            "ams_units": self.ams_units,
             "hms_errors": self.hms_errors,
             "hms_resolved": self.hms_resolved,
             "chamber_light_state": self.chamber_light_state,

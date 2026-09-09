@@ -508,3 +508,122 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         call_text2 = ans_view2.call_args[0][0]
         self.assertIn("<b>1250.0g</b> (50%)", call_text2)
 
+    async def test_manual_weight_edit_with_ams_printer_slot_selection(self):
+        """Test that clicking '✏️ Змінити вагу' on AMS printer prompts for slot selection first."""
+        # Set user context to P1S
+        u = await self.app.storage.load_user("999")
+        u["context_data"]["selected_printer_id"] = "p1"
+        await self.app.storage.save_user(u)
+
+        # 1. Click edit weight
+        ans = await self._send("✏️ Змінити вагу")
+        self.assertTrue(ans.called)
+        call_text = ans.call_args[0][0]
+        self.assertIn("Оберіть слот AMS", call_text)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "select_slot_for_weight")
+
+        # 2. Select Slot A2
+        ans2 = await self._send("📍 Слот A2 (Slot 2)")
+        self.assertTrue(ans2.called)
+        call_text2 = ans2.call_args[0][0]
+        self.assertIn("Поточний залишок", call_text2)
+        self.assertIn("Слот A2", call_text2)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "edit_filament_weight")
+        self.assertEqual(u["context_data"]["edit_weight_slot_key"], "1")
+
+        # 3. Enter new weight
+        ans3 = await self._send("800")
+        self.assertTrue(ans3.called)
+        call_text3 = ans3.call_args[0][0]
+        self.assertIn("800.0g", call_text3)
+        self.assertIn("Слот A2", call_text3)
+        self.assertEqual(self.p1.get_slot_grams("1"), 800.0)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "printer_menu")
+
+    async def test_manual_weight_edit_without_ams_printer_direct_prompt(self):
+        """Test that clicking '✏️ Змінити вагу' on non-AMS printer asks for weight directly."""
+        u = await self.app.storage.load_user("999")
+        u["context_data"]["selected_printer_id"] = "p2"
+        await self.app.storage.save_user(u)
+
+        ans = await self._send("✏️ Змінити вагу")
+        self.assertTrue(ans.called)
+        call_text = ans.call_args[0][0]
+        self.assertIn("Введіть нову залишкову вагу", call_text)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "edit_filament_weight")
+
+        ans2 = await self._send("450")
+        self.assertTrue(ans2.called)
+        call_text2 = ans2.call_args[0][0]
+        self.assertIn("450.0g", call_text2)
+        self.assertEqual(self.p2.get_slot_grams("254"), 450.0)
+
+    async def test_manual_weight_edit_invalid_slot_and_back(self):
+        """Test invalid slot text in select_slot_for_weight and cancelling via Back."""
+        u = await self.app.storage.load_user("999")
+        u["context_data"]["selected_printer_id"] = "p1"
+        await self.app.storage.save_user(u)
+
+        await self._send("✏️ Змінити вагу")
+        ans_inv = await self._send("Invalid Slot Button")
+        self.assertTrue(ans_inv.called)
+        self.assertIn("Невідомий слот", ans_inv.call_args[0][0])
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "select_slot_for_weight")
+
+        ans_back = await self._send("⬅️ Назад")
+        self.assertTrue(ans_back.called)
+        self.assertIn("скасовано", ans_back.call_args[0][0].lower())
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "printer_menu")
+
+    async def test_manual_weight_edit_syncs_mounted_spool(self):
+        """Test that updating slot weight syncs the warehouse spool assigned to that slot."""
+        # Mount spool_1 to p1 slot A3 (key "2")
+        spools = await self.app.storage.load_spools()
+        spools["spool_1"]["assigned_printer_id"] = "p1"
+        spools["spool_1"]["assigned_slot_key"] = "2"
+        await self.app.storage.save_spools(spools)
+
+        u = await self.app.storage.load_user("999")
+        u["context_data"]["selected_printer_id"] = "p1"
+        await self.app.storage.save_user(u)
+
+        await self._send("✏️ Змінити вагу")
+        await self._send("📍 Слот A3 (Slot 3)")
+        await self._send("625")
+
+        self.assertEqual(self.p1.get_slot_grams("2"), 625.0)
+        spools_after = await self.app.storage.load_spools()
+        self.assertEqual(spools_after["spool_1"]["remaining_grams"], 625.0)
+
+    async def test_zero_grams_renders_as_empty_not_fake_spool(self):
+        """Test that a slot with 0.0g displays as 'Порожньо' (Empty) even if tray has a cached material type."""
+        # Configure p2 (non-AMS) with 0.0g and tray_type "TPU"
+        self.p2.ams_slots["254"] = 0.0
+        self.p2.filament_grams = 0.0
+        self.p2.ams_trays_info["254"] = {"id": "254", "empty": False, "type": "TPU"}
+        self.p2.filament_type = "TPU"
+
+        u = await self.app.storage.load_user("999")
+        u["context_data"]["selected_printer_id"] = "p2"
+        await self.app.storage.save_user(u)
+
+        # 1. Check printer status
+        ans_status = await self._send("📊 Статус")
+        self.assertTrue(ans_status.called)
+        status_text = ans_status.call_args[0][0]
+        self.assertIn("Порожньо", status_text)
+        self.assertNotIn("0.0g", status_text)
+
+        # 2. Check filament view
+        ans_fil = await self._send("🧵 Філамент")
+        self.assertTrue(ans_fil.called)
+        fil_text = ans_fil.call_args[0][0]
+        self.assertIn("VT</b>: Порожньо", fil_text)
+        self.assertNotIn("Bambu TPU — 0.0g", fil_text)
+

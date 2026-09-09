@@ -120,6 +120,7 @@ FILAMENT_STATES = {
     "select_spool_to_mount",
     "select_printer_for_mount",
     "select_slot_for_mount",
+    "select_slot_for_weight",
     "select_spool_to_unmount",
     "select_spool_to_edit",
     "select_spool_field",
@@ -159,10 +160,10 @@ async def handle_filament_states(message: Message, app) -> bool:
     }
     if text.lower() in cancel_keywords:
         user["state"] = "printer_menu" if target_printer else "idle"
-        for k in ["new_spool", "edit_spool", "edit_spool_id", "pending_spool", "delete_spool", "delete_spool_id", "mount_spool", "mount_printer_id"]:
+        for k in ["new_spool", "edit_spool", "edit_spool_id", "pending_spool", "delete_spool", "delete_spool_id", "mount_spool", "mount_printer_id", "edit_weight_slot_key", "edit_weight_slot_label"]:
             user.get("context_data", {}).pop(k, None)
         await app.storage.save_user(user)
-        kb = get_printer_menu_keyboard(target_printer, lang=u_lang) if target_printer else get_filament_menu_keyboard(lang=u_lang)
+        kb = get_single_printer_filament_keyboard(lang=u_lang) if (target_printer and (state.startswith("edit_filament") or state.startswith("select_slot_for_weight"))) else (get_printer_menu_keyboard(target_printer, lang=u_lang) if target_printer else get_filament_menu_keyboard(lang=u_lang))
         await message.answer("Дію скасовано." if u_lang != "en" else "Action cancelled.", reply_markup=kb)
         return True
 
@@ -486,6 +487,69 @@ async def handle_filament_states(message: Message, app) -> bool:
             f"✅ <b>Spool {html.escape(selected_spool['name'])} mounted on {html.escape(target_p.name)} [{slot_label}]!</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
+        )
+        return True
+
+    if state == "select_slot_for_weight":
+        if not target_printer:
+            user["state"] = "idle"
+            await app.storage.save_user(user)
+            await message.answer("⚠️ Помилка: принтер не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
+            return True
+
+        clean = text.lower().strip()
+        is_valid_slot = (
+            clean in ["1", "2", "3", "4", "vt", "a1", "a2", "a3", "a4"]
+            or any(k in clean for k in ["a1", "slot 1", "слот 1", "слот a1", "a2", "slot 2", "слот 2", "слот a2", "a3", "slot 3", "слот 3", "слот a3", "a4", "slot 4", "слот 4", "слот a4", "зовнішн", "vt", "external", "котушкотримач"])
+        )
+        if not is_valid_slot:
+            await message.answer(
+                "⚠️ Невідомий слот. Оберіть слот зі списку на клавіатурі (наприклад: 📍 Слот A1 або Зовнішній):"
+                if u_lang != "en" else
+                "⚠️ Unknown slot. Please select a slot from the keyboard (e.g. 📍 Slot A1 or External):"
+            )
+            return True
+
+        from bot.handlers.filament.mount import parse_slot_key_from_text
+        slot_key = parse_slot_key_from_text(text)
+        slot_labels = {
+            "0": "A1" if u_lang == "en" else "Слот A1",
+            "1": "A2" if u_lang == "en" else "Слот A2",
+            "2": "A3" if u_lang == "en" else "Слот A3",
+            "3": "A4" if u_lang == "en" else "Слот A4",
+            "254": "VT (External)" if u_lang == "en" else "VT (Зовнішній)",
+        }
+        s_label = slot_labels.get(slot_key, f"Слот {slot_key}")
+
+        # Check tray material or mounted spool name
+        tray_info = (getattr(target_printer, "ams_trays_info", {}) or {}).get(str(slot_key), {})
+        mat_info = tray_info.get("name") or tray_info.get("type") or ""
+        spools = await app.storage.load_spools()
+        for s in spools.values():
+            if s.get("assigned_printer_id") == target_printer.id and str(s.get("assigned_slot_key")) in [str(slot_key), "255" if slot_key == "254" else str(slot_key)]:
+                sp_name = s.get("name") or s.get("type")
+                if sp_name:
+                    mat_info = sp_name
+                break
+
+        slot_display = f"{s_label} — {mat_info}" if mat_info else s_label
+        curr_g = target_printer.get_slot_grams(slot_key)
+        user.setdefault("context_data", {})["edit_weight_slot_key"] = slot_key
+        user["context_data"]["edit_weight_slot_label"] = s_label
+        user["state"] = "edit_filament_weight"
+        await app.storage.save_user(user)
+
+        await message.answer(
+            f"Поточний залишок для <b>{html.escape(target_printer.name)} ({slot_display})</b>: <b>{curr_g}g</b>\n\n"
+            f"Введіть нову залишкову вагу філаменту в грамах (наприклад <code>850</code>):"
+            if u_lang != "en"
+            else f"Current remaining for <b>{html.escape(target_printer.name)} ({slot_display})</b>: <b>{curr_g}g</b>\n\n"
+            f"Enter new filament remaining weight in grams (e.g. <code>850</code>):",
+            parse_mode=ParseMode.HTML,
+            reply_markup=ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")]],
+                resize_keyboard=True,
+            ),
         )
         return True
 
@@ -904,14 +968,38 @@ async def handle_filament_states(message: Message, app) -> bool:
         clean_text = text.replace("g", "").replace("г", "").strip()
         val = safe_eval_math(clean_text)
         if val is not None and val >= 0:
-            target_printer.filament_grams = float(val)
+            slot_key = ctx_data.get("edit_weight_slot_key") or target_printer.get_active_slot_key()
+            slot_lbl = ctx_data.get("edit_weight_slot_label")
+            if not slot_lbl:
+                slot_lbl = "VT" if str(slot_key) in ["254", "255"] else f"Слот A{int(slot_key)+1}"
+
+            target_printer.set_slot_grams(float(val), slot_id=slot_key)
+            if str(slot_key) == str(target_printer.get_active_slot_key()):
+                target_printer.filament_grams = float(val)
+
+            # Sync any mounted warehouse spool
+            spools = await app.storage.load_spools()
+            spool_updated = False
+            for s_id, s in list(spools.items()):
+                if s.get("assigned_printer_id") == target_printer.id and str(s.get("assigned_slot_key")) in [str(slot_key), "255" if str(slot_key) == "254" else str(slot_key)]:
+                    s["remaining_grams"] = float(val)
+                    spools[s_id] = s
+                    spool_updated = True
+                    break
+            if spool_updated:
+                await app.storage.save_spools(spools)
+
             await app.save_printers_config()
             user["state"] = "printer_menu"
+            user.get("context_data", {}).pop("edit_weight_slot_key", None)
+            user.get("context_data", {}).pop("edit_weight_slot_label", None)
             await app.storage.save_user(user)
+
+            slot_suffix = f" ({slot_lbl})" if getattr(target_printer, "has_ams", False) else ""
             await message.answer(
-                f"✅ Залишок філаменту для {html.escape(target_printer.name)} змінено на <b>{val}g</b>!"
+                f"✅ Залишок філаменту для <b>{html.escape(target_printer.name)}{slot_suffix}</b> змінено на <b>{val}g</b>!"
                 if u_lang != "en"
-                else f"✅ Filament remaining for {html.escape(target_printer.name)} updated to <b>{val}g</b>!",
+                else f"✅ Filament remaining for <b>{html.escape(target_printer.name)}{slot_suffix}</b> updated to <b>{val}g</b>!",
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
             )

@@ -119,7 +119,7 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
     app_ref = getattr(callback.bot, "_app_ref", None) or app
     spools_map = await app_ref.storage.load_spools() if hasattr(app_ref, "storage") else None
     active_fil = get_printer_active_filament(printer, spools_map)
-    comp = check_compatibility(part.get("printer_model", ""), part.get("filament_type", ""), printer.name, active_fil)
+    comp = check_compatibility(part.get("printer_model", ""), part.get("filament_type", ""), printer.name, active_fil, printer=printer)
     if not comp.get("compatible"):
         reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
         await callback.answer(f"🛑 ДРУК БЛОКОВАНО: {reason}", show_alert=True)
@@ -136,11 +136,15 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
         else:
             req_fil = part.get("filament_type") or comp.get("sliced_filament", "Невідомо")
             curr_fil = active_fil or comp.get("target_filament", "Невідомо")
+            ams_note = ""
+            if getattr(printer, "has_ams", False) and hasattr(printer, "get_loaded_ams_summary"):
+                ams_note = f"\n📋 <b>Заправлені слоти AMS:</b>\n{printer.get_loaded_ams_summary()}\n"
             await callback.message.answer(
                 f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n"
                 f"🛑 <b>Філамент несумісний з файлом!</b>\n"
                 f"• <b>Необхідний пластик:</b> <code>{html.escape(str(req_fil))}</code>\n"
-                f"• <b>Пластик на принтері:</b> <code>{html.escape(str(curr_fil))}</code>\n\n"
+                f"• <b>Пластик на принтері:</b> <code>{html.escape(str(curr_fil))}</code>\n"
+                f"{ams_note}\n"
                 f"<i>Будь ласка, заправте потрібний пластик на принтер або оберіть інший принтер.</i>",
                 parse_mode=ParseMode.HTML,
             )
@@ -201,9 +205,10 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
             printer._is_printing = True
             printer._was_running = True
             printer._job_started_from_app = True
+            slot_str = f"\n🎯 <b>Подача пластику:</b> AMS Слот {comp['matched_ams_slot']}" if comp.get("matched_ams_slot") else ""
             comp_warning = f"\n\n{comp['reason']}" if comp.get("reason") and not comp.get("compatible") else ""
             await callback.message.answer(
-                f"🚀 <b>Друк успішно запущено!</b>\nДеталь: <b>{html.escape(part.get('name', 'Деталь'))}</b>\nПринтер: <b>{html.escape(printer.name)}</b>{comp_warning}",
+                f"🚀 <b>Друк успішно запущено!</b>\nДеталь: <b>{html.escape(part.get('name', 'Деталь'))}</b>\nПринтер: <b>{html.escape(printer.name)}</b>{slot_str}{comp_warning}",
                 parse_mode=ParseMode.HTML,
             )
         else:

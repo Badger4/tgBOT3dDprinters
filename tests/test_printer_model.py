@@ -335,15 +335,25 @@ class TestPrinterModel(unittest.TestCase):
     def test_build_ams_mapping_protocol(self) -> None:
         from models.printer import build_ams_mapping
 
-        # Single color on AMS Slot 0
-        mapping, use_ams = build_ams_mapping("0", has_ams=True, use_ams=True)
+        # Single color on AMS Slot 1 (0-indexed 0) -> [0, -1, -1, -1]
+        mapping, use_ams = build_ams_mapping(1, has_ams=True, use_ams=True)
         self.assertTrue(use_ams)
-        self.assertEqual(mapping, [-1, -1, -1, -1, 0])
+        self.assertEqual(mapping, [0, -1, -1, -1])
 
-        # Single color on AMS Slot 2
+        # Single color on AMS Slot 4 (0-indexed 3) -> [3, -1, -1, -1]
+        mapping, use_ams = build_ams_mapping(4, has_ams=True, use_ams=True)
+        self.assertTrue(use_ams)
+        self.assertEqual(mapping, [3, -1, -1, -1])
+
+        # Single color on AMS Slot 2 -> [1, -1, -1, -1]
         mapping, use_ams = build_ams_mapping("2", has_ams=True, use_ams=True)
         self.assertTrue(use_ams)
-        self.assertEqual(mapping, [-1, -1, -1, -1, 2])
+        self.assertEqual(mapping, [1, -1, -1, -1])
+
+        # Single color on string "A4" -> [3, -1, -1, -1]
+        mapping, use_ams = build_ams_mapping("A4", has_ams=True, use_ams=True)
+        self.assertTrue(use_ams)
+        self.assertEqual(mapping, [3, -1, -1, -1])
 
         # External spool (254)
         mapping, use_ams = build_ams_mapping("254", has_ams=True, use_ams=True)
@@ -351,11 +361,11 @@ class TestPrinterModel(unittest.TestCase):
         self.assertEqual(mapping, [])
 
         # Without AMS hardware or use_ams=False
-        mapping, use_ams = build_ams_mapping("0", has_ams=False, use_ams=True)
+        mapping, use_ams = build_ams_mapping(1, has_ams=False, use_ams=True)
         self.assertFalse(use_ams)
         self.assertEqual(mapping, [])
 
-        mapping, use_ams = build_ams_mapping("0", has_ams=True, use_ams=False)
+        mapping, use_ams = build_ams_mapping(1, has_ams=True, use_ams=False)
         self.assertFalse(use_ams)
         self.assertEqual(mapping, [])
 
@@ -399,6 +409,35 @@ class TestPrinterModel(unittest.TestCase):
         # 4. AMS Lite with active filament loaded -> True
         self.printer.ams_units = [{"id": "0", "tray": [{"id": "0", "tray_type": "PLA", "tray_color": "FFFFFF", "empty": False}]}]
         self.assertTrue(self.printer.has_ams)
+
+    def test_start_print_job_async_ams_slot_mapping(self) -> None:
+        import asyncio
+        from unittest.mock import patch
+
+        self.printer._client = MagicMock()
+        self.printer._client.is_connected.return_value = True
+        self.printer.ams_enabled = True
+
+        async def run():
+            with patch("models.printer.upload_3mf_to_bambu", return_value="file:///sdcard/test.3mf"), \
+                 patch("models.printer.verify_bambu_file_size", return_value=True):
+                # Test Slot 4 -> [3, -1, -1, -1]
+                ok, msg = await self.printer.start_print_job_async(b"dummy 3mf content", "test.3mf", ams_slot=4)
+                self.assertTrue(ok)
+                call_args = self.printer._client.publish.call_args
+                payload = json.loads(call_args[0][1])
+                self.assertTrue(payload["print"]["use_ams"])
+                self.assertEqual(payload["print"]["ams_mapping"], [3, -1, -1, -1])
+
+                # Test Slot 1 -> [0, -1, -1, -1]
+                ok, msg = await self.printer.start_print_job_async(b"dummy 3mf content", "test.3mf", ams_slot=1)
+                self.assertTrue(ok)
+                call_args = self.printer._client.publish.call_args
+                payload = json.loads(call_args[0][1])
+                self.assertTrue(payload["print"]["use_ams"])
+                self.assertEqual(payload["print"]["ams_mapping"], [0, -1, -1, -1])
+
+        asyncio.run(run())
 
 
 if __name__ == "__main__":
