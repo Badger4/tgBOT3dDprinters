@@ -470,6 +470,24 @@ def get_part_editing_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+def get_part_creation_reply_keyboard(lang: str = "uk", allow_skip: bool = False) -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    keyboard = []
+    if allow_skip:
+        keyboard.append([KeyboardButton(text="⏩ Пропустити" if not is_en else "⏩ Skip")])
+    keyboard.append([KeyboardButton(text="❌ Скасувати" if not is_en else "❌ Cancel")])
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_part_cancel_inline_keyboard(lang: str = "uk", allow_skip: bool = False) -> InlineKeyboardMarkup:
+    is_en = lang == "en"
+    row = []
+    if allow_skip:
+        row.append(InlineKeyboardButton(text="⏩ Пропустити" if not is_en else "⏩ Skip", callback_data="skip_part_step"))
+    row.append(InlineKeyboardButton(text="❌ Скасувати" if not is_en else "❌ Cancel", callback_data="cancel_part_creation"))
+    return InlineKeyboardMarkup(inline_keyboard=[row])
+
+
 def get_spool_edit_fields_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     is_en = lang == "en"
     keyboard = [

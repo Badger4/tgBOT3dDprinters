@@ -48,9 +48,13 @@ async def handle_filament_menu(message: Message, app):
     if target_printer and is_printer_filament_btn:
         active_k = target_printer.get_active_slot_key() if hasattr(target_printer, "get_active_slot_key") else "254"
         active_grams = target_printer.get_slot_grams(active_k) if hasattr(target_printer, "get_slot_grams") else getattr(target_printer, "filament_grams", 0.0)
-        has_active_spool = active_grams > 0.0
+        try:
+            active_grams_val = float(active_grams)
+        except (TypeError, ValueError):
+            active_grams_val = 0.0
+        has_active_spool = active_grams_val > 0.0
 
-        fil_grams_str = f"<code>{active_grams}g</code>" if has_active_spool else ("<i>Порожньо</i>" if u_lang != "en" else "<i>Empty</i>")
+        fil_grams_str = f"<code>{active_grams_val}g</code>" if has_active_spool else ("<i>Порожньо</i>" if u_lang != "en" else "<i>Empty</i>")
         fil_type_str = f"<code>{target_printer.filament_type}</code>" if (has_active_spool and target_printer.filament_type and target_printer.filament_type not in ["Невизначено", "None", "", "Порожньо", "Empty"]) else "<i>—</i>"
 
         txt = (

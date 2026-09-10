@@ -318,7 +318,8 @@ class TestPartsComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(created[0]["three_mf"], "")
 
     async def test_add_part_cancel(self):
-        """Test cancelling add part wizard at any step."""
+        """Test cancelling add part wizard at any step via reply buttons, main menu, and callback."""
+        # 1. Cancel at Step: name via "❌ Скасувати"
         await self._send_msg("➕ Добавити")
         self.assertEqual(await self.state.get_state(), PartCreatingStates.name)
 
@@ -326,6 +327,40 @@ class TestPartsComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ans_cancel.called)
         self.assertIn("скасовано", ans_cancel.all_text().lower())
         self.assertEqual(await self.state.get_state(), PartEditingStates.in_parts_list)
+
+        # 2. Cancel at Step: image via "⬅️ Назад"
+        await self._send_msg("➕ Добавити")
+        await self._send_msg("Деталь X")
+        self.assertEqual(await self.state.get_state(), PartCreatingStates.image)
+
+        ans_cancel_img = await self._send_msg("⬅️ Назад")
+        self.assertTrue(ans_cancel_img.called)
+        self.assertIn("скасовано", ans_cancel_img.all_text().lower())
+        self.assertEqual(await self.state.get_state(), PartEditingStates.in_parts_list)
+
+        # 3. Cancel at Step: count via "Головне меню"
+        await self._send_msg("➕ Добавити")
+        await self._send_msg("Деталь Y")
+        await self._send_msg("⏩ Пропустити")
+        self.assertEqual(await self.state.get_state(), PartCreatingStates.count)
+
+        ans_cancel_menu = await self._send_msg("Головне меню")
+        self.assertTrue(ans_cancel_menu.called)
+        self.assertIn("скасовано", ans_cancel_menu.all_text().lower())
+        self.assertIsNone(await self.state.get_state())
+
+        # 4. Cancel at Step: three_mf via callback query
+        await self._send_msg("🧩 Склад деталей")
+        await self._send_msg("➕ Добавити")
+        await self._send_msg("Деталь Z")
+        await self._send_msg("⏩ Пропустити")
+        await self._send_msg("5")
+        self.assertEqual(await self.state.get_state(), PartCreatingStates.three_mf)
+
+        ans_cb_cancel, _ = await self._send_cb("cancel_part_creation")
+        self.assertTrue(ans_cb_cancel.called)
+        self.assertEqual(await self.state.get_state(), PartEditingStates.in_parts_list)
+
 
     async def test_edit_part_property_workflow(self):
         """Test editing part properties via part_prop_ callbacks, draft updates, save and cancel."""
