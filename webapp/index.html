@@ -996,13 +996,13 @@
         </div>
 
         <!-- SPOOL MOVEMENTS AUDIT LOG MODAL -->
-        <div id="spool-movements-modal" class="modal-backdrop" onclick="if(event.target===this)window.closeSpoolMovementsModal()">
+        <div id="spool-movements-modal" class="modal-backdrop" onclick="if(event.target===this)window.closeSpoolMovementsModal(event)">
             <div class="modal-window" style="max-width: 700px;">
                 <div class="modal-header">
-                    <h3><i class="fa-solid fa-clock-rotate-left color-amber"></i> 📜 Журнал аудиту руху котушок</h3>
-                    <div class="d-flex gap-2 align-items-center">
+                    <h3 title="Журнал аудиту руху котушок"><i class="fa-solid fa-clock-rotate-left color-amber"></i> Аудит руху пластику</h3>
+                    <div class="d-flex gap-2 align-items-center flex-shrink-0">
                         <a href="/api/spools/movements/export_pdf" id="btn-export-movements-pdf" class="btn btn-xs btn-outline" target="_blank"><i class="fa-solid fa-file-pdf"></i> PDF</a>
-                        <button type="button" class="icon-btn-close" onclick="window.closeSpoolMovementsModal()"><i class="fa-solid fa-xmark"></i></button>
+                        <button type="button" id="close-spool-movements-modal-btn" class="icon-btn-close" onclick="window.closeSpoolMovementsModal(event)" aria-label="Закрити"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 </div>
                 <div class="modal-body">
@@ -1022,6 +1022,11 @@
                                 <tr><td colspan="6" class="text-center">Завантаження журналу...</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                    <div class="mt-2 text-end">
+                        <button type="button" class="btn btn-outline btn-sm w-100" onclick="window.closeSpoolMovementsModal(event)">
+                            <i class="fa-solid fa-xmark me-1"></i> Закрити вікно
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1229,6 +1234,6 @@
     <!-- html2pdf Library for PDF exports (deferred background load) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1067"></script>
+    <script src="/static/js/app.js?v=1068"></script>
 </body>
 </html>
