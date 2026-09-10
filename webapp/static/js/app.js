@@ -273,6 +273,7 @@ window.openSpoolMovementsModal = async function() {
     const tbody = document.getElementById("spool-movements-table-body");
     if (!modal) return;
 
+    modal.style.display = "flex";
     modal.classList.add("active");
     if (window.Telegram?.WebApp?.HapticFeedback) {
         try { window.Telegram.WebApp.HapticFeedback.impactOccurred("light"); } catch(e){}
@@ -345,6 +346,7 @@ window.closeSpoolMovementsModal = function(e) {
     const modal = document.getElementById("spool-movements-modal");
     if (modal) {
         modal.classList.remove("active");
+        modal.style.display = "none";
     }
     if (window.Telegram?.WebApp?.HapticFeedback) {
         try { window.Telegram.WebApp.HapticFeedback.impactOccurred("light"); } catch(err){}
@@ -2480,6 +2482,16 @@ document.addEventListener("DOMContentLoaded", () => {
             window.closeSpoolMovementsModal(e);
         });
         closeMovementsBtn.addEventListener("touchend", (e) => {
+            window.closeSpoolMovementsModal(e);
+        });
+    }
+
+    const closeMovementsFooterBtn = document.getElementById("btn-close-spool-movements-footer");
+    if (closeMovementsFooterBtn) {
+        closeMovementsFooterBtn.addEventListener("click", (e) => {
+            window.closeSpoolMovementsModal(e);
+        });
+        closeMovementsFooterBtn.addEventListener("touchend", (e) => {
             window.closeSpoolMovementsModal(e);
         });
     }
