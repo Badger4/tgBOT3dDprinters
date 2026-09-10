@@ -240,6 +240,8 @@ async def handle_get_history(request: web.Request) -> web.Response:
             else str(ts or "-")
         )
         pname = item.get("printer_name") or item.get("printer") or "Принтер"
+        pid = item.get("printer_id", "")
+        psn = item.get("printer_sn", "")
         raw_sub = str(item.get("subtask_name") or item.get("task") or item.get("model_name") or "").strip()
         subtask = "Модель 3D" if not raw_sub or raw_sub.lower() in ["untitled", "none", "null"] else raw_sub
         w_g = round(float(item.get("weight_g", 0.0)), 1)
@@ -251,6 +253,8 @@ async def handle_get_history(request: web.Request) -> web.Response:
                 "datetime": dt_str,
                 "printer_name": pname,
                 "printer": pname,
+                "printer_id": pid,
+                "printer_sn": psn,
                 "subtask_name": subtask,
                 "task": subtask,
                 "weight_g": w_g,

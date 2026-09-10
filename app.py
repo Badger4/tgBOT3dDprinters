@@ -375,6 +375,8 @@ class PrinterBotApp:
                             entry = {
                                 "timestamp": time.time(),
                                 "printer_name": p.name,
+                                "printer_id": p.id,
+                                "printer_sn": getattr(p, "sn", getattr(p, "serial_number", p.id)),
                                 "subtask_name": clean_subtask,
                                 "weight_g": round(float(final_weight), 1),
                                 "filament_type": p.filament_type,

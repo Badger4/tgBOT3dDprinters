@@ -939,6 +939,8 @@ class BambuPrinter:
                         entry = {
                             "timestamp": time.time(),
                             "printer_name": self.name,
+                            "printer_id": self.id,
+                            "printer_sn": getattr(self, "serial_number", getattr(self, "sn", self.id)),
                             "subtask_name": clean_subtask,
                             "weight_g": round(float(final_weight), 1),
                             "filament_type": self.filament_type,

@@ -1995,30 +1995,32 @@ document.addEventListener("DOMContentLoaded", () => {
         const sel = document.getElementById("history-filter-printer");
         if (!sel) return;
         const curVal = sel.value;
-        const printersMap = new Map();
+        const printerNames = new Set();
 
-        (history || []).forEach(item => {
-            const pId = item.printer_id || item.printer_sn || item.printer || "";
-            const pName = item.printer_name || item.printer || pId || "Принтер";
-            if (pId || pName) {
-                printersMap.set(pId || pName, pName);
-            }
-        });
-
-        if (window.printersData && Array.isArray(window.printersData)) {
-            window.printersData.forEach(p => {
-                printersMap.set(p.id, p.name || p.id);
+        if (typeof printersData !== "undefined" && Array.isArray(printersData)) {
+            printersData.forEach(p => {
+                const name = (p.name || p.id || "").trim();
+                if (name) printerNames.add(name);
             });
         }
 
+        (history || []).forEach(item => {
+            const name = (item.printer_name || item.printer || item.printer_id || "").trim();
+            if (name) printerNames.add(name);
+        });
+
+        const sorted = Array.from(printerNames).sort((a, b) => 
+            a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+        );
+
         let optionsHtml = `<option value="">🌐 Усі принтери</option>`;
-        printersMap.forEach((name, id) => {
-            optionsHtml += `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`;
+        sorted.forEach(name => {
+            optionsHtml += `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
         });
 
         if (sel.innerHTML !== optionsHtml) {
             sel.innerHTML = optionsHtml;
-            if (curVal && printersMap.has(curVal)) {
+            if (curVal && printerNames.has(curVal)) {
                 sel.value = curVal;
             }
         }
@@ -2177,17 +2179,39 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const filtered = cachedHistoryEntries.filter(item => {
             const taskName = String(item.subtask_name || item.task || "").toLowerCase();
-            const printerName = String(item.printer_name || item.printer || "").toLowerCase();
-            const printerId = String(item.printer_id || item.printer_sn || "").toLowerCase();
+            const printerName = String(item.printer_name || item.printer || "").toLowerCase().trim();
+            const printerId = String(item.printer_id || item.printer_sn || "").toLowerCase().trim();
 
             // 1. Search Query filter (task name or printer name)
             if (searchQuery && !taskName.includes(searchQuery) && !printerName.includes(searchQuery)) {
                 return false;
             }
 
-            // 2. Printer filter
+            // 2. Printer filter (Strict exact match to avoid "A1" matching "A1 mini")
             if (selectedPrinter) {
-                if (printerId !== selectedPrinter && printerName !== selectedPrinter && !printerName.includes(selectedPrinter)) {
+                let matched = (printerName === selectedPrinter || printerId === selectedPrinter);
+
+                if (!matched && typeof printersData !== "undefined" && Array.isArray(printersData)) {
+                    const pObj = printersData.find(p => 
+                        String(p.name || "").toLowerCase().trim() === selectedPrinter ||
+                        String(p.id || "").toLowerCase().trim() === selectedPrinter ||
+                        String(p.serialNumber || "").toLowerCase().trim() === selectedPrinter
+                    );
+                    if (pObj) {
+                        const targetName = String(pObj.name || "").toLowerCase().trim();
+                        const targetId = String(pObj.id || "").toLowerCase().trim();
+                        const targetSn = String(pObj.serialNumber || "").toLowerCase().trim();
+                        if (
+                            (targetName && printerName === targetName) ||
+                            (targetId && printerId === targetId) ||
+                            (targetSn && printerId === targetSn)
+                        ) {
+                            matched = true;
+                        }
+                    }
+                }
+
+                if (!matched) {
                     return false;
                 }
             }
