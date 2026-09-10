@@ -68,6 +68,7 @@ from services.http.routes_auth import (
 from services.http.routes_spools import (
     handle_delete_spool,
     handle_export_movements_csv,
+    handle_export_movements_pdf,
     handle_export_spools_pdf,
     handle_export_warehouse_csv,
     handle_get_spool_movements,
@@ -141,6 +142,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_get("/api/spools", handle_get_spools)
     web_app.router.add_get("/api/spools/movements", handle_get_spool_movements)
     web_app.router.add_get("/api/spools/movements/export_csv", handle_export_movements_csv)
+    web_app.router.add_get("/api/spools/movements/export_pdf", handle_export_movements_pdf)
     web_app.router.add_post("/api/spools", handle_save_spool)
     web_app.router.add_post("/api/spools/{id}/mount", handle_mount_spool)
     web_app.router.add_post("/api/spools/{id}/unmount", handle_unmount_spool)
