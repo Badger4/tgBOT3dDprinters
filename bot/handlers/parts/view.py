@@ -286,6 +286,8 @@ async def process_search_part_query(message: Message, state: FSMContext, app: An
         [
             "назад", "back", "⬅️ назад", "⬅️ back", "⬅️ до списку деталей",
             "до списку деталей", "⬅️ back to parts", "back to parts", "⬅️ назад до списку", "назад до списку",
+            "головне меню", "main menu", "🏠 головне меню", "🏠 main menu", "меню", "menu",
+            "⬅️ головне меню", "⬅️ main menu", "повернутись в меню", "назад в меню", "⬅️ назад в меню",
         ]
     ),
 )
@@ -295,6 +297,8 @@ async def process_search_part_query(message: Message, state: FSMContext, app: An
         [
             "назад", "back", "⬅️ назад", "⬅️ back", "⬅️ до списку деталей",
             "до списку деталей", "⬅️ back to parts", "back to parts", "⬅️ назад до списку", "назад до списку",
+            "головне меню", "main menu", "🏠 головне меню", "🏠 main menu", "меню", "menu",
+            "⬅️ головне меню", "⬅️ main menu", "повернутись в меню", "назад в меню", "⬅️ назад в меню",
         ]
     ),
 )

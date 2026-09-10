@@ -7,13 +7,16 @@ import time
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 router = Router()
 
 
 @router.message(F.text.lower().in_(["📊 стан ферми", "стан ферми", "ферма", "📊 farm status", "farm status"]))
-async def handle_dashboard(message: Message, app):
+async def handle_dashboard(message: Message, app, state: FSMContext | None = None):
+    if state:
+        await state.clear()
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
         return

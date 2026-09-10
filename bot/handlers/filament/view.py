@@ -5,6 +5,7 @@ Filament warehouse view & RFID sync handlers.
 import html
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from bot.keyboards import get_filament_menu_keyboard, get_single_printer_filament_keyboard
 
@@ -30,7 +31,9 @@ router = Router()
         ]
     )
 )
-async def handle_filament_menu(message: Message, app):
+async def handle_filament_menu(message: Message, app, state: FSMContext | None = None):
+    if state:
+        await state.clear()
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
         return

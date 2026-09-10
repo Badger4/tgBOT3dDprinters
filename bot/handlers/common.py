@@ -6,6 +6,7 @@ import html
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from bot.keyboards import (
@@ -25,7 +26,9 @@ router = Router()
         ]
     )
 )
-async def handle_cancel_or_back(message: Message, app):
+async def handle_cancel_or_back(message: Message, app, state: FSMContext | None = None):
+    if state:
+        await state.clear()
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
         return
@@ -109,7 +112,9 @@ async def handle_cancel_or_back(message: Message, app):
         ]
     )
 )
-async def handle_main_menu_nav(message: Message, app):
+async def handle_main_menu_nav(message: Message, app, state: FSMContext | None = None):
+    if state:
+        await state.clear()
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
         return

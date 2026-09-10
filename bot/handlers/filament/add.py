@@ -6,6 +6,7 @@ import html
 import uuid
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup
 from bot.keyboards import (
     get_filament_menu_keyboard,
@@ -25,7 +26,9 @@ router = Router()
 
 
 @router.message(F.text.lower().in_(["➕ додати котушку", "додати котушку", "➕ додати", "додати", "➕ add spool", "add spool", "➕ add", "add"]))
-async def handle_add_spool_start(message: Message, app):
+async def handle_add_spool_start(message: Message, app, state: FSMContext | None = None):
+    if state:
+        await state.clear()
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")

@@ -5,6 +5,7 @@ Start and access request handlers.
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from bot.keyboards import get_main_keyboard, get_webapp_inline_keyboard
@@ -13,7 +14,9 @@ router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, app):
+async def cmd_start(message: Message, app, state: FSMContext | None = None):
+    if state:
+        await state.clear()
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
 

@@ -5,6 +5,7 @@ Printers view & status card handlers.
 import html
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from bot.keyboards import get_printers_keyboard
 from models.printer import BambuPrinter
@@ -13,7 +14,9 @@ router = Router()
 
 
 @router.message(F.text.lower().in_(["🖨️ принтери", "принтери", "🖨️ назад до принтерів", "назад до принтерів", "🖨️ printers", "printers", "🖨️ back to printers", "back to printers"]))
-async def handle_list_printers(message: Message, app):
+async def handle_list_printers(message: Message, app, state: FSMContext | None = None):
+    if state:
+        await state.clear()
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
         return

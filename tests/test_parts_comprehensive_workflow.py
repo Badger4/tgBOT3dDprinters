@@ -484,3 +484,38 @@ class TestPartsComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         with patch("services.report_generator.generate_parts_pdf_report", return_value=b"%PDF-test"):
             ans_pdf = await self._send_msg("📊 Звіт деталей (PDF)")
             self.assertTrue(ans_pdf.called)
+
+    async def test_switch_from_parts_to_spool_addition(self):
+        """Test that navigating from parts list or part wizard to warehouse adds a spool and NOT a part."""
+        # Scenario 1: User is in parts list, clicks 'Головне меню', state is cleared
+        await self._send_msg("🧩 Склад деталей")
+        self.assertEqual(await self.state.get_state(), PartEditingStates.in_parts_list)
+        ans_menu = await self._send_msg("Головне меню")
+        self.assertTrue(ans_menu.called)
+        self.assertIsNone(await self.state.get_state())
+
+        # User goes to Warehouse and clicks '➕ Додати' (spool button)
+        ans_wh = await self._send_msg("📦 Склад")
+        self.assertTrue(ans_wh.called)
+        ans_add_spool = await self._send_msg("➕ Додати")
+        self.assertTrue(ans_add_spool.called)
+        self.assertIn("Додавання нової котушки", ans_add_spool.all_text())
+        self.assertNotIn("Введіть назву нової деталі", ans_add_spool.all_text())
+        u_data = await self.app.storage.load_user("888")
+        self.assertEqual(u_data.get("state"), "add_spool_name")
+
+        # Scenario 2: User started adding a part (in PartCreatingStates.name),
+        # but then switches directly to warehouse or clicks '➕ Додати'
+        await self._send_msg("🧩 Склад деталей")
+        await self._send_msg("➕ Добавити")
+        self.assertEqual(await self.state.get_state(), PartCreatingStates.name)
+
+        ans_switch = await self._send_msg("➕ Додати")
+        self.assertTrue(ans_switch.called)
+        # Part creation should be cancelled, not asking for photo or saving '➕ Додати' as part name
+        self.assertIn("Створення деталі скасовано", ans_switch.all_text())
+        self.assertIn("Додавання нової котушки", ans_switch.all_text())
+        parts = await self.app.storage.load_parts()
+        self.assertNotIn("➕ Додати", [p.get("name") for p in parts.values()])
+        self.assertIsNone(await self.state.get_state())
+

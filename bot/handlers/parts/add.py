@@ -29,21 +29,34 @@ CANCEL_TEXTS = [
 ]
 
 MAIN_MENU_TEXTS = [
-    "головне меню", "main menu", "меню", "menu",
+    "головне меню", "main menu", "меню", "menu", "🏠 головне меню", "🏠 main menu",
+    "⬅️ головне меню", "⬅️ main menu", "повернутись в меню", "назад в меню", "⬅️ назад в меню",
+]
+
+NAVIGATION_CANCEL_TEXTS = [
+    "📦 склад", "склад", "📦 warehouse", "warehouse", "📦 склад котушок", "склад котушок",
+    "🧵 філамент & ams", "філамент & ams", "🧵 філамент", "філамент", "🧵 filament", "filament",
+    "🖨️ принтери", "принтери", "🖨️ printers", "printers",
+    "📊 стан ферми", "стан ферми", "📊 farm status", "farm status", "ферма",
+    "🧩 склад деталей", "склад деталей", "🧩 parts stock", "parts stock",
+    "➕ додати котушку", "додати котушку", "➕ додати", "додати", "➕ add spool", "add spool",
+    "/start", "/menu", "/printers", "/warehouse", "/farm",
 ]
 
 
 @router.message(
     PartEditingStates.in_parts_list,
     F.text.lower().in_([
-        "добавити", "➕ добавити", "додати", "➕ додати", "➕ додати деталь",
-        "add", "➕ add", "add part", "➕ нова деталь", "нова деталь", "➕ new part", "new part"
+        "добавити", "➕ добавити", "➕ додати деталь", "додати деталь",
+        "➕ добавити деталь", "добавити деталь",
+        "add", "➕ add", "add part", "➕ add part", "➕ нова деталь", "нова деталь", "➕ new part", "new part"
     ])
 )
 @router.message(
     F.text.lower().in_([
         "добавити", "➕ добавити", "➕ додати деталь", "додати деталь",
-        "add part", "➕ нова деталь", "нова деталь", "➕ new part", "new part"
+        "➕ добавити деталь", "добавити деталь",
+        "add part", "➕ add part", "➕ нова деталь", "нова деталь", "➕ new part", "new part"
     ])
 )
 async def handle_add_part_start(message: Message, app: Any, state: FSMContext | None = None) -> None:
@@ -57,6 +70,47 @@ async def handle_add_part_start(message: Message, app: Any, state: FSMContext | 
         parse_mode=ParseMode.HTML,
         reply_markup=reply_kb,
     )
+
+
+@router.message(PartCreatingStates.name, F.text.lower().in_(NAVIGATION_CANCEL_TEXTS))
+@router.message(PartCreatingStates.image, F.text.lower().in_(NAVIGATION_CANCEL_TEXTS))
+@router.message(PartCreatingStates.count, F.text.lower().in_(NAVIGATION_CANCEL_TEXTS))
+@router.message(PartCreatingStates.three_mf, F.text.lower().in_(NAVIGATION_CANCEL_TEXTS))
+async def cancel_add_part_and_navigate(message: Message, state: FSMContext, app: Any) -> None:
+    await state.clear()
+    u_data = await app.storage.load_user(message.from_user.id) if (app and message.from_user) else None
+    lang = get_user_lang(u_data)
+    text_low = (message.text or "").strip().lower()
+
+    await message.answer("❌ Створення деталі скасовано." if lang != "en" else "❌ Part creation cancelled.")
+
+    if text_low in ["➕ додати котушку", "додати котушку", "➕ додати", "додати", "➕ add spool", "add spool"]:
+        from bot.handlers.filament.add import handle_add_spool_start
+        await handle_add_spool_start(message, app, state)
+    elif text_low in [
+        "📦 склад", "склад", "📦 warehouse", "warehouse", "📦 склад котушок", "склад котушок",
+        "🧵 філамент & ams", "філамент & ams", "🧵 філамент", "філамент", "🧵 filament", "filament"
+    ]:
+        from bot.handlers.filament.view import handle_filament_menu
+        await handle_filament_menu(message, app, state)
+    elif text_low in ["🖨️ принтери", "принтери", "🖨️ printers", "printers"]:
+        from bot.handlers.printers.view import handle_list_printers
+        await handle_list_printers(message, app, state)
+    elif text_low in ["📊 стан ферми", "стан ферми", "📊 farm status", "farm status", "ферма"]:
+        from bot.handlers.dashboard import handle_dashboard
+        await handle_dashboard(message, app, state)
+    elif text_low in ["🧩 склад деталей", "склад деталей", "🧩 parts stock", "parts stock"]:
+        await open_parts_list(message, state, app, lang)
+    elif text_low in ["/start"]:
+        from bot.handlers.start import cmd_start
+        await cmd_start(message, app, state)
+    else:
+        is_admin = await app.is_user_admin(str(message.from_user.id)) if (app and message.from_user) else False
+        await message.answer(
+            "🤖 *Головне меню 3D Ферми*\nОбирай розділ або відкривай WebApp! 🚀" if lang != "en" else "🤖 *3D Farm Main Menu*\nSelect a section or open WebApp! 🚀",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard(is_admin, lang),
+        )
 
 
 @router.message(PartCreatingStates.name, F.text.lower().in_(MAIN_MENU_TEXTS))
