@@ -6,16 +6,16 @@
     <title>3D Farm WebApp — Bambu Lab Manager</title>
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- Google Fonts -->
+    <!-- Preconnect CDNs -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- html2pdf.js for PDF export -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=1024">
+    <link rel="stylesheet" href="/static/css/style.css?v=1025">
 </head>
 <body>
     <div id="app" class="app-container">
@@ -1226,9 +1226,9 @@
         </div>
     </div>
 
-    <!-- html2pdf Library for PDF exports -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- html2pdf Library for PDF exports (deferred background load) -->
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1060"></script>
+    <script src="/static/js/app.js?v=1065"></script>
 </body>
 </html>

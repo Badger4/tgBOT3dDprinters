@@ -444,6 +444,15 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const initDataParam = tg?.initData ? "?initData=" + encodeURIComponent(tg.initData) : "";
             const evtSource = new EventSource("/api/events" + initDataParam);
+
+            evtSource.onopen = function() {
+                // When SSE stream is healthy, slow down backup polling from 4s to 15s to save bandwidth & CPU
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                    pollInterval = setInterval(fetchPrinters, 15000);
+                }
+            };
+
             evtSource.onmessage = function(event) {
                 try {
                     const data = JSON.parse(event.data);
@@ -455,15 +464,21 @@ document.addEventListener("DOMContentLoaded", () => {
                             if (currentP) updatePrinterModalContent(currentP);
                         }
                         if (data.some(p => String(p.state || "").toUpperCase() === "FINISH")) {
-                            loadHistory();
+                            if (document.getElementById("tab-history")?.classList.contains("active")) {
+                                loadHistory();
+                            }
                         }
                     }
                 } catch (e) {
                     console.error("SSE parse error:", e);
                 }
             };
+
             evtSource.onerror = function() {
                 evtSource.close();
+                // Resume active 4s polling on SSE disconnect
+                if (pollInterval) clearInterval(pollInterval);
+                pollInterval = setInterval(fetchPrinters, 4000);
             };
         } catch (e) {
             console.error("SSE initialization failed:", e);
@@ -472,7 +487,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function fetchPrinters() {
         try {
-            const res = await fetch("/api/printers");
+            const needSpools = !window.latestSpools;
+            const [res, sRes] = await Promise.all([
+                fetch("/api/printers"),
+                needSpools ? fetch("/api/spools").catch(() => null) : Promise.resolve(null)
+            ]);
+
             if (res.status === 401 || res.status === 403) {
                 renderAccessDenied();
                 return;
@@ -480,10 +500,9 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!res.ok) throw new Error("Failed fetching printers");
             printersData = await res.json();
 
-            if (!window.latestSpools) {
+            if (sRes && sRes.ok) {
                 try {
-                    const sRes = await fetch("/api/spools");
-                    if (sRes.ok) window.latestSpools = await sRes.json();
+                    window.latestSpools = await sRes.json();
                 } catch (e) {}
             }
 
@@ -4060,9 +4079,8 @@ document.addEventListener("DOMContentLoaded", () => {
         fetchPrinters();
     });
 
-    // Initial Load & Fail-Safe Polling Loop (Runs always every 3s)
+    // Initial Load: fetch printers immediately; history loads on-demand on History tab
     fetchPrinters();
-    loadHistory();
-    pollInterval = setInterval(fetchPrinters, 3000);
+    pollInterval = setInterval(fetchPrinters, 4000);
     initSSEStream();
 });

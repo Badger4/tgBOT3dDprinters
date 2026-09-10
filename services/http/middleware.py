@@ -32,9 +32,6 @@ STATIC_SECURITY_HEADERS = {
     "Access-Control-Allow-Methods": "GET, POST, DELETE, PUT, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-API-Key, Bypass-Tunnel-Reminder, Authorization",
     "Access-Control-Max-Age": "86400",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    "Pragma": "no-cache",
-    "Expires": "0",
     "X-Content-Type-Options": "nosniff",
     "X-XSS-Protection": "1; mode=block",
     "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -59,6 +56,17 @@ def _apply_cors_and_security_headers(request: web.Request, response: web.StreamR
         response.headers["Access-Control-Allow-Origin"] = "null"
 
     response.headers.update(STATIC_SECURITY_HEADERS)
+
+    # Smart Caching: Static assets (versioned) are cached; dynamic API/HTML are fresh
+    path = request.path
+    if path.startswith("/static/") or path.startswith("/uploads/"):
+        response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+        response.headers.pop("Pragma", None)
+        response.headers.pop("Expires", None)
+    else:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
 
 
 @web.middleware
@@ -121,4 +129,11 @@ async def security_and_ratelimit_middleware(request: web.Request, handler: Any) 
     _apply_cors_and_security_headers(request, response)
     response.headers["X-RateLimit-Limit"] = str(limit)
     response.headers["X-RateLimit-Remaining"] = str(max(0, remaining - 1))
+
+    if not response.prepared:
+        try:
+            response.enable_compression()
+        except Exception:
+            pass
+
     return response
