@@ -85,7 +85,16 @@ async def handle_file_upload(request: web.Request) -> web.Response:
         printers_info = []
         for p_id, p in app_obj.printers.items():
             active_fil = get_printer_active_filament(p, spools_map)
-            comp = check_compatibility(meta["printer_model"], meta["filament_type"], p.name, active_fil)
+            comp = check_compatibility(
+                meta["printer_model"],
+                meta["filament_type"],
+                p.name,
+                active_fil,
+                printer=p,
+                tray_info_idx=meta.get("tray_info_idx", ""),
+                color=meta.get("filament_color", ""),
+                filament_name=meta.get("filament_name", ""),
+            )
             printers_info.append(
                 {
                     "id": p.id,
@@ -94,6 +103,8 @@ async def handle_file_upload(request: web.Request) -> web.Response:
                     "compatible": comp["compatible"],
                     "reason_type": comp.get("reason_type", "OK"),
                     "reason": comp.get("reason", ""),
+                    "matched_ams_slot": comp.get("matched_ams_slot"),
+                    "candidate_ams_slots": comp.get("candidate_ams_slots", []),
                 }
             )
 
@@ -203,13 +214,18 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
             filament_type=meta.get("filament_type", ""),
             target_printer_name=p.name,
             target_filament=active_fil,
+            printer=p,
+            tray_info_idx=meta.get("tray_info_idx", ""),
+            color=meta.get("filament_color", ""),
+            filament_name=meta.get("filament_name", ""),
         )
         if not comp.get("compatible"):
             reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
             logger.warning(f"⛔ Blocked incompatible uploaded file print on '{p.name}': {reason}")
             return web.json_response({"error": f"🛑 Друк заблоковано: {reason}"}, status=400)
 
-        ok, msg = await p.start_print_job_async(file_bytes, filename, plate_name=plate_name)
+        chosen_slot = data.get("ams_slot") or comp.get("matched_ams_slot")
+        ok, msg = await p.start_print_job_async(file_bytes, filename, plate_name=plate_name, ams_slot=chosen_slot)
         if ok:
             p._is_printing = True
             p._was_running = True

@@ -185,6 +185,10 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
         "filename": filename,
         "printer_model": "Unknown",
         "filament_type": "PLA",
+        "tray_info_idx": "",
+        "filament_color": "",
+        "filament_name": "",
+        "filaments": [],
         "weight_g": 0.0,
         "time_mins": 0,
         "plate_name": "plate_1.gcode",
@@ -242,6 +246,26 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                                     obj_name_str = str(obj_name).strip() if obj_name else f"Об'єкт {obj_id_str}"
                                     if not any(str(o["id"]) == obj_id_str for o in objects_list):
                                         objects_list.append({"id": obj_id_str, "name": obj_name_str})
+                            elif tag_name == "filament":
+                                f_type = str(elem.get("type") or "").strip()
+                                f_tray = str(elem.get("tray_info_idx") or "").strip()
+                                f_color = str(elem.get("color") or "").strip()
+                                f_name = str(elem.get("name") or elem.get("filament_name") or "").strip()
+                                if f_type and result["filament_type"] == "PLA":
+                                    result["filament_type"] = f_type
+                                if f_tray and not result["tray_info_idx"]:
+                                    result["tray_info_idx"] = f_tray
+                                if f_color and not result["filament_color"]:
+                                    result["filament_color"] = f_color
+                                if f_name and not result["filament_name"]:
+                                    result["filament_name"] = f_name
+                                result["filaments"].append({
+                                    "id": str(elem.get("id") or ""),
+                                    "type": f_type,
+                                    "tray_info_idx": f_tray,
+                                    "color": f_color,
+                                    "name": f_name,
+                                })
                     except Exception:
                         pass
 
@@ -370,6 +394,15 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                                 and p_json["filament_type"]
                             ):
                                 result["filament_type"] = str(p_json["filament_type"][0])
+                            if "filament_ids" in p_json and isinstance(p_json["filament_ids"], list) and p_json["filament_ids"]:
+                                if not result["tray_info_idx"]:
+                                    result["tray_info_idx"] = str(p_json["filament_ids"][0]).strip()
+                            if "filament_colour" in p_json and isinstance(p_json["filament_colour"], list) and p_json["filament_colour"]:
+                                if not result["filament_color"]:
+                                    result["filament_color"] = str(p_json["filament_colour"][0]).strip()
+                            if "filament_settings_id" in p_json and isinstance(p_json["filament_settings_id"], list) and p_json["filament_settings_id"]:
+                                if not result["filament_name"]:
+                                    result["filament_name"] = str(p_json["filament_settings_id"][0]).strip()
                     except Exception:
                         pass
 
@@ -730,6 +763,9 @@ def check_compatibility(
     target_printer_name: str,
     target_filament: str = "",
     printer: Any = None,
+    tray_info_idx: str = "",
+    color: str = "",
+    filament_name: str = "",
 ) -> dict[str, Any]:
     """
     Checks G-code / model & filament compatibility between sliced 3MF metadata and target printer.
@@ -757,8 +793,23 @@ def check_compatibility(
     # If printer has AMS, check if ANY loaded AMS slot matches the sliced filament
     if printer is not None and getattr(printer, "has_ams", False):
         matched_slot = None
-        if hasattr(printer, "find_matching_ams_slot") and callable(getattr(printer, "find_matching_ams_slot")):
-            matched_slot = printer.find_matching_ams_slot(filament_type)
+        candidate_slots = []
+        if hasattr(printer, "get_matching_ams_slots") and callable(getattr(printer, "get_matching_ams_slots")):
+            candidate_slots = printer.get_matching_ams_slots(
+                filament_type=filament_type,
+                tray_info_idx=tray_info_idx,
+                color=color,
+                filament_name=filament_name,
+            )
+            if candidate_slots:
+                matched_slot = candidate_slots[0]["slot_idx"]
+        elif hasattr(printer, "find_matching_ams_slot") and callable(getattr(printer, "find_matching_ams_slot")):
+            matched_slot = printer.find_matching_ams_slot(
+                filament_type,
+                tray_info_idx=tray_info_idx,
+                color=color,
+                filament_name=filament_name,
+            )
         elif hasattr(printer, "ams_trays_info") and isinstance(printer.ams_trays_info, dict):
             for s_idx in range(4):
                 t_info = printer.ams_trays_info.get(str(s_idx))
@@ -779,6 +830,7 @@ def check_compatibility(
                 "sliced_filament": filament_type,
                 "target_filament": f"AMS Слот {phys_num} ({filament_type})",
                 "matched_ams_slot": phys_num,
+                "candidate_ams_slots": candidate_slots,
             }
         else:
             summary = printer.get_loaded_ams_summary() if hasattr(printer, "get_loaded_ams_summary") else ""

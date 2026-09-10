@@ -302,6 +302,52 @@ class TestAMSAutoDetectionAndMapping(unittest.TestCase):
         self.printer._on_message(None, None, msg)
         self.assertFalse(self.printer.has_ams)
 
+    def test_smart_matching_distinguishes_multiple_petg_slots_by_tray_info_idx_and_color(self):
+        """Tests that when Slot 3 (GFG99, Generic) and Slot 4 (GFG00, Bambu) are both PETG, Slot 4 is chosen."""
+        self.printer._has_ams_telemetry = True
+        self.printer.ams_trays_info = {
+            "0": {"id": "0", "type": "", "empty": True},
+            "1": {"id": "1", "type": "ABS", "tray_info_idx": "GFB00", "empty": False, "color": "#161616"},
+            "2": {"id": "2", "type": "PETG", "tray_info_idx": "GFG99", "empty": False, "color": "#161616"},
+            "3": {"id": "3", "type": "PETG", "tray_info_idx": "GFG00", "empty": False, "color": "#9B9EA0"},
+        }
+
+        # Request PETG with GFG00 and #9B9EA0
+        matches = self.printer.get_matching_ams_slots(
+            filament_type="PETG",
+            tray_info_idx="GFG00",
+            color="#9B9EA0",
+            filament_name="Bambu PETG Basic",
+        )
+        self.assertEqual(len(matches), 2)
+        # Best match must be Slot 4 (index 3)
+        self.assertEqual(matches[0]["slot_idx"], 3)
+        self.assertEqual(matches[0]["slot_num"], 4)
+        self.assertGreater(matches[0]["score"], matches[1]["score"])
+
+        # find_matching_ams_slot must also return index 3 (Slot 4)
+        matched_idx = self.printer.find_matching_ams_slot(
+            filament_type="PETG",
+            tray_info_idx="GFG00",
+            color="#9B9EA0",
+            filament_name="Bambu PETG Basic",
+        )
+        self.assertEqual(matched_idx, 3)
+
+    def test_build_ams_mapping_ukrainian_slot_strings(self):
+        """Tests build_ams_mapping handles Ukrainian strings like 'Слот 4', 'СЛОТ 4 (PETG)'."""
+        mapping, use_ams = build_ams_mapping("Слот 4", has_ams=True, use_ams=True)
+        self.assertTrue(use_ams)
+        self.assertEqual(mapping, [3, -1, -1, -1])
+
+        mapping, use_ams = build_ams_mapping("СЛОТ 3 (PETG)", has_ams=True, use_ams=True)
+        self.assertTrue(use_ams)
+        self.assertEqual(mapping, [2, -1, -1, -1])
+
+        mapping, use_ams = build_ams_mapping(4, has_ams=True, use_ams=True)
+        self.assertTrue(use_ams)
+        self.assertEqual(mapping, [3, -1, -1, -1])
+
 
 if __name__ == "__main__":
     unittest.main()

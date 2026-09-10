@@ -59,28 +59,31 @@ def build_ams_mapping(active_slot: int | str | None, has_ams: bool = True, use_a
     if str_slot in ["254", "255", "VT", "EXTERNAL", "NONE", ""]:
         return [], False
 
-    # Check for slot designations like A1, A2, A3, A4
-    if str_slot in ["A1", "SLOT 1", "SLOT1"]:
+    # Check for slot designations like A1-A4, Slot 1-4, Слот 1-4
+    if any(k in str_slot for k in ["A1", "SLOT 1", "SLOT1", "СЛОТ 1", "СЛОТ1"]):
         slot_idx = 0
-    elif str_slot in ["A2", "SLOT 2", "SLOT2"]:
+    elif any(k in str_slot for k in ["A2", "SLOT 2", "SLOT2", "СЛОТ 2", "СЛОТ2"]):
         slot_idx = 1
-    elif str_slot in ["A3", "SLOT 3", "SLOT3"]:
+    elif any(k in str_slot for k in ["A3", "SLOT 3", "SLOT3", "СЛОТ 3", "СЛОТ3"]):
         slot_idx = 2
-    elif str_slot in ["A4", "SLOT 4", "SLOT4"]:
+    elif any(k in str_slot for k in ["A4", "SLOT 4", "SLOT4", "СЛОТ 4", "СЛОТ4"]):
         slot_idx = 3
     else:
-        try:
-            slot_num = int(str_slot)
-            if 1 <= slot_num <= 4:
-                # 1-indexed physical slot number 1-4 -> 0-indexed 0-3
-                slot_idx = slot_num - 1
-            elif slot_num == 0:
-                # 0-indexed slot 0 (Slot 1)
-                slot_idx = 0
-            else:
+        import re
+        m_digit = re.search(r"\b([1-4])\b", str_slot)
+        if m_digit:
+            slot_idx = int(m_digit.group(1)) - 1
+        else:
+            try:
+                slot_num = int(str_slot)
+                if 1 <= slot_num <= 4:
+                    slot_idx = slot_num - 1
+                elif slot_num == 0:
+                    slot_idx = 0
+                else:
+                    return [], False
+            except (ValueError, TypeError):
                 return [], False
-        except (ValueError, TypeError):
-            return [], False
 
     if not (0 <= slot_idx <= 3):
         return [], False
@@ -271,49 +274,116 @@ class BambuPrinter:
 
         return False
 
-    def find_matching_ams_slot(self, filament_type: str) -> int | None:
+    def get_matching_ams_slots(
+        self,
+        filament_type: str,
+        tray_info_idx: str = "",
+        color: str = "",
+        filament_name: str = "",
+    ) -> list[dict[str, Any]]:
         """
-        Looks up which physical AMS slot (0-3) contains the filament type matching filament_type.
-        Returns 0-indexed slot number (0 for Slot 1, 3 for Slot 4), or None if not found.
+        Returns all AMS slots (0-3) that match the requested filament type,
+        sorted by relevance score (descending).
         """
         if not filament_type or not self.has_ams:
-            return None
+            return []
 
         from services.gcode_parser import normalize_filament_name
 
         req_norm = normalize_filament_name(filament_type)
+        req_upper = req_norm.upper() if req_norm else str(filament_type).strip().upper()
+        req_tray_idx = str(tray_info_idx or "").strip().upper()
+        req_color = str(color or "").strip().lstrip("#").upper()
+        if len(req_color) == 6:
+            req_color += "FF"
 
-        # 1. Exact or normalized type match across AMS slots 0..3
+        candidates = []
         for slot_idx in range(4):
             slot_k = str(slot_idx)
-            if self.get_slot_grams(slot_k) <= 0:
-                continue
             tray = self.ams_trays_info.get(slot_k)
             if not tray or tray.get("empty", False):
                 continue
             tray_type = str(tray.get("type") or tray.get("tray_type") or "").strip()
             if not tray_type or tray_type.lower() == "empty":
                 continue
+
             norm_tray = normalize_filament_name(tray_type)
+            tray_upper = norm_tray.upper() if norm_tray else tray_type.upper()
+
+            is_match = False
+            score = 0
+
             if norm_tray and norm_tray == req_norm:
-                return slot_idx
+                is_match = True
+                score += 100
+            elif req_upper and (req_upper in tray_upper or tray_upper in req_upper):
+                is_match = True
+                score += 60
 
-        # 2. Substring match fallback (e.g. PLA in PLA-CF, or PETG in PETG-HF)
-        req_upper = req_norm.upper() if req_norm else str(filament_type).strip().upper()
-        if req_upper:
-            for slot_idx in range(4):
-                slot_k = str(slot_idx)
-                if self.get_slot_grams(slot_k) <= 0:
-                    continue
-                tray = self.ams_trays_info.get(slot_k)
-                if not tray or tray.get("empty", False):
-                    continue
-                tray_type = str(tray.get("type") or tray.get("tray_type") or "").strip().upper()
-                if not tray_type or tray_type == "EMPTY":
-                    continue
-                if req_upper in tray_type or tray_type in req_upper:
-                    return slot_idx
+            if not is_match:
+                continue
 
+            slot_tray_idx = str(tray.get("tray_info_idx") or "").strip().upper()
+            if req_tray_idx and slot_tray_idx:
+                if req_tray_idx == slot_tray_idx:
+                    score += 500
+                elif req_tray_idx[:3] == slot_tray_idx[:3]:
+                    score += 50
+
+            slot_color_raw = str(tray.get("tray_color") or tray.get("color") or "").strip().lstrip("#").upper()
+            if len(slot_color_raw) == 6:
+                slot_color_raw += "FF"
+            if req_color and slot_color_raw and len(req_color) >= 6 and len(slot_color_raw) >= 6:
+                try:
+                    r1, g1, b1 = int(req_color[:2], 16), int(req_color[2:4], 16), int(req_color[4:6], 16)
+                    r2, g2, b2 = int(slot_color_raw[:2], 16), int(slot_color_raw[2:4], 16), int(slot_color_raw[4:6], 16)
+                    dist = ((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) ** 0.5
+                    if dist < 20:
+                        score += 300
+                    elif dist < 80:
+                        score += 150
+                    else:
+                        score += max(0, int(100 - dist / 4))
+                except Exception:
+                    pass
+
+            slot_sub = str(tray.get("sub_brands") or tray.get("tray_id_name") or "").strip().upper()
+            req_name_up = str(filament_name or "").strip().upper()
+            if req_name_up and slot_sub and (slot_sub in req_name_up or req_name_up in slot_sub):
+                score += 100
+
+            candidates.append({
+                "slot_idx": slot_idx,
+                "slot_num": slot_idx + 1,
+                "type": tray_type,
+                "tray_info_idx": slot_tray_idx,
+                "sub_brands": tray.get("sub_brands", ""),
+                "color": tray.get("color", ""),
+                "score": score,
+            })
+
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        return candidates
+
+    def find_matching_ams_slot(
+        self,
+        filament_type: str,
+        tray_info_idx: str = "",
+        color: str = "",
+        filament_name: str = "",
+    ) -> int | None:
+        """
+        Looks up which physical AMS slot (0-3) best matches the requested filament.
+        Returns 0-indexed slot number (0 for Slot 1, 3 for Slot 4), or None if not found.
+        """
+        matches = self.get_matching_ams_slots(
+            filament_type=filament_type,
+            tray_info_idx=tray_info_idx,
+            color=color,
+            filament_name=filament_name,
+        )
+        if matches:
+            return matches[0]["slot_idx"]
         return None
 
     def get_loaded_ams_summary(self) -> str:
@@ -1303,11 +1373,16 @@ class BambuPrinter:
         # Automatic AMS slot detection if not explicitly passed
         if target_slot is None:
             if has_ams_hardware and use_ams:
-                matched_idx = self.find_matching_ams_slot(req_fil)
+                matched_idx = self.find_matching_ams_slot(
+                    req_fil,
+                    tray_info_idx=m_info.get("tray_info_idx", ""),
+                    color=m_info.get("filament_color", ""),
+                    filament_name=m_info.get("filament_name", ""),
+                )
                 if matched_idx is not None:
                     target_slot = matched_idx + 1  # 1-indexed physical slot (1-4)
                     logger.info(
-                        f"🎯 [AMS Auto-Select] Matched 3MF filament '{req_fil}' to physical Slot {target_slot} on [{self.name}]"
+                        f"🎯 [AMS Auto-Select] Matched 3MF filament '{req_fil}' (tray_info_idx: {m_info.get('tray_info_idx', '')}, color: {m_info.get('filament_color', '')}) to physical Slot {target_slot} on [{self.name}]"
                     )
                 else:
                     ams_summary = self.get_loaded_ams_summary()

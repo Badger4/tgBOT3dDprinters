@@ -84,6 +84,9 @@ async def handle_document_upload(message: Message, app):
             "plate_name": meta.get("plate_name", "plate_1.gcode"),
             "printer_model": meta["printer_model"],
             "filament_type": meta["filament_type"],
+            "tray_info_idx": meta.get("tray_info_idx", ""),
+            "filament_color": meta.get("filament_color", ""),
+            "filament_name": meta.get("filament_name", ""),
             "weight_g": meta["weight_g"],
             "time_mins": meta["time_mins"],
             "objects": meta.get("objects", []),
@@ -105,7 +108,16 @@ async def handle_document_upload(message: Message, app):
         kb_buttons = []
         for p_id, p in app.printers.items():
             active_fil = get_printer_active_filament(p, spools_map)
-            c_info = check_compatibility(meta["printer_model"], meta["filament_type"], p.name, active_fil, printer=p)
+            c_info = check_compatibility(
+                meta["printer_model"],
+                meta["filament_type"],
+                p.name,
+                active_fil,
+                printer=p,
+                tray_info_idx=meta.get("tray_info_idx", ""),
+                color=meta.get("filament_color", ""),
+                filament_name=meta.get("filament_name", ""),
+            )
             if c_info["compatible"]:
                 if c_info.get("matched_ams_slot"):
                     status_str = f"✅ Сумісний (AMS Слот {c_info['matched_ams_slot']})"
@@ -303,7 +315,16 @@ async def handle_select_printer_for_file(message: Message, app):
     fil_type = pending_file.get("filament_type", "PLA")
     spools_map = await app.storage.load_spools()
     active_fil = get_printer_active_filament(target_p, spools_map)
-    c_info = check_compatibility(sliced_model, fil_type, target_p.name, active_fil, printer=target_p)
+    c_info = check_compatibility(
+        sliced_model,
+        fil_type,
+        target_p.name,
+        active_fil,
+        printer=target_p,
+        tray_info_idx=pending_file.get("tray_info_idx", ""),
+        color=pending_file.get("filament_color", ""),
+        filament_name=pending_file.get("filament_name", ""),
+    )
     if not c_info["compatible"]:
         if c_info.get("reason_type") == "PRINTER":
             await message.answer(
@@ -340,20 +361,40 @@ async def handle_select_printer_for_file(message: Message, app):
         deficit = round(w_req - target_p.filament_grams, 1)
         warn_txt += f"\n⚠️ <b>УВАГА! Недостатньо нитки!</b> Залишок: {target_p.filament_grams}g (Дефіцит: -{deficit}g)\n"
 
+    matched_slot = c_info.get("matched_ams_slot")
+    candidate_slots = c_info.get("candidate_ams_slots", [])
+    if matched_slot:
+        user["context_data"]["selected_ams_slot"] = matched_slot
+
     user["context_data"]["start_target_pid"] = target_p.id
     user["state"] = "confirm_start_print_job"
     await app.storage.save_user(user)
 
-    confirm_kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=f"✅ Підтвердити старт на {target_p.name}")], [KeyboardButton(text="⬅️ Назад")]],
-        resize_keyboard=True,
-    )
+    confirm_kb_rows = [[KeyboardButton(text=f"✅ Підтвердити старт на {target_p.name}")]]
+    if getattr(target_p, "has_ams", False):
+        confirm_kb_rows.append([KeyboardButton(text="🎯 Змінити слот AMS"), KeyboardButton(text="⬅️ Назад")])
+    else:
+        confirm_kb_rows.append([KeyboardButton(text="⬅️ Назад")])
+    confirm_kb = ReplyKeyboardMarkup(keyboard=confirm_kb_rows, resize_keyboard=True)
 
     slot_info_str = ""
-    if c_info.get("matched_ams_slot"):
-        slot_info_str = f"🎯 <b>Подача пластику:</b> AMS Слот {c_info['matched_ams_slot']} (<code>{html.escape(fil_type)}</code>)\n"
-    elif getattr(target_p, "has_ams", False):
-        slot_info_str = f"🎯 <b>Подача пластику:</b> AMS (Авто-пошук слоту)\n"
+    if getattr(target_p, "has_ams", False):
+        cur_slot = user["context_data"].get("selected_ams_slot") or matched_slot
+        if cur_slot:
+            slot_info_str = f"🎯 <b>Подача пластику:</b> AMS Слот {cur_slot} (<code>{html.escape(fil_type)}</code>)\n"
+        else:
+            slot_info_str = f"🎯 <b>Подача пластику:</b> AMS (Авто-пошук слоту)\n"
+
+        if candidate_slots and len(candidate_slots) > 1:
+            slot_info_str += "\n📋 <b>Знайдено декілька слотів AMS з цим пластиком:</b>\n"
+            for cs in candidate_slots:
+                s_num = cs["slot_num"]
+                s_col = cs.get("color", "")
+                s_sub = cs.get("sub_brands") or cs.get("tray_info_idx", "")
+                is_sel = (s_num == cur_slot)
+                tag = " ⭐ <b>[Обрано]</b>" if is_sel else ""
+                slot_info_str += f"• <b>Слот {s_num}:</b> {cs['type']} {s_sub} ({s_col}){tag}\n"
+            slot_info_str += "<i>(Ви можете змінити слот кнопкою «🎯 Змінити слот AMS» нижче)</i>\n"
     else:
         slot_info_str = f"🧵 <b>Подача пластику:</b> Spool Holder (зовнішній тримач)\n"
 
@@ -366,6 +407,129 @@ async def handle_select_printer_for_file(message: Message, app):
         f"💰 <b>Розрахункова собівартість:</b> <code>{cost_info['total_cost']} грн</code>\n"
         f"{warn_txt}\n"
         f"Натисніть кнопку нижче для запуску:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=confirm_kb,
+    )
+
+
+@router.message(F.text == "🎯 Змінити слот AMS")
+async def handle_change_ams_slot_prompt(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    ctx_data = user.get("context_data", {})
+    target_pid = ctx_data.get("start_target_pid")
+    target_p = app.printers.get(target_pid) if target_pid else None
+    pending_file = ctx_data.get("pending_file", {})
+
+    if not target_p or not getattr(target_p, "has_ams", False):
+        await message.answer("⚠️ Цей принтер не підтримує AMS або принтер не обрано.")
+        return
+
+    cur_slot = ctx_data.get("selected_ams_slot", 1)
+    slot_btns = []
+    lines = []
+    for s_idx in range(4):
+        s_num = s_idx + 1
+        t_info = target_p.ams_trays_info.get(str(s_idx), {})
+        t_type = t_info.get("type") or "Порожній"
+        t_col = t_info.get("color") or ""
+        t_sub = t_info.get("sub_brands") or t_info.get("tray_info_idx") or ""
+        is_cur = (s_num == cur_slot)
+        mark = " ⭐ [Поточний вибір]" if is_cur else ""
+        lines.append(f"• <b>Слот {s_num}:</b> {t_type} {t_sub} {t_col}{mark}".strip())
+        slot_btns.append(KeyboardButton(text=f"🎯 Обрати Слот {s_num}"))
+
+    user["state"] = "selecting_ams_slot"
+    await app.storage.save_user(user)
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [slot_btns[0], slot_btns[1]],
+            [slot_btns[2], slot_btns[3]],
+            [KeyboardButton(text="⬅️ Назад до підтвердження")],
+        ],
+        resize_keyboard=True,
+    )
+    await message.answer(
+        f"🎨 <b>Оберіть слот AMS для друку файлу</b> <code>{html.escape(pending_file.get('filename', '3mf'))}</code>:\n\n"
+        + "\n".join(lines)
+        + "\n\n<i>Натисніть на слот, з якого принтер повинен забирати нитку:</i>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb,
+    )
+
+
+@router.message(F.text.startswith("🎯 Обрати Слот "))
+async def handle_ams_slot_chosen(message: Message, app):
+    import re
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    ctx_data = user.get("context_data", {})
+    target_pid = ctx_data.get("start_target_pid")
+    target_p = app.printers.get(target_pid) if target_pid else None
+    pending_file = ctx_data.get("pending_file", {})
+
+    if not target_p:
+        await message.answer("⚠️ Принтер не обрано.")
+        return
+
+    m = re.search(r"\b([1-4])\b", message.text)
+    if m:
+        chosen_slot = int(m.group(1))
+        ctx_data["selected_ams_slot"] = chosen_slot
+    else:
+        chosen_slot = ctx_data.get("selected_ams_slot", 1)
+
+    user["state"] = "confirm_start_print_job"
+    await app.storage.save_user(user)
+
+    t_info = target_p.ams_trays_info.get(str(chosen_slot - 1), {})
+    t_type = t_info.get("type") or "Пластик"
+    t_col = t_info.get("color") or ""
+    t_sub = t_info.get("sub_brands") or t_info.get("tray_info_idx") or ""
+
+    confirm_kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=f"✅ Підтвердити старт на {target_p.name}")],
+            [KeyboardButton(text="🎯 Змінити слот AMS"), KeyboardButton(text="⬅️ Назад")],
+        ],
+        resize_keyboard=True,
+    )
+
+    await message.answer(
+        f"✅ <b>Встановлено слот подачі:</b> <b>AMS Слот {chosen_slot}</b> ({t_type} {t_sub} {t_col})\n\n"
+        f"Тепер натисніть кнопку нижче для запуску друку:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=confirm_kb,
+    )
+
+
+@router.message(F.text == "⬅️ Назад до підтвердження")
+async def handle_back_to_confirm(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    ctx_data = user.get("context_data", {})
+    target_pid = ctx_data.get("start_target_pid")
+    target_p = app.printers.get(target_pid) if target_pid else None
+
+    if not target_p:
+        await message.answer("⚠️ Принтер не обрано.")
+        return
+
+    user["state"] = "confirm_start_print_job"
+    await app.storage.save_user(user)
+
+    confirm_kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=f"✅ Підтвердити старт на {target_p.name}")],
+            [KeyboardButton(text="🎯 Змінити слот AMS"), KeyboardButton(text="⬅️ Назад")],
+        ],
+        resize_keyboard=True,
+    )
+
+    cur_slot = ctx_data.get("selected_ams_slot", 1)
+    await message.answer(
+        f"Повертаємось до запуску друку на <b>{html.escape(target_p.name)}</b> (обрано AMS Слот {cur_slot}).",
         parse_mode=ParseMode.HTML,
         reply_markup=confirm_kb,
     )
@@ -410,7 +574,10 @@ async def handle_confirm_start_print_job(message: Message, app):
             parse_mode=ParseMode.HTML,
         )
 
-        success, print_msg = await target_p.start_print_job_async(file_bytes, fname, plate_name)
+        chosen_slot = ctx_data.get("selected_ams_slot")
+        success, print_msg = await target_p.start_print_job_async(
+            file_bytes, fname, plate_name=plate_name, ams_slot=chosen_slot
+        )
 
         if success:
             w_req = pending_file.get("weight_g", 0.0)

@@ -119,7 +119,16 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
     app_ref = getattr(callback.bot, "_app_ref", None) or app
     spools_map = await app_ref.storage.load_spools() if hasattr(app_ref, "storage") else None
     active_fil = get_printer_active_filament(printer, spools_map)
-    comp = check_compatibility(part.get("printer_model", ""), part.get("filament_type", ""), printer.name, active_fil, printer=printer)
+    comp = check_compatibility(
+        part.get("printer_model", ""),
+        part.get("filament_type", ""),
+        printer.name,
+        active_fil,
+        printer=printer,
+        tray_info_idx=part.get("tray_info_idx", ""),
+        color=part.get("color", ""),
+        filament_name=part.get("filament_name", ""),
+    )
     if not comp.get("compatible"):
         reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
         await callback.answer(f"🛑 ДРУК БЛОКОВАНО: {reason}", show_alert=True)
@@ -200,7 +209,9 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
         filename = part.get("three_mf_name") or f"{part.get('name', 'model')}.3mf"
         part_title = part.get("name") or filename
 
-        ok, msg = await printer.start_print_job_async(file_bytes, filename, part_name=part_title)
+        ok, msg = await printer.start_print_job_async(
+            file_bytes, filename, part_name=part_title, ams_slot=comp.get("matched_ams_slot")
+        )
         if ok:
             printer._is_printing = True
             printer._was_running = True
