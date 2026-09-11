@@ -246,12 +246,13 @@ async def handle_3mf_preset_choice(message: Message, app):
     if text == "📊 Розрахувати для всіх пресетів":
         for p in presets.values():
             res = calculate_commercial_price(p, w_g, t_mins)
+            w_val = int(w_g) if w_g == int(w_g) else round(w_g, 1)
             inline_kb = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
                             text="📄 Завантажити розрахунок (PDF)",
-                            callback_data=f"comm_quote_pdf_{p['id']}_{int(w_g)}_{int(t_mins)}",
+                            callback_data=f"comm_quote_pdf_{p['id']}_{w_val}_{int(t_mins)}",
                         )
                     ]
                 ]
@@ -269,12 +270,13 @@ async def handle_3mf_preset_choice(message: Message, app):
             return True
 
         res = calculate_commercial_price(target, w_g, t_mins)
+        w_val = int(w_g) if w_g == int(w_g) else round(w_g, 1)
         inline_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
                         text="📄 Завантажити розрахунок (PDF)",
-                        callback_data=f"comm_quote_pdf_{target['id']}_{int(w_g)}_{int(t_mins)}",
+                        callback_data=f"comm_quote_pdf_{target['id']}_{w_val}_{int(t_mins)}",
                     )
                 ]
             ]

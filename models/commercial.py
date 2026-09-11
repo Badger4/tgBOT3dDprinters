@@ -63,6 +63,7 @@ def calculate_commercial_price(preset: dict[str, Any], weight_g: float, time_min
         "preset_name": preset.get("name", "Стандарт"),
         "weight_g": weight_g,
         "time_mins": time_mins,
+        "time_hours": round(hours, 2),
         "filament_cost": filament_cost,
         "electricity_cost": electricity_cost,
         "direct_cost": direct_cost,

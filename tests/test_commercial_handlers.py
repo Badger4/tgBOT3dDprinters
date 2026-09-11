@@ -33,15 +33,17 @@ class TestCommercialHandlers(unittest.TestCase):
         await self.router.propagate_event("message", msg, app=self.app, bot=self.app.bot)
         return mock_answer
 
-    async def _send_cb(self, data: str) -> AsyncMock:
+    async def _send_cb(self, data: str) -> Message:
         msg = Message(message_id=99, date=datetime.now(), chat=self.chat, from_user=self.user_obj, text="")
         mock_reply = AsyncMock()
+        mock_answer_doc = AsyncMock()
         object.__setattr__(msg, "reply", mock_reply)
+        object.__setattr__(msg, "answer_document", mock_answer_doc)
         cb = CallbackQuery(id="cb1", from_user=self.user_obj, chat_instance="1", message=msg, data=data)
         mock_cb_answer = AsyncMock()
         object.__setattr__(cb, "answer", mock_cb_answer)
         await self.router.propagate_event("callback_query", cb, app=self.app, bot=self.app.bot)
-        return mock_reply
+        return msg
 
     def test_commercial_menu_and_wizard_flow(self):
         async def run_test():
@@ -141,8 +143,8 @@ class TestCommercialHandlers(unittest.TestCase):
             self.assertEqual(user["state"], "edit_preset_field_choice")
 
             # Click edit name callback
-            cb_ans = await self._send_cb("edit_p_field_name_p_edit")
-            self.assertTrue(cb_ans.called)
+            cb_msg = await self._send_cb("edit_p_field_name_p_edit")
+            self.assertTrue(cb_msg.reply.called)
             user = await self.sm.load_user("123456")
             self.assertEqual(user["state"], "edit_preset_field_value")
 
@@ -153,6 +155,41 @@ class TestCommercialHandlers(unittest.TestCase):
 
             updated_presets = await self.sm.load_json(presets_path, {})
             self.assertEqual(updated_presets["p_edit"]["name"], "Brand New Name")
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_commercial_quote_pdf_callback(self):
+        async def run_test():
+            await self.sm.save_user(
+                {
+                    "user_id": "123456",
+                    "chat_id": "123456",
+                    "state": "idle",
+                    "context_data": {
+                        "pending_file": {"filename": "TestPart.3mf"}
+                    },
+                    "language": "uk",
+                }
+            )
+
+            # 1. Click download PDF callback with standard preset and integer values
+            cb_msg1 = await self._send_cb("comm_quote_pdf_default_pla_150_60")
+            self.assertTrue(cb_msg1.answer_document.called)
+            doc1 = cb_msg1.answer_document.call_args[0][0]
+            self.assertTrue(doc1.filename.startswith("commercial_quote_TestPart_"))
+            self.assertTrue(doc1.data.startswith(b"%PDF"))
+
+            # 2. Click download PDF with float weight and custom preset
+            cb_msg2 = await self._send_cb("comm_quote_pdf_default_petg_25.5_45")
+            self.assertTrue(cb_msg2.answer_document.called)
+            doc2 = cb_msg2.answer_document.call_args[0][0]
+            self.assertTrue(doc2.data.startswith(b"%PDF"))
+
+            # 3. Non-existent preset returns error gracefully without crashing
+            cb_msg3 = await self._send_cb("comm_quote_pdf_nonexistent_100_60")
+            self.assertFalse(cb_msg3.answer_document.called)
 
         import asyncio
 

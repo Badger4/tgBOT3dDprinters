@@ -3,6 +3,7 @@ Commercial Pricing Calculator and Preset Management Handlers.
 """
 
 import html
+import logging
 import uuid
 
 from aiogram import F, Router
@@ -19,6 +20,8 @@ from aiogram.types import (
 
 from config import STORAGE_DIR
 from models.commercial import calculate_commercial_price
+
+logger = logging.getLogger("PrinterBot.Commercial")
 
 PRESETS_PATH = STORAGE_DIR / "commercial_presets.json"
 
@@ -582,12 +585,13 @@ async def handle_commercial_wizard(message: Message, app):
             f"🏷️ <b>ПІДСУМКОВА ВАРТІСТЬ ДЛЯ КЛІЄНТА:</b> <code>{res['total_price']:.2f} грн</code>"
         )
         u_lang = user.get("language", "uk")
+        w_val = int(w) if w == int(w) else round(w, 1)
         inline_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
                         text="📄 Завантажити розрахунок (PDF)" if u_lang != "en" else "📄 Download Quote (PDF)",
-                        callback_data=f"comm_quote_pdf_{target['id']}_{int(w)}_{int(t_mins)}",
+                        callback_data=f"comm_quote_pdf_{target['id']}_{w_val}_{int(t_mins)}",
                     )
                 ]
             ]
@@ -672,28 +676,44 @@ async def handle_edit_preset_field_callback(callback: CallbackQuery, app):
 
 @router.callback_query(F.data.startswith("comm_quote_pdf_"))
 async def handle_commercial_quote_pdf_callback(callback: CallbackQuery, app):
-    parts = callback.data.split("_")
-    if len(parts) >= 6:
-        pid = "_".join(parts[3:-2])
+    try:
+        user = await app.storage.load_user(str(callback.from_user.id))
+        u_lang = user.get("language", "uk") if user else "uk"
+        is_en = u_lang == "en"
+
+        raw = callback.data[len("comm_quote_pdf_") :]
+        parts = raw.rsplit("_", 2)
+        if len(parts) != 3:
+            await callback.answer("⚠️ Некоректні дані запиту." if not is_en else "⚠️ Invalid request data.", show_alert=True)
+            return
+
+        pid, w_str, t_str = parts
         try:
-            w = float(parts[-2])
-            t_mins = int(parts[-1])
+            w = float(w_str)
+            t_mins = int(float(t_str))
         except ValueError:
             w = 100.0
             t_mins = 60
+
         presets = await get_user_presets(app)
-        target = presets.get(pid)
+        target = (
+            presets.get(pid)
+            or next((p for p in presets.values() if p.get("id") == pid), None)
+            or DEFAULT_PRESETS.get(pid)
+        )
         if not target:
-            await callback.answer("⚠️ Пресет не знайдено!", show_alert=True)
+            await callback.answer("⚠️ Пресет не знайдено!" if not is_en else "⚠️ Preset not found!", show_alert=True)
             return
-        user = await app.storage.load_user(str(callback.from_user.id))
-        u_lang = user.get("language", "uk")
-        pending_file = user.get("context_data", {}).get("pending_file", {})
+
+        await callback.answer("⏳ Генерація PDF..." if not is_en else "⏳ Generating PDF...")
+
+        pending_file = user.get("context_data", {}).get("pending_file", {}) if user else {}
         fname = pending_file.get("filename") if pending_file else None
 
         import time
         from services.report_generator import generate_commercial_calc_pdf
 
+        res = calculate_commercial_price(target, w, t_mins)
         pdf_bytes = generate_commercial_calc_pdf(res, filename=fname, lang=u_lang)
         now_f = time.strftime("%Y%m%d_%H%M%S")
         clean_fn = f"_{fname.rsplit('.', 1)[0]}" if fname else ""
@@ -702,8 +722,16 @@ async def handle_commercial_quote_pdf_callback(callback: CallbackQuery, app):
         file_label = f" ({html.escape(fname)})" if fname else ""
         cap = (
             f"💼 <b>Комерційний розрахунок для клієнта: {html.escape(target['name'])}{file_label}</b>"
-            if u_lang != "en"
+            if not is_en
             else f"💼 <b>Commercial Quotation: {html.escape(target['name'])}{file_label}</b>"
         )
-        await callback.message.answer_document(doc_file, caption=cap, parse_mode=ParseMode.HTML)
-        await callback.answer()
+        if callback.message:
+            await callback.message.answer_document(doc_file, caption=cap, parse_mode=ParseMode.HTML)
+        elif callback.bot:
+            await callback.bot.send_document(chat_id=callback.from_user.id, document=doc_file, caption=cap, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Error generating commercial quote PDF: {e}", exc_info=True)
+        try:
+            await callback.answer("⚠️ Помилка формування PDF розрахунку.", show_alert=True)
+        except Exception:
+            pass
