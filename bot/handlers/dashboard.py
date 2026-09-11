@@ -2,8 +2,11 @@
 Farm dashboard and printing history handlers.
 """
 
+from __future__ import annotations
+
 import html
 import time
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode

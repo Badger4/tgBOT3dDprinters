@@ -2,6 +2,7 @@
 Parts warehouse management REST API endpoints supporting reference bot fields.
 """
 
+import asyncio
 import time
 from aiohttp import web
 
@@ -25,12 +26,15 @@ async def handle_get_parts(request: web.Request) -> web.Response:
     modified = False
     for p_id, part in parts.items():
         three_mf = part.get("three_mf")
-        if three_mf and (not part.get("weight_g") or not part.get("time_mins") or part.get("printer_model") == "Unknown"):
+        if three_mf and not part.get("three_mf_parsed"):
+            part["three_mf_parsed"] = True
+            modified = True
             for dir_path in [config.STORAGE_DIR / "uploads", config.STORAGE_DIR / "parts_files"]:
                 sp = dir_path / three_mf
                 if sp.exists():
                     try:
-                        meta = parse_3mf_file(sp.read_bytes(), sp.name)
+                        content = await asyncio.to_thread(sp.read_bytes)
+                        meta = await asyncio.to_thread(parse_3mf_file, content, sp.name)
                         if meta.get("printer_model") and meta.get("printer_model") != "Unknown":
                             part["printer_model"] = meta["printer_model"]
                         if meta.get("filament_type"):
@@ -39,7 +43,6 @@ async def handle_get_parts(request: web.Request) -> web.Response:
                             part["weight_g"] = meta["weight_g"]
                         if meta.get("time_mins"):
                             part["time_mins"] = meta["time_mins"]
-                        modified = True
                     except Exception:
                         pass
                     break
@@ -84,7 +87,8 @@ async def handle_save_part(request: web.Request) -> web.Response:
             if not save_path.exists():
                 save_path = config.STORAGE_DIR / "parts_files" / new_three_mf
             if save_path.exists():
-                meta = parse_3mf_file(save_path.read_bytes(), save_path.name)
+                content = await asyncio.to_thread(save_path.read_bytes)
+                meta = await asyncio.to_thread(parse_3mf_file, content, save_path.name)
                 if meta.get("printer_model") and meta.get("printer_model") != "Unknown":
                     printer_model = meta["printer_model"]
                 if meta.get("filament_type"):
@@ -101,6 +105,7 @@ async def handle_save_part(request: web.Request) -> web.Response:
             "count": cnt,
             "quantity": cnt,
             "three_mf": new_three_mf,
+            "three_mf_parsed": True,
             "printer_model": printer_model,
             "filament_type": filament_type,
             "weight_g": weight_g,
@@ -206,6 +211,10 @@ async def handle_print_part(request: web.Request) -> web.Response:
         return web.json_response({"error": "Для цієї деталі немає збереженого .3mf файлу"}, status=400)
 
     try:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
         import config
         from pathlib import Path
         clean_name = three_mf_id.replace("\\", "/").split("/")[-1]
