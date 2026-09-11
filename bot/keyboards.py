@@ -515,5 +515,103 @@ def get_confirm_delete_spool_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+def get_history_inline_keyboard(
+    app,
+    printer_filter: str = "all",
+    date_filter: str = "all",
+    page: int = 1,
+    total_pages: int = 1,
+    lang: str = "uk",
+) -> InlineKeyboardMarkup:
+    is_en = lang == "en"
+    if printer_filter == "all":
+        p_label = "All printers" if is_en else "Усі принтери"
+    else:
+        target_p = app.printers.get(printer_filter) if hasattr(app, "printers") else None
+        p_label = target_p.name if target_p else printer_filter
+
+    if date_filter == "today":
+        d_label = "Today" if is_en else "Сьогодні"
+    elif date_filter == "7d":
+        d_label = "7 days" if is_en else "7 днів"
+    elif date_filter == "30d":
+        d_label = "30 days" if is_en else "30 днів"
+    else:
+        d_label = "All time" if is_en else "Увесь час"
+
+    p_btn_text = f"🖨️ {p_label[:14]}.. ▾" if len(p_label) > 16 else f"🖨️ {p_label} ▾"
+    d_btn_text = f"📅 {d_label} ▾"
+
+    keyboard = [
+        [
+            InlineKeyboardButton(text=p_btn_text, callback_data="hist_menu_p"),
+            InlineKeyboardButton(text=d_btn_text, callback_data="hist_menu_d"),
+        ]
+    ]
+
+    if total_pages > 1:
+        pag_row = []
+        if page > 1:
+            pag_row.append(InlineKeyboardButton(text="◀️", callback_data=f"hist_page:{page - 1}"))
+        else:
+            pag_row.append(InlineKeyboardButton(text="▪️", callback_data="hist_noop"))
+
+        pag_row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="hist_noop"))
+
+        if page < total_pages:
+            pag_row.append(InlineKeyboardButton(text="▶️", callback_data=f"hist_page:{page + 1}"))
+        else:
+            pag_row.append(InlineKeyboardButton(text="▪️", callback_data="hist_noop"))
+        keyboard.append(pag_row)
+
+    action_row = []
+    if printer_filter != "all" or date_filter != "all":
+        action_row.append(InlineKeyboardButton(text="🔄 Reset" if is_en else "🔄 Скинути", callback_data="hist_reset"))
+
+    action_row.append(InlineKeyboardButton(text="📥 PDF Report" if is_en else "📥 PDF звіт", callback_data="hist_export_pdf"))
+    keyboard.append(action_row)
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_history_printer_filter_keyboard(
+    app,
+    current_filter: str = "all",
+    lang: str = "uk",
+) -> InlineKeyboardMarkup:
+    is_en = lang == "en"
+    buttons = []
+    all_check = " ✅" if current_filter == "all" else ""
+    buttons.append([InlineKeyboardButton(text=f"🌐 {'All printers' if is_en else 'Усі принтери'}{all_check}", callback_data="hist_p:all")])
+
+    printers = list(app.printers.values()) if hasattr(app, "printers") and app.printers else []
+    for p in printers:
+        p_check = " ✅" if str(p.id) == str(current_filter) else ""
+        buttons.append([InlineKeyboardButton(text=f"🖨️ {p.name}{p_check}", callback_data=f"hist_p:{p.id}")])
+
+    buttons.append([InlineKeyboardButton(text="⬅️ " + ("Back to history" if is_en else "Назад до історії"), callback_data="hist_back")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_history_date_filter_keyboard(
+    current_filter: str = "all",
+    lang: str = "uk",
+) -> InlineKeyboardMarkup:
+    is_en = lang == "en"
+    periods = [
+        ("all", "🌐 " + ("All time" if is_en else "Увесь час")),
+        ("today", "📅 " + ("Today" if is_en else "Сьогодні")),
+        ("7d", "📅 " + ("Last 7 days" if is_en else "Останні 7 днів")),
+        ("30d", "📅 " + ("Last 30 days" if is_en else "Останні 30 днів")),
+    ]
+    buttons = []
+    for code, title in periods:
+        check = " ✅" if current_filter == code else ""
+        buttons.append([InlineKeyboardButton(text=f"{title}{check}", callback_data=f"hist_d:{code}")])
+
+    buttons.append([InlineKeyboardButton(text="⬅️ " + ("Back to history" if is_en else "Назад до історії"), callback_data="hist_back")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 
 
