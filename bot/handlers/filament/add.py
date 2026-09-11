@@ -617,8 +617,9 @@ async def handle_filament_states(message: Message, app) -> bool:
 
     if state == "select_spool_to_edit":
         spools = await app.storage.load_spools()
+        candidate_spools = [s for s in spools.values() if not s.get("assigned_printer_id")]
         selected = None
-        for s in spools.values():
+        for s in candidate_spools:
             s_name = s.get("name", "Spool")
             s_grams = s.get("remaining_grams", 1000.0)
             s_type = s.get("type", "")
@@ -628,7 +629,7 @@ async def handle_filament_states(message: Message, app) -> bool:
                 selected = s
                 break
         if not selected:
-            for s in spools.values():
+            for s in candidate_spools:
                 s_name = s.get("name", "")
                 if s_name and (s_name.lower() in text.lower() or text.lower() in s_name.lower() or s["id"] == text):
                     selected = s
@@ -888,8 +889,9 @@ async def handle_filament_states(message: Message, app) -> bool:
 
     if state == "select_spool_to_delete":
         spools = await app.storage.load_spools()
+        candidate_spools = [s for s in spools.values() if not s.get("assigned_printer_id")]
         selected = None
-        for s in spools.values():
+        for s in candidate_spools:
             s_name = s.get("name", "Spool")
             s_grams = s.get("remaining_grams", 1000.0)
             s_type = s.get("type", "")
@@ -899,7 +901,7 @@ async def handle_filament_states(message: Message, app) -> bool:
                 selected = s
                 break
         if not selected:
-            for s in spools.values():
+            for s in candidate_spools:
                 s_name = s.get("name", "")
                 if s_name and (s_name.lower() in text.lower() or text.lower() in s_name.lower() or s["id"] == text):
                     selected = s

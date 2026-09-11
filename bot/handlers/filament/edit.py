@@ -17,8 +17,13 @@ async def handle_edit_spool_start(message: Message, app):
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
     spools = await app.storage.load_spools()
-    if not spools:
-        await message.answer("⚠️ На Складі немає котушок для редагування." if u_lang != "en" else "⚠️ No spools available to edit.")
+    warehouse_spools = {s_id: s for s_id, s in spools.items() if not s.get("assigned_printer_id")}
+    if not warehouse_spools:
+        await message.answer(
+            "⚠️ На Складі немає вільних котушок для редагування (усі встановлені на принтери або склад порожній)."
+            if u_lang != "en"
+            else "⚠️ No free spools available to edit in warehouse (all mounted or stock is empty)."
+        )
         return
 
     user["state"] = "select_spool_to_edit"
@@ -26,7 +31,7 @@ async def handle_edit_spool_start(message: Message, app):
     await message.answer(
         "✏️ <b>Оберіть котушку для редагування:</b>" if u_lang != "en" else "✏️ <b>Select spool to edit:</b>",
         parse_mode=ParseMode.HTML,
-        reply_markup=get_spools_keyboard(spools, lang=u_lang),
+        reply_markup=get_spools_keyboard(warehouse_spools, lang=u_lang),
     )
 
 

@@ -496,10 +496,12 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         call_text = ans_view.call_args[0][0]
         self.assertIn("<b>2500.0g</b> (100%)", call_text)
 
-        # Edit spool remaining to 1250g (half used)
-        await self._send("✏️ Редагувати")
-        await self._send("Big Reel PLA Black")
-        await self._send("⚖️ Залишок (вага)")
+        # Edit spool remaining to 1250g (half used) via printer slot
+        u = await self.app.storage.load_user("999")
+        u["context_data"]["selected_printer_id"] = "p1"
+        await self.app.storage.save_user(u)
+        await self._send("✏️ Змінити вагу")
+        await self._send("📍 Слот A1 (Slot 1)")
         await self._send("1250")
 
         # Verify filament display now shows 50%

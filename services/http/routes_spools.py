@@ -90,6 +90,9 @@ async def handle_save_spool(request: web.Request) -> web.Response:
 
         initial_g = float(existing.get("initial_grams") or data.get("initial_grams") or new_weight)
 
+        assigned_p = data.get("assigned_printer_id", existing.get("assigned_printer_id"))
+        assigned_s = data.get("assigned_slot_key", existing.get("assigned_slot_key"))
+
         spools[spool_id] = {
             "id": spool_id,
             "name": spool_name,
@@ -100,6 +103,8 @@ async def handle_save_spool(request: web.Request) -> web.Response:
             "quantity": max(1, int(data.get("quantity", existing.get("quantity", 1)))),
             "price_per_kg": float(data.get("price_per_kg", existing.get("price_per_kg", 650.0))),
             "notes": data.get("notes", existing.get("notes", "")),
+            "assigned_printer_id": assigned_p,
+            "assigned_slot_key": assigned_s,
         }
         await app_obj.storage.save_spools(spools)
 

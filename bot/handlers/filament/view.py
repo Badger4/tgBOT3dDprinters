@@ -208,9 +208,10 @@ async def handle_filament_menu(message: Message, app, state: FSMContext | None =
 
     sp_stock_lbl = "📦 <b>Склад Котушок:</b>" if u_lang != "en" else "📦 <b>Spool Stock:</b>"
     unassigned_spools = [s for s in spool_list if not s.get("assigned_printer_id")]
+    stock_unit = "pcs." if u_lang == "en" else "шт."
     txt += (
         f"-----------------------------------\n"
-        f"{sp_stock_lbl} {len(unassigned_spools)} pcs.\n"
+        f"{sp_stock_lbl} {len(unassigned_spools)} {stock_unit}\n"
     )
 
     if unassigned_spools:
