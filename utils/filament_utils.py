@@ -2,7 +2,10 @@
 Utility functions for parsing filament type and AMS slot keys.
 """
 
+from __future__ import annotations
+
 import re
+from typing import Any
 
 KNOWN_FILAMENT_TYPES = [
     "ASA-AERO",
