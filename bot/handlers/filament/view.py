@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from bot.keyboards import get_filament_menu_keyboard, get_single_printer_filament_keyboard
+from utils.filament_utils import get_color_emoji, get_color_display_name
 
 router = Router()
 
@@ -221,8 +222,10 @@ async def handle_filament_menu(message: Message, app, state: FSMContext | None =
             s_t = html.escape(s.get("type", "PLA"))
             s_g = s.get("remaining_grams", 1000.0)
             s_pr = s.get("price_per_kg") or s.get("price_uah", 0.0)
+            c_ico = get_color_emoji(s.get("color_name") or s.get("color", ""))
+            c_pfx = f"{c_ico} " if c_ico else ""
             cur_str = "грн/кг" if u_lang != "en" else "UAH/kg"
-            txt += f"• <b>{s_n}</b> ({s_t}) — <b>{s_g}g</b> | {s_pr} {cur_str}\n"
+            txt += f"• {c_pfx}<b>{s_n}</b> ({s_t}) — <b>{s_g}g</b> | {s_pr} {cur_str}\n"
     else:
         txt += (
             "<i>На складі немає вільних котушок (усі встановлені на принтери або склад порожній).</i>\n"
@@ -387,9 +390,13 @@ async def handle_ams_slots(message: Message, app):
             active_mark = " ⚡" if t.get("is_active") else ""
             rem_str = f"{t_rem}%" if t_rem >= 0 else f"~{target_printer.filament_grams}g"
 
+            clean_c = str(t_color)[:6]
+            if not clean_c.startswith("#"):
+                clean_c = f"#{clean_c}"
+            c_name_disp = get_color_display_name(clean_c, lang=u_lang)
             ams_txt += (
                 f"<b>Слот {ams_letter}{slot_num}:</b> 🧵 <b>{html.escape(str(t_type))}</b> {html.escape(str(t_sub))}{active_mark}\n"
-                f"   🎨 Колір: <code>#{str(t_color)[:6]}</code> | 📊 Залишок: <b>{rem_str}</b>\n\n"
+                f"   🎨 Колір: <b>{c_name_disp}</b> | 📊 Залишок: <b>{rem_str}</b>\n\n"
             )
 
     await message.answer(ams_txt, parse_mode=ParseMode.HTML)

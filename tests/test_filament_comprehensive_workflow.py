@@ -395,7 +395,7 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("spool_2", spools)
 
     async def test_add_spool_flow_defensive_validation(self):
-        """Test adding spool with defensive validation on grams and price."""
+        """Test adding spool with defensive validation on color, grams, price and quantity."""
         await self._send("📦 Склад")
         ans_add = await self._send("➕ Додати")
         self.assertTrue(ans_add.called)
@@ -409,6 +409,11 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
 
         # Enter type
         await self._send("PETG")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_color")
+
+        # Enter color
+        await self._send("🔴 Червоний")
         u = await self.app.storage.load_user("999")
         self.assertEqual(u["state"], "add_spool_grams")
 
@@ -439,7 +444,19 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(u["state"], "add_spool_price")
 
         # Enter valid price
-        ans_ok = await self._send("780 грн")
+        await self._send("780 грн")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_quantity")
+
+        # Enter invalid quantity
+        ans_bad_qty = await self._send("багато")
+        self.assertTrue(ans_bad_qty.called)
+        self.assertIn("коректну кількість", ans_bad_qty.call_args[0][0].lower())
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_quantity")
+
+        # Enter valid quantity
+        ans_ok = await self._send("1 шт")
         self.assertTrue(ans_ok.called)
         self.assertIn("успішно додано", ans_ok.call_args[0][0].lower())
 
@@ -448,6 +465,8 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(added)
         self.assertEqual(added["remaining_grams"], 1000.0)
         self.assertEqual(added["price_per_kg"], 780.0)
+        self.assertEqual(added["color"], "#EF4444")
+        self.assertEqual(added["quantity"], 1)
 
     async def test_back_button_cancels_at_any_state(self):
         """Test that Back button safely resets state from any active workflow state."""
@@ -475,8 +494,10 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         await self._send("➕ Додати")
         await self._send("Big Reel PLA Black")
         await self._send("PLA")
+        await self._send("⚫ Чорний")
         await self._send("2500")
         await self._send("1500")
+        await self._send("1")
 
         spools = await self.app.storage.load_spools()
         big_spool = next((s for s in spools.values() if s.get("name") == "Big Reel PLA Black"), None)
@@ -628,4 +649,253 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         fil_text = ans_fil.call_args[0][0]
         self.assertIn("VT</b>: Порожньо", fil_text)
         self.assertNotIn("Bambu TPU — 0.0g", fil_text)
+
+    async def test_add_spool_wizard_step_back_navigation(self):
+        """Test step-by-step back navigation ('↩️ Крок назад') during spool creation wizard."""
+        await self._send("📦 Склад")
+        await self._send("➕ Додати")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_name")
+
+        # 1. Enter initial name -> moves to add_spool_type
+        await self._send("Original Spool Name")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_type")
+
+        # 2. Step back from add_spool_type -> goes back to add_spool_name
+        ans_back1 = await self._send("↩️ Крок назад")
+        self.assertTrue(ans_back1.called)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_name")
+        self.assertIn("Original Spool Name", ans_back1.call_args[0][0])
+
+        # 3. Enter updated name -> moves to add_spool_type
+        await self._send("Corrected Spool Name")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_type")
+
+        # 4. Select filament type button -> moves to add_spool_color
+        await self._send("PETG")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_color")
+        self.assertEqual(u["context_data"]["new_spool"]["type"], "PETG")
+
+        # 5. Step back from add_spool_color -> goes back to add_spool_type
+        ans_back2 = await self._send("↩️ Крок назад")
+        self.assertTrue(ans_back2.called)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_type")
+        self.assertIn("PETG", ans_back2.call_args[0][0])
+
+        # 6. Re-select filament type -> moves to add_spool_color
+        await self._send("PLA")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_color")
+        self.assertEqual(u["context_data"]["new_spool"]["type"], "PLA")
+
+        # 7. Select color -> moves to add_spool_grams
+        await self._send("⚫ Чорний")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_grams")
+        self.assertEqual(u["context_data"]["new_spool"]["color"], "#000000")
+
+        # 8. Step back from add_spool_grams -> goes back to add_spool_color
+        ans_back3 = await self._send("↩️ Крок назад")
+        self.assertTrue(ans_back3.called)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_color")
+
+        # 9. Re-select color -> moves to add_spool_grams
+        await self._send("⚪ Білий")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_grams")
+        self.assertEqual(u["context_data"]["new_spool"]["color"], "#FFFFFF")
+
+        # 10. Enter grams -> moves to add_spool_price
+        await self._send("800")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_price")
+        self.assertEqual(u["context_data"]["new_spool"]["remaining_grams"], 800.0)
+
+        # 11. Step back from add_spool_price -> goes back to add_spool_grams
+        ans_back4 = await self._send("↩️ Крок назад")
+        self.assertTrue(ans_back4.called)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_grams")
+        self.assertIn("800.0g", ans_back4.call_args[0][0])
+
+        # 12. Enter final grams -> moves to add_spool_price
+        await self._send("1000")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_price")
+
+        # 13. Enter price -> moves to add_spool_quantity
+        await self._send("750")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_quantity")
+
+        # 14. Step back from add_spool_quantity -> goes back to add_spool_price
+        ans_back5 = await self._send("↩️ Крок назад")
+        self.assertTrue(ans_back5.called)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_price")
+        self.assertIn("750.0 грн", ans_back5.call_args[0][0])
+
+        # 15. Enter final price -> moves to add_spool_quantity
+        await self._send("850")
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "add_spool_quantity")
+
+        # 16. Enter quantity -> saves spool!
+        ans_final = await self._send("7 шт")
+        self.assertTrue(ans_final.called)
+        u = await self.app.storage.load_user("999")
+        self.assertEqual(u["state"], "idle")
+
+        spools = await self.app.storage.load_spools()
+        created = next((s for s in spools.values() if s.get("name") == "Corrected Spool Name"), None)
+        self.assertIsNotNone(created)
+        self.assertEqual(created["type"], "PLA")
+        self.assertEqual(created["color"], "#FFFFFF")
+        self.assertEqual(created["remaining_grams"], 1000.0)
+        self.assertEqual(created["price_per_kg"], 850.0)
+        self.assertEqual(created["quantity"], 7)
+
+    async def test_spool_batch_quantity_mount_and_unmount_lifecycle(self):
+        """Test full lifecycle of batch spools:
+        1. Add spool with quantity=7
+        2. Mount 1 to printer P1S Slot A1 -> warehouse has 6 left, printer has 1000g mounted
+        3. Unmount without weight change (1000g) -> warehouse merges back to 7
+        4. Mount 1 to printer again -> warehouse has 6 left
+        5. Print occurred (weight changed to 850g)
+        6. Unmount with changed weight (850g) -> warehouse has 6 (1000g) + 1 started (850g)
+        """
+        await self._send("📦 Склад")
+        await self._send("➕ Додати")
+        await self._send("Bambu PLA Basic Jade White")
+        await self._send("PLA")
+        await self._send("⚪ Білий")
+        await self._send("1000")
+        await self._send("850")
+        await self._send("7 шт")
+
+        spools = await self.app.storage.load_spools()
+        batch_spool = next((s for s in spools.values() if s.get("name") == "Bambu PLA Basic Jade White"), None)
+        self.assertIsNotNone(batch_spool)
+        self.assertEqual(batch_spool["quantity"], 7)
+        self.assertEqual(batch_spool["color"], "#FFFFFF")
+        self.assertIsNone(batch_spool.get("assigned_printer_id"))
+        parent_id = batch_spool["id"]
+
+        # Step 1: Mount 1 spool to printer P1S slot A1
+        await self._send("🔗 Встановити на принтер")
+        await self._send("Bambu PLA Basic Jade White")
+        await self._send("🖨️ Bambu Lab P1S")
+        ans_mount1 = await self._send("📍 Слот A1 (Slot 1)")
+        self.assertTrue(ans_mount1.called)
+        self.assertIn("Залишок на Складі: <b>6 шт</b>", ans_mount1.call_args[0][0])
+
+        # Verify storage: parent batch has quantity 6, mounted copy has quantity 1
+        spools = await self.app.storage.load_spools()
+        self.assertEqual(spools[parent_id]["quantity"], 6)
+        self.assertIsNone(spools[parent_id].get("assigned_printer_id"))
+
+        mounted_spool = next((s for s in spools.values() if s.get("assigned_printer_id") == "p1" and str(s.get("assigned_slot_key")) == "0"), None)
+        self.assertIsNotNone(mounted_spool)
+        self.assertEqual(mounted_spool["quantity"], 1)
+        self.assertEqual(mounted_spool["remaining_grams"], 1000.0)
+        self.assertEqual(mounted_spool.get("parent_spool_id"), parent_id)
+
+        # Step 2: Unmount spool WITHOUT weight change (weight is still 1000g)
+        u = await self.app.storage.load_user("999")
+        u["context_data"]["selected_printer_id"] = "p1"
+        await self.app.storage.save_user(u)
+
+        ans_unm1 = await self._send("🔓 Зняти з принтера")
+        self.assertTrue(ans_unm1.called)
+        ans_unmount1 = await self._send("Bambu PLA Basic Jade White")
+        self.assertTrue(ans_unmount1.called)
+        self.assertIn("повернуто до пачки (разом: 7 шт)", ans_unmount1.call_args[0][0])
+
+        # Verify storage: batch is back to 7, temporary mounted copy is deleted
+        spools = await self.app.storage.load_spools()
+        self.assertEqual(spools[parent_id]["quantity"], 7)
+        self.assertNotIn(mounted_spool["id"], spools)
+
+        # Step 3: Mount 1 spool again to printer P1S slot A1
+        await self._send("🔗 Встановити на принтер")
+        await self._send("Bambu PLA Basic Jade White")
+        await self._send("🖨️ Bambu Lab P1S")
+        await self._send("📍 Слот A1 (Slot 1)")
+
+        spools = await self.app.storage.load_spools()
+        self.assertEqual(spools[parent_id]["quantity"], 6)
+        mounted_spool2 = next((s for s in spools.values() if s.get("assigned_printer_id") == "p1" and str(s.get("assigned_slot_key")) == "0"), None)
+        self.assertIsNotNone(mounted_spool2)
+
+        # Step 4: Print occurred! Change weight on printer to 850g
+        self.p1.set_slot_grams(850.0, slot_id="0")
+        mounted_spool2["remaining_grams"] = 850.0
+        spools[mounted_spool2["id"]] = mounted_spool2
+        await self.app.storage.save_spools(spools)
+
+        # Step 5: Unmount spool with changed weight (850g)
+        u = await self.app.storage.load_user("999")
+        u["context_data"]["selected_printer_id"] = "p1"
+        await self.app.storage.save_user(u)
+
+        ans_unm2 = await self._send("🔓 Зняти з принтера")
+        self.assertTrue(ans_unm2.called)
+        ans_unmount2 = await self._send("Bambu PLA Basic Jade White")
+        self.assertTrue(ans_unmount2.called)
+        self.assertIn("розпочата котушка: 850.0g (1 шт)", ans_unmount2.call_args[0][0])
+
+        # Verify storage: parent batch STILL has 6 шт (1000g), AND a separate started spool exists with 850g (1 шт)!
+        spools = await self.app.storage.load_spools()
+        self.assertEqual(spools[parent_id]["quantity"], 6)
+        self.assertEqual(spools[parent_id]["remaining_grams"], 1000.0)
+
+        started_spool = spools.get(mounted_spool2["id"])
+        self.assertIsNotNone(started_spool)
+        self.assertEqual(started_spool["quantity"], 1)
+        self.assertEqual(started_spool["remaining_grams"], 850.0)
+        self.assertIsNone(started_spool.get("assigned_printer_id"))
+        self.assertNotIn("parent_spool_id", started_spool)
+
+    async def test_spool_editing_color_and_quantity(self):
+        """Test modifying color and quantity of an existing spool in stock."""
+        # Create a spool in storage
+        spools = await self.app.storage.load_spools()
+        spools["s_edit"] = {
+            "id": "s_edit",
+            "name": "Sunlu PETG",
+            "type": "PETG",
+            "color": "#000000",
+            "remaining_grams": 1000.0,
+            "initial_grams": 1000.0,
+            "price_per_kg": 650.0,
+            "assigned_printer_id": None,
+            "assigned_slot_key": None,
+            "quantity": 1,
+        }
+        await self.app.storage.save_spools(spools)
+
+        await self._send("📦 Склад")
+        await self._send("✏️ Редагувати")
+        await self._send("Sunlu PETG")
+
+        # Edit color
+        await self._send("🌈 Колір")
+        await self._send("🔵 Синій")
+        spools = await self.app.storage.load_spools()
+        self.assertEqual(spools["s_edit"]["color"], "#3B82F6")
+
+        # Edit quantity
+        await self._send("✏️ Редагувати")
+        await self._send("Sunlu PETG")
+        await self._send("📦 Кількість")
+        await self._send("5 шт")
+        spools = await self.app.storage.load_spools()
+        self.assertEqual(spools["s_edit"]["quantity"], 5)
+
 

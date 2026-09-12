@@ -193,18 +193,107 @@ def get_admin_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def get_spool_presets_inline_keyboard() -> InlineKeyboardMarkup:
+def get_spool_presets_inline_keyboard(
+    presets: dict[str, dict[str, Any]] | None = None, lang: str = "uk"
+) -> InlineKeyboardMarkup:
+    if presets:
+        buttons = []
+        row = []
+        for pid, p in presets.items():
+            name = p.get("name", pid)
+            price = p.get("price_per_kg") or p.get("price_uah") or 850.0
+            label = f"{name} ({price:.0f} грн)"
+            row.append(InlineKeyboardButton(text=label, callback_data=f"spool_preset:{pid}"))
+            if len(row) == 2:
+                buttons.append(row)
+                row = []
+        if row:
+            buttons.append(row)
+        if buttons:
+            return InlineKeyboardMarkup(inline_keyboard=buttons)
+
     buttons = [
         [
-            InlineKeyboardButton(text="⚫ Bambu PLA Black (850 грн)", callback_data="spool_preset_bambu_pla_black"),
-            InlineKeyboardButton(text="⚪ Sunlu PLA White (650 грн)", callback_data="spool_preset_sunlu_pla_white"),
+            InlineKeyboardButton(text="⚫ Bambu PLA Black (850 грн)", callback_data="spool_preset:bambu_pla_black"),
+            InlineKeyboardButton(text="⚪ Sunlu PLA White (650 грн)", callback_data="spool_preset:sunlu_pla_white"),
         ],
         [
-            InlineKeyboardButton(text="🩶 eSUN PETG Grey (700 грн)", callback_data="spool_preset_esun_petg_grey"),
-            InlineKeyboardButton(text="🔴 TPU 95A Red (950 грн)", callback_data="spool_preset_tpu_red"),
+            InlineKeyboardButton(text="🩶 eSUN PETG Grey (700 грн)", callback_data="spool_preset:esun_petg_grey"),
+            InlineKeyboardButton(text="🔴 TPU 95A Red (950 грн)", callback_data="spool_preset:tpu_red"),
         ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_wizard_nav_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    """Navigation keyboard for wizard steps: step back or cancel."""
+    btn_step_back = "↩️ Крок назад" if lang != "en" else "↩️ Step back"
+    btn_cancel = "❌ Скасувати" if lang != "en" else "❌ Cancel"
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=btn_step_back), KeyboardButton(text=btn_cancel)]],
+        resize_keyboard=True,
+    )
+
+
+def get_filament_types_keyboard(lang: str = "uk", include_step_back: bool = True) -> ReplyKeyboardMarkup:
+    """Returns reply keyboard with popular filament types for quick 1-tap selection without auto-detection."""
+    popular = [
+        "PLA", "PETG", "ABS",
+        "TPU", "ASA", "PC",
+        "PLA-CF", "PETG-CF", "PA-CF",
+        "PA", "PCTG", "HIPS",
+        "PPA-CF", "PET-CF", "ABS-GF",
+        "PVA", "PP", "BVOH",
+    ]
+
+    keyboard = []
+    for i in range(0, len(popular), 3):
+        chunk = popular[i : i + 3]
+        keyboard.append([KeyboardButton(text=f) for f in chunk])
+
+    if include_step_back:
+        btn_step_back = "↩️ Крок назад" if lang != "en" else "↩️ Step back"
+        btn_cancel = "❌ Скасувати" if lang != "en" else "❌ Cancel"
+        keyboard.append([KeyboardButton(text=btn_step_back), KeyboardButton(text=btn_cancel)])
+    else:
+        keyboard.append([KeyboardButton(text=t("btn_back", lang))])
+
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_filament_colors_keyboard(lang: str = "uk", include_step_back: bool = True) -> ReplyKeyboardMarkup:
+    """Returns keyboard with popular filament colors palette."""
+    from utils.filament_utils import COLOR_NAMES_UK, COLOR_NAMES_EN
+
+    colors = COLOR_NAMES_EN if lang == "en" else COLOR_NAMES_UK
+    keyboard = []
+    for i in range(0, len(colors), 3):
+        chunk = colors[i : i + 3]
+        keyboard.append([KeyboardButton(text=label) for label, _ in chunk])
+
+    if include_step_back:
+        btn_step_back = "↩️ Крок назад" if lang != "en" else "↩️ Step back"
+        btn_cancel = "❌ Скасувати" if lang != "en" else "❌ Cancel"
+        keyboard.append([KeyboardButton(text=btn_step_back), KeyboardButton(text=btn_cancel)])
+    else:
+        keyboard.append([KeyboardButton(text=t("btn_back", lang))])
+
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_spool_quantity_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    """Returns keyboard with quick quantity presets and navigation."""
+    is_en = lang == "en"
+    suffix = " pcs" if is_en else " шт"
+    keyboard = [
+        [KeyboardButton(text=f"1{suffix}"), KeyboardButton(text=f"2{suffix}"), KeyboardButton(text=f"3{suffix}"), KeyboardButton(text=f"4{suffix}")],
+        [KeyboardButton(text=f"5{suffix}"), KeyboardButton(text=f"7{suffix}"), KeyboardButton(text=f"10{suffix}"), KeyboardButton(text=f"20{suffix}")],
+        [
+            KeyboardButton(text="↩️ Крок назад" if not is_en else "↩️ Step back"),
+            KeyboardButton(text="❌ Скасувати" if not is_en else "❌ Cancel"),
+        ],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 def get_filament_menu_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
@@ -233,17 +322,19 @@ def get_single_printer_filament_keyboard(lang: str = "uk") -> ReplyKeyboardMarku
 
 
 def get_spools_keyboard(spools: dict[str, dict[str, Any]], lang: str = "uk") -> ReplyKeyboardMarkup:
+    from utils.filament_utils import get_color_emoji
+
     keyboard = []
     for s_id, s in spools.items():
         name = s.get("name", "Spool")
         grams = s.get("remaining_grams", 1000.0)
         stype = s.get("type", "")
-        if stype and stype.lower() in name.lower():
-            title = f"🧵 {name} ({grams}g)"
-        elif stype:
-            title = f"🧵 {name} ({stype}, {grams}g)"
-        else:
-            title = f"🧵 {name} ({grams}g)"
+        qty = max(1, int(s.get("quantity", 1) or 1))
+        color_emoji = get_color_emoji(s.get("color_name") or s.get("color", ""))
+        c_prefix = f"{color_emoji} " if color_emoji else ""
+        type_str = f"{stype}, " if (stype and stype.lower() not in name.lower()) else ""
+        qty_str = f" [📦 {qty} шт]" if qty > 1 else ""
+        title = f"🧵 {c_prefix}{name} ({type_str}{grams}g){qty_str}"
         keyboard.append([KeyboardButton(text=title)])
     keyboard.append([KeyboardButton(text=t("btn_back", lang))])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -494,6 +585,10 @@ def get_spool_edit_fields_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
         [
             KeyboardButton(text="🏷️ Name" if is_en else "🏷️ Назва"),
             KeyboardButton(text="🎨 Type" if is_en else "🎨 Тип"),
+        ],
+        [
+            KeyboardButton(text="🌈 Color" if is_en else "🌈 Колір"),
+            KeyboardButton(text="📦 Quantity" if is_en else "📦 Кількість"),
         ],
         [
             KeyboardButton(text="⚖️ Remaining (g)" if is_en else "⚖️ Залишок (г)"),

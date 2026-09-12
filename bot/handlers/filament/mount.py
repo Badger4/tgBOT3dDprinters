@@ -177,28 +177,9 @@ async def handle_unmount_spool_start(message: Message, app):
 
         if len(mounted_list) == 1:
             m = mounted_list[0]
-            p_id = m["printer_id"]
             slot_k = m["slot_key"]
-            if m["type_source"] == "db_spool" and m.get("spool_id"):
-                target_spool = spools.get(m["spool_id"])
-                if target_spool:
-                    target_spool["assigned_printer_id"] = None
-                    target_spool["assigned_slot_key"] = None
-                    target_spool["remaining_grams"] = m["remaining_grams"]
-                    spools[target_spool["id"]] = target_spool
-            else:
-                new_id = f"spool_{str(uuid.uuid4())[:8]}"
-                p_price = float(getattr(target_printer, "price_per_kg", 850.0) or 850.0)
-                spools[new_id] = {
-                    "id": new_id,
-                    "name": m["name"],
-                    "type": m["material"],
-                    "remaining_grams": m["remaining_grams"],
-                    "price_per_kg": p_price,
-                    "assigned_printer_id": None,
-                    "assigned_slot_key": None,
-                    "quantity": 1,
-                }
+            from bot.handlers.filament.add import unassign_spool_from_slot
+            res_desc, returned_to_batch = unassign_spool_from_slot(spools, m, target_printer, slot_k)
             await app.storage.save_spools(spools)
 
             target_printer.set_slot_grams(0.0, slot_id=slot_k)
@@ -208,9 +189,9 @@ async def handle_unmount_spool_start(message: Message, app):
             await app.storage.save_user(user)
 
             await message.answer(
-                f"✅ <b>Котушку з {html.escape(target_printer.name)} [{m['slot_label']}] успішно знято та повернуто на Склад!</b>"
+                f"✅ <b>Котушку з {html.escape(target_printer.name)} [{m['slot_label']}] успішно знято: {res_desc}!</b>"
                 if u_lang != "en"
-                else f"✅ <b>Spool from {html.escape(target_printer.name)} [{m['slot_label']}] successfully unmounted to stock!</b>",
+                else f"✅ <b>Spool from {html.escape(target_printer.name)} [{m['slot_label']}] successfully unmounted: {res_desc}!</b>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
             )
