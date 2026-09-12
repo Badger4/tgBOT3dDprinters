@@ -3,6 +3,7 @@ Admin panel and user management handlers.
 """
 
 import html
+import re
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -39,6 +40,10 @@ async def handle_list_approved_users(message: Message, app):
         return
 
     user = await app.storage.load_user(chat_id)
+    user["state"] = "idle"
+    user["context_data"] = {}
+    await app.storage.save_user(user)
+
     u_lang = user.get("language", "uk")
     all_users = await app.storage.load_all_users()
     btn_list = []
@@ -60,6 +65,11 @@ async def handle_list_pending_users(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_admin(chat_id):
         return
+
+    user = await app.storage.load_user(chat_id)
+    user["state"] = "idle"
+    user["context_data"] = {}
+    await app.storage.save_user(user)
 
     all_users = await app.storage.load_all_users()
     user = await app.storage.load_user(chat_id)
@@ -83,6 +93,105 @@ async def handle_list_pending_users(message: Message, app):
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=ReplyKeyboardMarkup(keyboard=btn_list, resize_keyboard=True),
     )
+
+
+async def show_user_card(
+    message: Message,
+    app,
+    admin_user: dict,
+    target_uid: str,
+    target_u: dict,
+    action_msg: str = "",
+) -> None:
+    u_lang = admin_user.get("language", "uk")
+    is_en = u_lang == "en"
+
+    is_app = target_u.get("is_approved", False)
+    is_t_adm = await app.is_user_admin(target_uid)
+
+    if is_en:
+        btn_team = "❌ Remove from Team" if is_app else "✅ Add to Team"
+        btn_admin = "🔻 Revoke Admin" if is_t_adm else "👑 Grant Admin"
+        btn_del = "🗑️ Delete from Database"
+        btn_back = "Back to admin"
+    else:
+        btn_team = "❌ Видалити з команди" if is_app else "✅ Додати в команду"
+        btn_admin = "🔻 Забрати адміна" if is_t_adm else "👑 Призначити адміном"
+        btn_del = "🗑️ Повністю видалити з бази"
+        btn_back = "Повернутись в адмінку"
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=btn_team)],
+            [KeyboardButton(text=btn_admin)],
+            [KeyboardButton(text=btn_del)],
+            [KeyboardButton(text=btn_back)],
+        ],
+        resize_keyboard=True,
+    )
+
+    p = target_u.get("personal", {})
+    first_name = html.escape(str(p.get("first_name", "")))
+    last_name = html.escape(str(p.get("last_name", "")))
+    raw_username = p.get("username")
+    if raw_username and str(raw_username) != "None":
+        username_str = "@" + html.escape(str(raw_username).lstrip("@"))
+    else:
+        username_str = "none" if is_en else "немає"
+
+    user_id_esc = html.escape(str(target_uid))
+    status_str = ("<b>✅ In Team</b>" if is_app else "<b>❌ Not in Team</b>") if is_en else ("<b>✅ В команді</b>" if is_app else "<b>❌ Не в команді</b>")
+    adm_str = ("<b>👑 Administrator</b>" if is_t_adm else "<b>👤 User</b>") if is_en else ("<b>👑 Адміністратор</b>" if is_t_adm else "<b>👤 Користувач</b>")
+
+    prefix = f"{action_msg}\n\n" if action_msg else ""
+    if is_en:
+        info_text = (
+            f"{prefix}"
+            f"<b>👤 User Card:</b>\n"
+            f"🆔 <b>ID:</b> <code>{user_id_esc}</code>\n"
+            f"👤 <b>Name:</b> {first_name} {last_name}\n"
+            f"🏷️ <b>Username:</b> {username_str}\n"
+            f"Role: {adm_str}\n"
+            f"Status: {status_str}"
+        )
+    else:
+        info_text = (
+            f"{prefix}"
+            f"<b>👤 Картка користувача:</b>\n"
+            f"🆔 <b>ID:</b> <code>{user_id_esc}</code>\n"
+            f"👤 <b>Ім'я:</b> {first_name} {last_name}\n"
+            f"🏷️ <b>Username:</b> {username_str}\n"
+            f"Роль: {adm_str}\n"
+            f"Статус: {status_str}"
+        )
+    await message.answer(info_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+@router.message(F.text.regexp(r"\(([^()]+)\)\s*$"))
+async def handle_select_user(message: Message, app):
+    chat_id = str(message.chat.id)
+    if not await app.is_user_admin(chat_id):
+        return
+
+    text = (message.text or "").strip()
+    m = re.search(r"\(([^()]+)\)\s*$", text)
+    if not m:
+        return
+
+    target_uid = m.group(1).strip()
+    all_users = await app.storage.load_all_users()
+    if target_uid not in all_users:
+        return
+
+    target_u = all_users[target_uid]
+    admin_user = await app.storage.load_user(chat_id)
+    admin_user["state"] = "manage_user"
+    if "context_data" not in admin_user:
+        admin_user["context_data"] = {}
+    admin_user["context_data"]["manage_user_id"] = target_uid
+    await app.storage.save_user(admin_user)
+
+    await show_user_card(message, app, admin_user, target_uid, target_u)
 
 
 @router.message(
@@ -178,55 +287,4 @@ async def handle_manage_user_action(message: Message, app):
             await app.storage.save_user(target_u)
             action_msg = f"🔻 Admin rights for <code>{html.escape(str(target_uid))}</code> revoked." if is_en else f"🔻 Адмін-права для <code>{html.escape(str(target_uid))}</code> скасовано."
 
-    is_app = target_u.get("is_approved", False)
-    is_t_adm = await app.is_user_admin(target_uid)
-    if is_en:
-        btn_team = "❌ Remove from Team" if is_app else "✅ Add to Team"
-        btn_admin = "🔻 Revoke Admin" if is_t_adm else "👑 Grant Admin"
-        btn_del = "🗑️ Delete from Database"
-        btn_back = "Back to admin"
-    else:
-        btn_team = "❌ Видалити з команди" if is_app else "✅ Додати в команду"
-        btn_admin = "🔻 Забрати адміна" if is_t_adm else "👑 Призначити адміном"
-        btn_del = "🗑️ Повністю видалити з бази"
-        btn_back = "Повернутись в адмінку"
-
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=btn_team)],
-            [KeyboardButton(text=btn_admin)],
-            [KeyboardButton(text=btn_del)],
-            [KeyboardButton(text=btn_back)],
-        ],
-        resize_keyboard=True,
-    )
-
-    p = target_u.get("personal", {})
-    first_name = html.escape(str(p.get("first_name", "")))
-    last_name = html.escape(str(p.get("last_name", "")))
-    username = html.escape(str(p.get("username", "none" if is_en else "немає")))
-    user_id_esc = html.escape(str(target_uid))
-    status_str = ("<b>✅ In Team</b>" if is_app else "<b>❌ Not in Team</b>") if is_en else ("<b>✅ В команді</b>" if is_app else "<b>❌ Не в команді</b>")
-    adm_str = ("<b>👑 Administrator</b>" if is_t_adm else "<b>👤 User</b>") if is_en else ("<b>👑 Адміністратор</b>" if is_t_adm else "<b>👤 Користувач</b>")
-
-    if is_en:
-        info_text = (
-            f"{action_msg}\n\n"
-            f"<b>👤 User Card:</b>\n"
-            f"🆔 <b>ID:</b> <code>{user_id_esc}</code>\n"
-            f"👤 <b>Name:</b> {first_name} {last_name}\n"
-            f"🏷️ <b>Username:</b> @{username}\n"
-            f"Role: {adm_str}\n"
-            f"Status: {status_str}"
-        )
-    else:
-        info_text = (
-            f"{action_msg}\n\n"
-            f"<b>👤 Картка користувача:</b>\n"
-            f"🆔 <b>ID:</b> <code>{user_id_esc}</code>\n"
-            f"👤 <b>Ім'я:</b> {first_name} {last_name}\n"
-            f"🏷️ <b>Username:</b> @{username}\n"
-            f"Роль: {adm_str}\n"
-            f"Статус: {status_str}"
-        )
-    await message.answer(info_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await show_user_card(message, app, user, target_uid, target_u, action_msg=action_msg)
