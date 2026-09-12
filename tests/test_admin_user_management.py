@@ -206,3 +206,28 @@ async def test_fallback_text_for_approved_and_unapproved(mock_app):
     btn_texts = [b.text for row in app_markup.keyboard for b in row]
     assert any("Принтери" in b for b in btn_texts)
 
+
+@pytest.mark.asyncio
+async def test_select_user_filter_matching():
+    import re
+    from aiogram import F
+
+    filter_fn = F.text.func(lambda t: bool(re.search(r"\(([^()]+)\)\s*$", t or "")))
+
+    msg1 = MagicMock(spec=Message)
+    msg1.text = "👤 Смайл (5190017653)"
+    assert filter_fn.resolve(msg1) is True
+
+    msg2 = MagicMock(spec=Message)
+    msg2.text = "⏳ Новий (123456)"
+    assert filter_fn.resolve(msg2) is True
+
+    msg3 = MagicMock(spec=Message)
+    msg3.text = "👑 Головний Адмін (877001503)"
+    assert filter_fn.resolve(msg3) is True
+
+    msg4 = MagicMock(spec=Message)
+    msg4.text = "Повернутись в адмінку"
+    assert filter_fn.resolve(msg4) is False
+
+

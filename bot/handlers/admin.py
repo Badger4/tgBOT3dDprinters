@@ -167,7 +167,7 @@ async def show_user_card(
     await message.answer(info_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
-@router.message(F.text.regexp(r"\(([^()]+)\)\s*$"))
+@router.message(F.text.func(lambda t: bool(re.search(r"\(([^()]+)\)\s*$", t or ""))))
 async def handle_select_user(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_admin(chat_id):
@@ -181,17 +181,28 @@ async def handle_select_user(message: Message, app):
     target_uid = m.group(1).strip()
     all_users = await app.storage.load_all_users()
     if target_uid not in all_users:
-        return
+        for k in all_users.keys():
+            if str(k) == str(target_uid):
+                target_uid = str(k)
+                break
+        else:
+            admin_user = await app.storage.load_user(chat_id)
+            u_lang = admin_user.get("language", "uk")
+            await message.answer(
+                "⚠️ Користувача не знайдено в базі даних." if u_lang != "en" else "⚠️ User not found in database.",
+                reply_markup=get_admin_keyboard(lang=u_lang),
+            )
+            return
 
     target_u = all_users[target_uid]
     admin_user = await app.storage.load_user(chat_id)
     admin_user["state"] = "manage_user"
     if "context_data" not in admin_user:
         admin_user["context_data"] = {}
-    admin_user["context_data"]["manage_user_id"] = target_uid
+    admin_user["context_data"]["manage_user_id"] = str(target_uid)
     await app.storage.save_user(admin_user)
 
-    await show_user_card(message, app, admin_user, target_uid, target_u)
+    await show_user_card(message, app, admin_user, str(target_uid), target_u)
 
 
 @router.message(
@@ -216,16 +227,24 @@ async def handle_manage_user_action(message: Message, app):
         return
 
     user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+
     if user.get("state") != "manage_user":
+        await message.answer(
+            "⚠️ Спочатку оберіть користувача зі списку." if not is_en else "⚠️ Please select a user from the list first.",
+            reply_markup=get_admin_keyboard(lang=u_lang),
+        )
         return
 
     ctx_data = user.get("context_data", {})
     target_uid = ctx_data.get("manage_user_id")
     if not target_uid:
+        await message.answer(
+            "⚠️ Спочатку оберіть користувача зі списку." if not is_en else "⚠️ Please select a user from the list first.",
+            reply_markup=get_admin_keyboard(lang=u_lang),
+        )
         return
-
-    u_lang = user.get("language", "uk")
-    is_en = u_lang == "en"
 
     target_u = await app.storage.load_user(target_uid)
     action_msg = ""
