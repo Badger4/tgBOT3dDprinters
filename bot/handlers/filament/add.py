@@ -31,7 +31,15 @@ from utils.filament_utils import (
     get_color_display_name,
 )
 
+DEFAULT_SPOOL_PRESETS = {
+    "bambu_pla_black": {"name": "Bambu PLA Black", "type": "PLA", "color": "#000000", "price_per_kg": 850.0, "weight_g": 1000.0},
+    "sunlu_pla_white": {"name": "Sunlu PLA White", "type": "PLA", "color": "#FFFFFF", "price_per_kg": 650.0, "weight_g": 1000.0},
+    "esun_petg_grey": {"name": "eSUN PETG Grey", "type": "PETG", "color": "#808080", "price_per_kg": 700.0, "weight_g": 1000.0},
+    "tpu_red": {"name": "TPU 95A Red", "type": "TPU", "color": "#EF4444", "price_per_kg": 950.0, "weight_g": 1000.0},
+}
+
 router = Router()
+
 
 
 def unassign_spool_from_slot(spools: dict, selected_item: dict, target_p, slot_k: str) -> tuple[str, bool]:

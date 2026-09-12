@@ -877,9 +877,7 @@ class BambuPrinter:
                 skipped = getattr(self, "skipped_objects", [])
                 skipped_ids = sorted(list({int(x) for x in skipped if str(x).isdigit()}))
                 if skipped_ids:
-                    self.current_job_objects = [{"id": oid, "name": f"Об'єкт #{oid}"} for oid in skipped_ids]
-                else:
-                    self.current_job_objects = [{"id": 1, "name": "Об'єкт #1"}]
+                    self.current_job_objects = [{"id": str(oid), "name": f"Об'єкт #{oid}"} for oid in skipped_ids]
 
             if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]:
                 if not getattr(self, "_is_calibrating", False) and self._current_job_grams > 0 and not self._job_deducted:
@@ -1138,8 +1136,7 @@ class BambuPrinter:
             n_low = str(o.get("name", "")).lower()
             if any(k in n_low for k in [
                 "wipe tower", "prime tower", "purge tower", "wipe_tower", "prime_tower",
-                "flush", "purge", "timelapse", "calibration", "leveling", "test_line", "plate_1", "plate_2",
-                "wipe", "prime", "skirt", "brim", "raft", "support", "nozzle", "tower", "bed"
+                "flush volume", "purge volume", "timelapse", "calibration line", "leveling line", "test_line"
             ]):
                 logger.info(f"🧹 Discarded auxiliary object ID={o.get('id')} Name='{o.get('name')}' for [{self.name}]")
                 continue
@@ -1149,7 +1146,7 @@ class BambuPrinter:
                 try:
                     w = abs(float(bbox[2]) - float(bbox[0]))
                     h = abs(float(bbox[3]) - float(bbox[1]))
-                    if w < 6.0 or h < 6.0 or (w * h) < 36.0:
+                    if w < 3.0 or h < 3.0 or (w * h) < 9.0:
                         logger.info(f"🧹 Discarded tiny/0-area object ID={o.get('id')} BBox={bbox} for [{self.name}]")
                         continue
                 except Exception:
@@ -1159,16 +1156,7 @@ class BambuPrinter:
         if not filtered and objs:
             filtered = objs
 
-        # Purge objects that lack a 2D bbox if other objects DO have a 2D bbox (e.g. Object 69!)
-        objs_with_bbox = [o for o in filtered if o.get("bbox") and isinstance(o.get("bbox"), list) and len(o.get("bbox")) >= 4]
-        if objs_with_bbox and len(objs_with_bbox) < len(filtered):
-            discarded = [o for o in filtered if o not in objs_with_bbox]
-            for d in discarded:
-                logger.info(f"🧹 Purged phantom ghost object ID={d.get('id')} Name='{d.get('name')}' (lacks 2D bbox) for [{self.name}]")
-            filtered = objs_with_bbox
-
         if len(filtered) != len(self.current_job_objects):
-            logger.info(f"✨ Purged {len(self.current_job_objects) - len(filtered)} ghost objects from [{self.name}]. Active objects: {[o.get('id') for o in filtered]}")
             self.current_job_objects = filtered
             self.invalidate_plate_gif_cache()
 
@@ -1231,11 +1219,15 @@ class BambuPrinter:
         if not int_obj_ids:
             return False, "Список ID об'єктів порожній або некоректний"
 
+        # Bambu Lab MQTT command expects cumulative list of all currently skipped object IDs on the plate
+        current_skipped = [int(i) for i in getattr(self, "skipped_objects", []) if str(i).isdigit()]
+        all_skipped = list(dict.fromkeys(current_skipped + int_obj_ids))
+
         payload = {
             "print": {
                 "sequence_id": str(int(time.time())),
                 "command": "skip_objects",
-                "obj_list": int_obj_ids,
+                "obj_list": all_skipped,
             }
         }
         topic = f"device/{self.serial_number}/request"
@@ -1246,12 +1238,10 @@ class BambuPrinter:
         except Exception as e:
             return False, f"Помилка відправки команди: {e}"
 
-        for oid in int_obj_ids:
-            if oid not in self.skipped_objects:
-                self.skipped_objects.append(oid)
+        self.skipped_objects = all_skipped
         self.invalidate_plate_gif_cache()
 
-        logger.info(f"🚫 Sent skip_objects {int_obj_ids} to printer [{self.name}] ({self.serial_number})")
+        logger.info(f"🚫 Sent skip_objects {all_skipped} to printer [{self.name}] ({self.serial_number})")
         return True, f"Об'єкт(и) {int_obj_ids} успішно пропущено"
 
     async def start_print_job_async(

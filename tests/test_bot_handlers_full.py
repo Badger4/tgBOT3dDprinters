@@ -138,6 +138,11 @@ class TestBotHandlersFull(unittest.TestCase):
             ans_type = await self._send_msg("TPU")
             self.assertTrue(ans_type.called)
             u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "add_spool_color")
+
+            ans_col = await self._send_msg("⚫ Чорний")
+            self.assertTrue(ans_col.called)
+            u = await self.sm.load_user("777")
             self.assertEqual(u["state"], "add_spool_grams")
 
             ans_g = await self._send_msg("1000")
@@ -147,6 +152,11 @@ class TestBotHandlersFull(unittest.TestCase):
 
             ans_pr = await self._send_msg("850")
             self.assertTrue(ans_pr.called)
+            u = await self.sm.load_user("777")
+            self.assertEqual(u["state"], "add_spool_quantity")
+
+            ans_qty = await self._send_msg("1")
+            self.assertTrue(ans_qty.called)
             u = await self.sm.load_user("777")
             self.assertIn(u["state"], ["idle", "printer_menu"])
 

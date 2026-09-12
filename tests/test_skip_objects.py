@@ -72,3 +72,83 @@ class TestSkipObjects:
             m.setattr("services.http.routes_control.check_auth", AsyncMock(return_value=True))
             res = await handle_printer_control(req)
             assert res.status == 200
+
+    def test_bambu_raw_gcode_parsing(self):
+        gcode = """; model label id: 54,105,127,149
+; printing object Куб id:0 copy 0
+; start printing object, unique label id: 54
+M624 CAAAAAAAAAA=
+G1 X100 Y100 E1
+; stop printing object, unique label id: 54
+; printing object Куб id:65537 copy 0
+; start printing object, unique label id: 105
+M624 CBBBBBBBBBB=
+G1 X120 Y100 E1
+; stop printing object, unique label id: 105
+; total filament used [g] = 15.4
+"""
+        meta = parse_3mf_file(gcode.encode("utf-8"), "model.gcode")
+        assert len(meta["objects"]) == 4
+        ids = [o["id"] for o in meta["objects"]]
+        assert "54" in ids
+        assert "105" in ids
+        assert "127" in ids
+        assert "149" in ids
+        obj_54 = next(o for o in meta["objects"] if o["id"] == "54")
+        assert "Куб" in obj_54["name"]
+
+    def test_bambu_plate_json_mesh_ids_do_not_purge_firmware_ids(self):
+        import io, zipfile, json
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            plate_json = json.dumps({
+                "bbox_objects": [
+                    {"id": 437, "name": "Куб", "bbox": [100.0, 70.0, 140.0, 120.0]},
+                    {"id": 256, "name": "Куб", "bbox": [110.0, 50.0, 130.0, 70.0]},
+                ]
+            })
+            zf.writestr("Metadata/plate_1.json", plate_json)
+            slice_info = """<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <plate>
+    <metadata key="index" value="1"/>
+    <object identify_id="422" name="Куб" skipped="false" />
+    <object identify_id="241" name="Куб" skipped="false" />
+  </plate>
+</config>"""
+            zf.writestr("Metadata/slice_info.config", slice_info)
+
+        meta = parse_3mf_file(buf.getvalue(), "plate.3mf")
+        assert len(meta["objects"]) == 2
+        ids = [o["id"] for o in meta["objects"]]
+        assert "422" in ids
+        assert "241" in ids
+        # Check bboxes were mapped and not purged
+        assert "bbox" in meta["objects"][0]
+        assert "bbox" in meta["objects"][1]
+
+    @pytest.mark.asyncio
+    async def test_cumulative_skip_objects_async(self):
+        import json
+        printer = BambuPrinter({"id": "p1", "name": "P1S", "serialNumber": "01P00A1234"}, storage=MagicMock())
+        printer._client = MagicMock()
+        printer._client.is_connected.return_value = True
+
+        mock_result = MagicMock()
+        mock_result.rc = 0
+        printer._client.publish.return_value = mock_result
+
+        # First skip
+        ok1, _ = await printer.skip_objects_async([54])
+        assert ok1 is True
+        assert printer.skipped_objects == [54]
+        call1 = json.loads(printer._client.publish.call_args[0][1])
+        assert call1["print"]["obj_list"] == [54]
+
+        # Second skip must be cumulative
+        ok2, _ = await printer.skip_objects_async([105])
+        assert ok2 is True
+        assert printer.skipped_objects == [54, 105]
+        call2 = json.loads(printer._client.publish.call_args[0][1])
+        assert call2["print"]["obj_list"] == [54, 105]
+

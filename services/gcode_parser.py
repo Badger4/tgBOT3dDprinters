@@ -174,6 +174,56 @@ def resolve_model_name(raw_model: str) -> str:
     return clean
 
 
+def extract_bambu_gcode_objects(gcode_text: str) -> list[dict[str, Any]]:
+    """Extracts object IDs and names from Bambu Lab / OrcaSlicer G-code."""
+    objects: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    # Step 1: Scan for per-object start markers with names:
+    # ; printing object Куб id:0 copy 0
+    # ; start printing object, unique label id: 422
+    cur_name = None
+    for line in gcode_text.splitlines():
+        line_s = line.strip()
+        if not line_s.startswith(";"):
+            continue
+
+        m_name = re.match(r"^;\s*printing object\s+(.*?)(?:\s+id:\d+\s+copy\s+\d+)?$", line_s, re.IGNORECASE)
+        if m_name:
+            cur_name = m_name.group(1).strip()
+            continue
+
+        m_uid = re.match(r"^;\s*start printing object,\s*unique label id:\s*(\d+)", line_s, re.IGNORECASE)
+        if m_uid:
+            uid = str(m_uid.group(1)).strip()
+            if uid not in seen_ids:
+                seen_ids.add(uid)
+                name = cur_name or f"Об'єкт #{uid}"
+                objects.append({"id": uid, "name": name})
+            cur_name = None
+
+    # Step 2: If no objects or some objects not yet registered, check header '; model label id: 54,105,127,149'
+    m_header = re.search(r";\s*model label id:\s*([^\r\n]+)", gcode_text, re.IGNORECASE)
+    if m_header:
+        raw_ids = [s.strip() for s in m_header.group(1).split(",") if s.strip().isdigit()]
+        for rid in raw_ids:
+            if rid not in seen_ids:
+                seen_ids.add(rid)
+                objects.append({"id": rid, "name": f"Об'єкт #{rid}"})
+
+    # Step 3: Generic fallback for M486 / OBJECT_ID if standard RepRap/Klipper gcode
+    if not objects:
+        m486_ids = re.findall(r"M486\s+S(\d+)", gcode_text)
+        obj_id_matches = re.findall(r";\s*OBJECT_ID:\s*(\d+)", gcode_text)
+        for fid in sorted(list(set([int(i) for i in (m486_ids + obj_id_matches)]))):
+            fid_str = str(fid)
+            if fid_str not in seen_ids:
+                seen_ids.add(fid_str)
+                objects.append({"id": fid_str, "name": f"Об'єкт #{fid_str}"})
+
+    return objects
+
+
 def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
     """
     Parses a .3mf file bytes to extract Bambu Studio / OrcaSlicer slice metadata.
@@ -197,8 +247,8 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
         "error": "",
     }
 
-    if not filename.lower().endswith(".3mf"):
-        result["error"] = "Дозволено завантажувати тільки файли .3mf від Bambu Studio або OrcaSlicer."
+    if filename and not filename.lower().endswith(".3mf") and not filename.lower().endswith(".gcode"):
+        result["error"] = "Дозволено завантажувати тільки файли .3mf або .gcode від Bambu Studio / OrcaSlicer."
         return result
 
     try:
@@ -206,28 +256,15 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
                 namelist = zf.namelist()
 
-                # 0. Plate JSON Extraction: Metadata/plate_1.json or plate_*.json (contains exact ID and 2D bounding boxes)
+                # 0. Plate JSON Extraction: extract 2D bounding boxes for visual diagram (do NOT populate objects_list)
                 plate_json_files = [f for f in namelist if ("plate_" in f and f.endswith(".json"))]
                 for pjf in plate_json_files:
                     try:
                         p_data = json.loads(zf.read(pjf).decode("utf-8", errors="ignore"))
-                        if isinstance(p_data, dict) and "objects" in p_data and isinstance(p_data["objects"], list):
-                            for obj in p_data["objects"]:
-                                if isinstance(obj, dict):
-                                    oid = obj.get("identify_id") or obj.get("id")
-                                    oname = obj.get("name") or obj.get("part_name")
-                                    obbox = obj.get("bbox")
-                                    if oid is not None:
-                                        oid_str = str(oid).strip()
-                                        oname_str = str(oname).strip() if oname else f"Об'єкт {oid_str}"
-                                        existing = next((o for o in objects_list if str(o["id"]) == oid_str), None)
-                                        if not existing:
-                                            entry: dict[str, Any] = {"id": oid_str, "name": oname_str}
-                                            if obbox and isinstance(obbox, list):
-                                                entry["bbox"] = obbox
-                                            objects_list.append(entry)
-                                        elif obbox and isinstance(obbox, list) and "bbox" not in existing:
-                                            existing["bbox"] = obbox
+                        if isinstance(p_data, dict):
+                            b_objs = p_data.get("bbox_objects") or p_data.get("objects") or []
+                            if isinstance(b_objs, list) and b_objs:
+                                bbox_list.extend(b_objs)
                     except Exception as e_pj:
                         logger.debug(f"Plate json parse warning for {pjf}: {e_pj}")
 
@@ -292,22 +329,20 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                         except Exception:
                             pass
 
-                # 1c. Fallback G-code M486 / OBJECT_ID scanning if still empty
-                if not objects_list:
-                    gcode_files = [f for f in namelist if f.endswith(".gcode")]
-                    for gf in gcode_files:
-                        try:
-                            gcode_text = zf.read(gf).decode("utf-8", errors="ignore")
-                            # Match M486 S1 or ; OBJECT_ID: 1
-                            m486_ids = re.findall(r"M486\s+S(\d+)", gcode_text)
-                            obj_id_matches = re.findall(r";\s*OBJECT_ID:\s*(\d+)", gcode_text)
-                            found_ids = sorted(list(set([int(i) for i in (m486_ids + obj_id_matches)])))
-                            for fid in found_ids:
-                                fid_str = str(fid)
-                                if not any(str(o["id"]) == fid_str for o in objects_list):
-                                    objects_list.append({"id": fid_str, "name": f"Об'єкт #{fid_str}"})
-                        except Exception:
-                            pass
+                # 1c. Scan embedded G-code for Bambu Lab object labels (model label id / unique label id)
+                gcode_files = [f for f in namelist if f.endswith(".gcode")]
+                for gf in gcode_files:
+                    try:
+                        gcode_text = zf.read(gf).decode("utf-8", errors="ignore")
+                        gc_objs = extract_bambu_gcode_objects(gcode_text)
+                        for gco in gc_objs:
+                            existing = next((o for o in objects_list if str(o["id"]) == str(gco["id"])), None)
+                            if not existing:
+                                objects_list.append(gco)
+                            elif gco.get("name") and ("Об'єкт" in existing.get("name", "") or not existing.get("name")):
+                                existing["name"] = gco["name"]
+                    except Exception:
+                        pass
 
                 # 2. Search XML files for metadata & printer presets
                 xml_files = [f for f in namelist if f.endswith(".config") or f.endswith(".xml") or f.endswith(".info") or f.endswith(".model") or f.startswith("3D/")]
@@ -357,18 +392,15 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                         p_json = json.loads(content_str)
                         if isinstance(p_json, dict):
                             if "bbox_objects" in p_json and isinstance(p_json["bbox_objects"], list):
-                                if not bbox_list:
-                                    bbox_list = p_json["bbox_objects"]
-                                for b_obj in p_json["bbox_objects"]:
-                                    if isinstance(b_obj, dict) and "id" in b_obj:
-                                        b_id = str(b_obj["id"]).strip()
-                                        b_name = str(b_obj.get("name") or f"Об'єкт {b_id}").strip()
-                                        b_box = b_obj.get("bbox")
-                                        matching = [o for o in objects_list if o["id"] == b_id]
-                                        if matching:
-                                            if b_box and isinstance(b_box, list):
-                                                matching[0]["bbox"] = b_box
-                                        else:
+                                for b_item in p_json["bbox_objects"]:
+                                    if b_item not in bbox_list:
+                                        bbox_list.append(b_item)
+                                if not objects_list:
+                                    for b_obj in p_json["bbox_objects"]:
+                                        if isinstance(b_obj, dict) and "id" in b_obj:
+                                            b_id = str(b_obj["id"]).strip()
+                                            b_name = str(b_obj.get("name") or f"Об'єкт {b_id}").strip()
+                                            b_box = b_obj.get("bbox")
                                             obj_dict: dict[str, Any] = {"id": b_id, "name": b_name}
                                             if b_box and isinstance(b_box, list):
                                                 obj_dict["bbox"] = b_box
@@ -486,6 +518,28 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                                     result["time_mins"] = parse_time_str(t_str_match.group(1))
                     except Exception as e:
                         logger.warning(f"Error parsing embedded gcode {gf}: {e}")
+        else:
+            # Raw G-code text processing (when file is plain .gcode from SD card / FTPS)
+            gcode_text = file_bytes.decode("utf-8", errors="ignore")
+            gc_objs = extract_bambu_gcode_objects(gcode_text)
+            objects_list.extend(gc_objs)
+            from services.ftps_client import parse_weight_from_gcode_text
+            w_val = parse_weight_from_gcode_text(gcode_text)
+            if w_val > 0:
+                result["weight_g"] = w_val
+            t_sec_m = re.search(
+                r";\s*(?:estimated_printing_time_s|total_printing_time_s|printing_time_s)\s*=\s*(\d+)",
+                gcode_text,
+                re.IGNORECASE,
+            )
+            if t_sec_m:
+                result["time_mins"] = int(t_sec_m.group(1)) // 60
+            m_mod = re.search(r";\s*(?:printer_model_id|printer_model)\s*=\s*\"?([^\";\r\n]+)\"?", gcode_text, re.IGNORECASE)
+            if m_mod:
+                result["printer_model"] = resolve_model_name(m_mod.group(1))
+            m_fil = re.search(r";\s*(?:filament_type)\s*=\s*\"?([^\";\r\n]+)\"?", gcode_text, re.IGNORECASE)
+            if m_fil:
+                result["filament_type"] = m_fil.group(1).strip()
 
         # Fallback 4: Filename parsing for Weight, Printer Model & Time
         fname_lower = filename.lower()
@@ -549,14 +603,13 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             except Exception:
                 return ""
 
-        # Filter out auxiliary non-printable objects (towers, flush volumes, timelapses, calibration lines, phantom bboxes)
+        # Filter out auxiliary non-printable objects (wipe/prime towers, flush volumes, timelapses, calibration lines)
         filtered_objects = []
         for obj in objects_list:
             n_low = obj.get("name", "").lower()
             if any(k in n_low for k in [
                 "wipe tower", "prime tower", "purge tower", "wipe_tower", "prime_tower",
-                "flush", "purge", "timelapse", "calibration", "leveling", "test_line", "plate_1", "plate_2",
-                "wipe", "prime", "skirt", "brim", "raft", "support", "nozzle", "tower", "bed"
+                "flush volume", "purge volume", "timelapse", "calibration line", "leveling line", "test_line"
             ]):
                 continue
 
@@ -565,7 +618,7 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                 try:
                     w = abs(float(bbox[2]) - float(bbox[0]))
                     h = abs(float(bbox[3]) - float(bbox[1]))
-                    if w < 6.0 or h < 6.0 or (w * h) < 36.0:
+                    if w < 3.0 or h < 3.0 or (w * h) < 9.0:
                         continue
                 except Exception:
                     pass
@@ -587,8 +640,11 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
         for obj in objects_list:
             name_counts[obj["name"]] = name_counts.get(obj["name"], 0) + 1
 
-        # Match bbox strictly by object ID (not by arbitrary index!)
+        # Match bbox strictly:
+        # 1. Try exact ID match
         for obj in objects_list:
+            if "bbox" in obj:
+                continue
             b_id = str(obj.get("id", "")).strip()
             for b_item in bbox_list:
                 if isinstance(b_item, dict) and str(b_item.get("id", "")).strip() == b_id:
@@ -596,13 +652,12 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                         obj["bbox"] = b_item["bbox"]
                         break
 
-        # Filter out phantom objects lacking bbox if other objects have bbox
-        objs_with_bbox = [o for o in objects_list if isinstance(o.get("bbox"), list) and len(o["bbox"]) >= 4]
-        if objs_with_bbox and len(objs_with_bbox) < len(objects_list):
-            discarded = [o for o in objects_list if o not in objs_with_bbox]
-            for d in discarded:
-                logger.info(f"🧹 [3MF Parser] Discarded phantom object ID={d.get('id')} Name='{d.get('name')}' (lacks 2D bbox)")
-            objects_list = objs_with_bbox
+        # 2. Match by index if counts align and objects lack bbox (handles slicer internal mesh ID != firmware identify_id)
+        unmatched_objs = [o for o in objects_list if "bbox" not in o]
+        unmatched_bboxes = [b for b in bbox_list if isinstance(b, dict) and "bbox" in b and isinstance(b["bbox"], list)]
+        if len(unmatched_objs) == len(unmatched_bboxes) and len(unmatched_objs) > 0:
+            for o, b in zip(unmatched_objs, unmatched_bboxes):
+                o["bbox"] = b["bbox"]
 
         for obj in objects_list:
             base_name = obj["name"]
@@ -626,6 +681,7 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
 
         result["objects"] = objects_list
         result["valid"] = True
+
 
     except Exception as e:
         result["error"] = f"Помилка обробки файлу: {e}"
