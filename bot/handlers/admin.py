@@ -9,7 +9,7 @@ from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
-from bot.keyboards import get_admin_keyboard
+from bot.keyboards import get_admin_keyboard, get_main_keyboard
 from config import ADMIN_CHAT_ID, logger
 
 router = Router()
@@ -257,10 +257,12 @@ async def handle_manage_user_action(message: Message, app):
             if app.bot:
                 t_user = await app.storage.load_user(target_uid)
                 t_lang = t_user.get("language", "uk")
+                is_t_adm = await app.is_user_admin(target_uid)
                 await app.bot.send_message(
                     chat_id=target_uid,
-                    text="🎉 <b>Welcome! Administrator granted you access to 3D Farm!</b>\nPress /start to navigate to the main menu." if t_lang == "en" else "🎉 <b>Вітаємо! Адміністратор надав вам доступ до 3D Ферми!</b>\nНатисніть /start для переходу до головного меню.",
+                    text="🎉 <b>Welcome! Administrator granted you access to 3D Farm!</b>\nMain menu activated 🚀" if t_lang == "en" else "🎉 <b>Вітаємо! Адміністратор надав вам доступ до 3D Ферми!</b>\nГоловне меню активовано 🚀",
                     parse_mode=ParseMode.HTML,
+                    reply_markup=get_main_keyboard(is_t_adm, lang=t_lang),
                 )
         except Exception as e:
             logger.warning(f"Failed sending approval notification to {target_uid}: {e}")
@@ -269,13 +271,39 @@ async def handle_manage_user_action(message: Message, app):
         target_u["is_approved"] = False
         await app.storage.save_user(target_u)
         action_msg = f"❌ User <code>{html.escape(str(target_uid))}</code> removed from team!" if is_en else f"❌ Користувача <code>{html.escape(str(target_uid))}</code> видалено з команди!"
+        try:
+            if app.bot:
+                t_user = await app.storage.load_user(target_uid)
+                t_lang = t_user.get("language", "uk")
+                keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Додати в команду")]], resize_keyboard=True)
+                await app.bot.send_message(
+                    chat_id=target_uid,
+                    text="🚫 <b>Доступ до 3D Ферми було призупинено адміністратором.</b>" if t_lang != "en" else "🚫 <b>Access to 3D Farm has been revoked by administrator.</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=keyboard,
+                )
+        except Exception as e:
+            logger.warning(f"Failed sending removal notification to {target_uid}: {e}")
 
     elif text in ["👑 Призначити адміном", "👑 Grant Admin"]:
         if "admin" not in target_u:
             target_u["admin"] = {}
         target_u["admin"]["access_admin"] = True
+        target_u["is_approved"] = True
         await app.storage.save_user(target_u)
         action_msg = f"👑 User <code>{html.escape(str(target_uid))}</code> granted admin rights!" if is_en else f"👑 Користувача <code>{html.escape(str(target_uid))}</code> призначено адміністратором!"
+        try:
+            if app.bot:
+                t_user = await app.storage.load_user(target_uid)
+                t_lang = t_user.get("language", "uk")
+                await app.bot.send_message(
+                    chat_id=target_uid,
+                    text="👑 <b>Вам надано права Адміністратора 3D Ферми!</b>\nГоловне меню оновлено 🚀" if t_lang == "en" else "👑 <b>Вам надано права Адміністратора 3D Ферми!</b>\nГоловне меню оновлено 🚀",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=get_main_keyboard(True, lang=t_lang),
+                )
+        except Exception as e:
+            logger.warning(f"Failed sending admin grant notification to {target_uid}: {e}")
 
     elif text in ["🔻 Забрати адміна", "🔻 Revoke Admin"]:
         if str(target_uid) == str(ADMIN_CHAT_ID):
@@ -286,5 +314,17 @@ async def handle_manage_user_action(message: Message, app):
             target_u["admin"]["access_admin"] = False
             await app.storage.save_user(target_u)
             action_msg = f"🔻 Admin rights for <code>{html.escape(str(target_uid))}</code> revoked." if is_en else f"🔻 Адмін-права для <code>{html.escape(str(target_uid))}</code> скасовано."
+            try:
+                if app.bot:
+                    t_user = await app.storage.load_user(target_uid)
+                    t_lang = t_user.get("language", "uk")
+                    await app.bot.send_message(
+                        chat_id=target_uid,
+                        text="ℹ️ <b>Ваші права адміністратора було відкликано.</b>" if t_lang != "en" else "ℹ️ <b>Your administrator rights have been revoked.</b>",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=get_main_keyboard(False, lang=t_lang),
+                    )
+            except Exception as e:
+                logger.warning(f"Failed sending admin revoke notification to {target_uid}: {e}")
 
     await show_user_card(message, app, user, target_uid, target_u, action_msg=action_msg)

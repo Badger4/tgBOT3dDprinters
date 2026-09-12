@@ -132,10 +132,14 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             await callback.message.edit_text(
                 callback.message.html_text + "\n\n✅ <b>Схвалено адміністратором!</b>", parse_mode=ParseMode.HTML
             )
+            from bot.keyboards import get_main_keyboard
+            is_target_adm = await app.is_user_admin(target_uid)
+            u_lang = user.get("language", "uk")
             await app.bot.send_message(
                 chat_id=target_uid,
-                text="🎉 <b>Адміністратор надав вам доступ до 3D Ферми!</b>\nНатисніть /start для переходу до головного меню.",
+                text="🎉 <b>Адміністратор надав вам доступ до 3D Ферми!</b>\nГоловне меню активовано 🚀" if u_lang != "en" else "🎉 <b>Administrator granted you access to 3D Farm!</b>\nMain menu activated 🚀",
                 parse_mode=ParseMode.HTML,
+                reply_markup=get_main_keyboard(is_target_adm, lang=u_lang),
             )
         except Exception:
             pass
@@ -174,10 +178,13 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             await callback.message.edit_text(
                 callback.message.html_text + "\n\n👑 <b>Призначено Адміністратором!</b>", parse_mode=ParseMode.HTML
             )
+            from bot.keyboards import get_main_keyboard
+            u_lang = user.get("language", "uk")
             await app.bot.send_message(
                 chat_id=target_uid,
-                text="👑 <b>Вам надано права Адміністратора 3D Ферми!</b>\nНатисніть /start.",
+                text="👑 <b>Вам надано права Адміністратора 3D Ферми!</b>\nГоловне меню активовано 🚀" if u_lang != "en" else "👑 <b>You have been granted Administrator rights to 3D Farm!</b>\nMain menu activated 🚀",
                 parse_mode=ParseMode.HTML,
+                reply_markup=get_main_keyboard(True, lang=u_lang),
             )
         except Exception:
             pass

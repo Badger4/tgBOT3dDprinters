@@ -9,6 +9,8 @@ from bot.handlers.admin import (
     handle_select_user,
     handle_manage_user_action,
 )
+from bot.handlers.start import handle_request_access
+from bot.handlers.common import handle_fallback_text
 
 
 @pytest.fixture
@@ -56,11 +58,16 @@ def mock_app():
         u = users_db.get(str(uid))
         return bool(u and u.get("admin", {}).get("access_admin"))
 
+    async def is_user_approved(uid):
+        u = users_db.get(str(uid))
+        return bool(u and u.get("is_approved"))
+
     app.storage.load_all_users = AsyncMock(side_effect=load_all_users)
     app.storage.load_user = AsyncMock(side_effect=load_user)
     app.storage.save_user = AsyncMock(side_effect=save_user)
     app.storage.delete_user = AsyncMock(side_effect=delete_user)
     app.is_user_admin = AsyncMock(side_effect=is_user_admin)
+    app.is_user_approved = AsyncMock(side_effect=is_user_approved)
 
     return app
 
@@ -106,12 +113,17 @@ async def test_admin_select_user_flow(mock_app):
 
     # 3. Admin clicks "✅ Додати в команду"
     admin_msg.answer.reset_mock()
+    mock_app.bot.send_message.reset_mock()
     admin_msg.text = "✅ Додати в команду"
     await handle_manage_user_action(admin_msg, mock_app)
 
     target_u = await mock_app.storage.load_user("123456")
     assert target_u["is_approved"] is True
     assert "успішно додано в команду" in admin_msg.answer.call_args[0][0]
+    assert mock_app.bot.send_message.called
+    sent_args = mock_app.bot.send_message.call_args[1]
+    assert sent_args["chat_id"] == "123456"
+    assert "reply_markup" in sent_args
 
     # 4. Admin clicks "👑 Призначити адміном"
     admin_msg.answer.reset_mock()
@@ -140,3 +152,57 @@ async def test_admin_select_user_flow(mock_app):
     assert admin_user["state"] == "idle"
     assert admin_user["context_data"] == {}
     assert "Панель Адміністратора" in admin_msg.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_approved_user_request_access_button(mock_app):
+    user_msg = MagicMock(spec=Message)
+    user_msg.chat = Chat(id=123456, type="private")
+    user_msg.from_user = User(id=123456, is_bot=False, first_name="Ivan")
+    user_msg.answer = AsyncMock()
+
+    # User is not approved yet
+    user_msg.text = "Додати в команду"
+    await handle_request_access(user_msg, mock_app)
+    assert "Вашу заявку прийнято" in user_msg.answer.call_args[0][0]
+
+    # Now approve user
+    target_u = await mock_app.storage.load_user("123456")
+    target_u["is_approved"] = True
+    await mock_app.storage.save_user(target_u)
+
+    # Approved user clicks "Додати в команду" again
+    user_msg.answer.reset_mock()
+    await handle_request_access(user_msg, mock_app)
+    assert user_msg.answer.called
+    sent_text = user_msg.answer.call_args[0][0]
+    assert "Ваш доступ уже підтверджено" in sent_text
+    assert "reply_markup" in user_msg.answer.call_args[1]
+
+
+@pytest.mark.asyncio
+async def test_fallback_text_for_approved_and_unapproved(mock_app):
+    msg = MagicMock(spec=Message)
+    msg.chat = Chat(id=999999, type="private")
+    msg.from_user = User(id=999999, is_bot=False, first_name="Guest")
+    msg.answer = AsyncMock()
+    msg.text = "Hello there"
+
+    # Unapproved user gets access request button
+    await handle_fallback_text(msg, mock_app)
+    assert msg.answer.called
+    assert "Щоб отримати доступ" in msg.answer.call_args[0][0]
+    unapp_markup = msg.answer.call_args[1]["reply_markup"]
+    assert any("Додати в команду" in b.text for row in unapp_markup.keyboard for b in row)
+
+    # Approved user gets main keyboard
+    msg.chat = Chat(id=877001503, type="private")
+    msg.from_user = User(id=877001503, is_bot=False, first_name="Boss")
+    msg.answer.reset_mock()
+    await handle_fallback_text(msg, mock_app)
+    assert msg.answer.called
+    assert "Скористайтесь кнопками меню" in msg.answer.call_args[0][0]
+    app_markup = msg.answer.call_args[1]["reply_markup"]
+    btn_texts = [b.text for row in app_markup.keyboard for b in row]
+    assert any("Принтери" in b for b in btn_texts)
+

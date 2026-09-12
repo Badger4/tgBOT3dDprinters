@@ -54,32 +54,42 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from config import ADMIN_CHAT_ID, logger
 
 
-@router.message(F.text == "Додати в команду")
+@router.message(F.text.lower().in_(["додати в команду", "add to team"]))
 async def handle_request_access(message: Message, app):
     chat_id = str(message.chat.id)
-    if not await app.is_user_approved(chat_id):
-        await message.answer("📌 Вашу заявку прийнято! Чекай підтвердження від адміна й не біси мене! 😤")
-        if app.bot and ADMIN_CHAT_ID:
-            user_name = message.from_user.first_name if message.from_user else "Новий користувач"
-            username_str = (
-                f" (@{message.from_user.username})" if message.from_user and message.from_user.username else ""
-            )
+    if await app.is_user_approved(chat_id):
+        user = await app.storage.load_user(chat_id)
+        is_adm = await app.is_user_admin(chat_id)
+        u_lang = user.get("language", "uk")
+        await message.answer(
+            "🎉 *Ваш доступ уже підтверджено!*\nОбирайте розділ меню нижче: 🚀" if u_lang != "en" else "🎉 *Your access is already approved!*\nSelect a menu section below: 🚀",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard(is_adm, lang=u_lang),
+        )
+        return
 
-            kb = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="✅ Схвалити", callback_data=f"approve_user_{chat_id}"),
-                        InlineKeyboardButton(text="❌ Відхилити", callback_data=f"reject_user_{chat_id}"),
-                    ],
-                    [InlineKeyboardButton(text="👑 Зробити адміном", callback_data=f"make_admin_{chat_id}")],
-                ]
+    await message.answer("📌 Вашу заявку прийнято! Чекай підтвердження від адміна й не біси мене! 😤")
+    if app.bot and ADMIN_CHAT_ID:
+        user_name = message.from_user.first_name if message.from_user else "Новий користувач"
+        username_str = (
+            f" (@{message.from_user.username})" if message.from_user and message.from_user.username else ""
+        )
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Схвалити", callback_data=f"approve_user_{chat_id}"),
+                    InlineKeyboardButton(text="❌ Відхилити", callback_data=f"reject_user_{chat_id}"),
+                ],
+                [InlineKeyboardButton(text="👑 Зробити адміном", callback_data=f"make_admin_{chat_id}")],
+            ]
+        )
+        try:
+            await app.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"🆕 <b>Заявка на доступ до 3D Ферми!</b>\n👤 <b>Користувач:</b> {html.escape(user_name)}{username_str}\n🔢 <b>ID:</b> <code>{chat_id}</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
             )
-            try:
-                await app.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID,
-                    text=f"🆕 <b>Заявка на доступ до 3D Ферми!</b>\n👤 <b>Користувач:</b> {html.escape(user_name)}{username_str}\n🔢 <b>ID:</b> <code>{chat_id}</code>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=kb,
-                )
-            except Exception as e:
-                logger.warning(f"Could not notify admin of access request: {e}")
+        except Exception as e:
+            logger.warning(f"Could not notify admin of access request: {e}")

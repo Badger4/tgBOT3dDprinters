@@ -142,6 +142,8 @@ async def handle_fallback_text(message: Message, app):
 
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
+    is_adm = await app.is_user_admin(chat_id)
     await message.answer(
-        "Скористайтесь кнопками меню для навігації." if u_lang != "en" else "Please use the menu buttons for navigation."
+        "Скористайтесь кнопками меню для навігації." if u_lang != "en" else "Please use the menu buttons for navigation.",
+        reply_markup=get_main_keyboard(is_adm, lang=u_lang),
     )
