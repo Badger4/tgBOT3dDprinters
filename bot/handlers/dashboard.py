@@ -70,13 +70,20 @@ async def handle_dashboard(message: Message, app, state: FSMContext | None = Non
         if not is_p_online or mapped_st == "OFFLINE":
             dash_txt += f"   🔌 <i>{'Вимкнений або немає зв\'язку' if not is_en else 'Offline / Powered off'}</i>\n"
         elif mapped_st in ["RUNNING", "PAUSE"]:
-            from bot.handlers.printers.view import format_remaining_time
+            from bot.handlers.printers.view import format_remaining_time, get_finish_time_str
             sub_task = html.escape(p.subtask_name or ("Model" if is_en else "Модель"))
-            min_lbl = "min" if is_en else "хв"
-            rem_m = getattr(p, "mc_remaining_time", 0)
+            try:
+                rem_m = int(getattr(p, "mc_remaining_time", 0))
+            except (TypeError, ValueError):
+                rem_m = 0
+            try:
+                p_pct = int(getattr(p, "mc_percent", 0))
+            except (TypeError, ValueError):
+                p_pct = 0
             rem_str = format_remaining_time(rem_m, is_en)
-            time_display = f"~{rem_str} ({rem_m} {min_lbl})" if rem_str else f"~{rem_m} {min_lbl}"
-            dash_txt += f"   📄 <i>{sub_task}</i> ({p.mc_percent}%) | ⏱️ {time_display}\n"
+            finish_str = get_finish_time_str(rem_m, is_en)
+            finish_note = f" ({finish_str})" if finish_str else ""
+            dash_txt += f"   📄 <i>{sub_task}</i> ({p_pct}%) | ⏱️ ~{rem_str}{finish_note}\n"
             dash_txt += f"   🔥 {p.nozzle_temper}°C | 🛏️ {p.bed_temper}°C | 🧵 {p.filament_grams}g\n"
         else:
             rem_lbl = "Remaining:" if is_en else "Залишок:"

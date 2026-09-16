@@ -3,6 +3,7 @@ Printers view & status card handlers.
 """
 
 import html
+import time
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
@@ -50,6 +51,28 @@ def format_remaining_time(minutes: int, is_en: bool = False) -> str:
         return f"{mins} хв" if not is_en else f"{mins} min"
 
 
+def get_finish_time_str(minutes: int, is_en: bool = False) -> str:
+    try:
+        minutes = int(minutes)
+    except (ValueError, TypeError):
+        return ""
+    if minutes <= 0:
+        return ""
+    finish_ts = time.time() + minutes * 60
+    finish_loc = time.localtime(finish_ts)
+    now_loc = time.localtime()
+
+    time_part = time.strftime("%H:%M", finish_loc)
+
+    if finish_loc.tm_year == now_loc.tm_year and finish_loc.tm_yday == now_loc.tm_yday:
+        return f"завершиться о {time_part}" if not is_en else f"finishes at {time_part}"
+    elif (finish_loc.tm_yday - now_loc.tm_yday) in [1, -364, -365]:
+        return f"завершиться завтра о {time_part}" if not is_en else f"finishes tomorrow at {time_part}"
+    else:
+        date_part = time.strftime("%d.%m", finish_loc)
+        return f"завершиться {date_part} о {time_part}" if not is_en else f"finishes {date_part} at {time_part}"
+
+
 def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False) -> str:
     is_online = getattr(target_printer, "is_online", True)
     mapped_st = getattr(target_printer, "mapped_state", "ONLINE")
@@ -63,14 +86,16 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
     except (TypeError, ValueError):
         pct = 0
     rem_str = format_remaining_time(rem_m, is_en)
+    finish_str = get_finish_time_str(rem_m, is_en)
 
     if not is_online or mapped_st == "OFFLINE":
         state_emoji = "🔴"
         state_label = "Офлайн" if not is_en else "Offline"
     elif mapped_st == "RUNNING":
         state_emoji = "🟢"
+        finish_note = f", {finish_str}" if finish_str else ""
         if rem_str:
-            state_label = f"Друкує (~{rem_str})" if not is_en else f"Printing (~{rem_str})"
+            state_label = f"Друкує (~{rem_str}{finish_note})" if not is_en else f"Printing (~{rem_str}{finish_note})"
         else:
             state_label = f"Друкує ({pct}%)" if not is_en else f"Printing ({pct}%)"
     elif mapped_st == "PAUSE":
@@ -154,8 +179,8 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             lines.append(f"📄 <b>{'Завдання' if not is_en else 'Job'}:</b> <code>{html.escape(subtask)}</code>")
         lines.append(f"⏳ <b>{'Прогрес' if not is_en else 'Progress'}:</b> <code>{pct}%</code>")
         if rem_m > 0:
-            time_display = f"~{rem_str} ({rem_m} хв)" if not is_en else f"~{rem_str} ({rem_m} min)"
-            lines.append(f"⏱️ <b>{'Залишилось друкувати' if not is_en else 'Time Remaining'}:</b> <code>{time_display}</code>")
+            finish_note = f" ({finish_str})" if finish_str else ""
+            lines.append(f"⏱️ <b>{'Залишилось друкувати' if not is_en else 'Time Remaining'}:</b> <code>~{rem_str}</code>{finish_note}")
         if total_layer > 0:
             lines.append(f"🥞 <b>{'Шар' if not is_en else 'Layer'}:</b> <code>{layer} / {total_layer}</code>")
         if lines:
@@ -272,7 +297,9 @@ async def handle_printer_camera(message: Message, app):
         except (TypeError, ValueError):
             rem_m = 0
         rem_fmt = format_remaining_time(rem_m, u_lang == "en")
-        rem_str = f" | ⏱️ ~{rem_fmt}" if rem_fmt else ""
+        finish_str = get_finish_time_str(rem_m, u_lang == "en")
+        finish_note = f" ({finish_str})" if finish_str else ""
+        rem_str = f" | ⏱️ ~{rem_fmt}{finish_note}" if rem_fmt else ""
         try:
             pct_cam = int(getattr(target_printer, "mc_percent", 0))
         except (TypeError, ValueError):
