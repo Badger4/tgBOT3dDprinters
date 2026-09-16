@@ -316,6 +316,9 @@ def get_single_printer_filament_keyboard(lang: str = "uk") -> ReplyKeyboardMarku
         ],
         [
             KeyboardButton(text="✏️ Змінити вагу" if not is_en else "✏️ Edit Weight"),
+            KeyboardButton(text=t("btn_spool_movements", lang)),
+        ],
+        [
             KeyboardButton(text="⬅️ Назад" if not is_en else "⬅️ Back"),
         ],
     ]
