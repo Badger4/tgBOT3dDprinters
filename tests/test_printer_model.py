@@ -320,7 +320,13 @@ class TestPrinterModel(unittest.TestCase):
     def test_get_active_spool_key_and_sentinels(self) -> None:
         # Idle state (255) -> returns None
         self.printer.active_ams_tray = 255
+        self.printer.target_ams_tray = 255
         self.assertIsNone(self.printer.get_active_spool_key())
+
+        # When target_ams_tray is set (e.g. tray_tar=3 during prep) -> returns "3"
+        self.printer.target_ams_tray = 3
+        self.assertEqual(self.printer.get_active_spool_key(), "3")
+        self.printer.target_ams_tray = 255
 
         # External spool (254) -> returns "254"
         self.printer.active_ams_tray = 254
@@ -373,20 +379,48 @@ class TestPrinterModel(unittest.TestCase):
         self.printer._client = MagicMock()
         self.printer._client.is_connected.return_value = True
         self.printer.active_ams_tray = 255  # Idle / None loaded
+        self.printer.target_ams_tray = 255
         self.printer.set_slot_grams(1000.0, "0")
+        self.printer.set_slot_grams(462.0, "3")
         self.printer.set_slot_grams(1000.0, "254")
 
         msg = MagicMock()
         msg.topic = f"device/{self.printer.serial_number}/report"
-        # Telemetry reports subtask with 50g weight but tray_now is 255 (idle)
+        # Telemetry reports subtask with 50g weight but tray_now is 255 and tray_tar is 255 (idle/prep)
         msg.payload = json.dumps({
             "print": {
                 "gcode_state": "RUNNING",
-                "subtask_name": "TestModel_50g.3mf",
-                "ams": {"ams_exist_bits": "1", "tray_now": 255}
+                "subtask_name": "roller_full.gcode.3mf",
+                "ams": {"ams_exist_bits": "1", "tray_now": 255, "tray_tar": 255}
             }
         }).encode("utf-8")
+        self.printer._is_printing = True
+        self.printer._current_job_grams = 19.79
+        self.printer._job_deducted = False
         self.printer._on_message(None, None, msg)
+
+        # Slot 0 and Slot 3 must NOT be deducted while idle
+        self.assertEqual(self.printer.get_slot_grams("0"), 1000.0)
+        self.assertEqual(self.printer.get_slot_grams("3"), 462.0)
+        self.assertFalse(self.printer._job_deducted)
+
+        # Now tray_tar=3 arrives (Slot 4 targeted for print)
+        msg_target = MagicMock()
+        msg_target.topic = f"device/{self.printer.serial_number}/report"
+        msg_target.payload = json.dumps({
+            "print": {
+                "gcode_state": "RUNNING",
+                "subtask_name": "roller_full.gcode.3mf",
+                "ams": {"ams_exist_bits": "1", "tray_now": 255, "tray_tar": 3}
+            }
+        }).encode("utf-8")
+        self.printer._on_message(None, None, msg_target)
+
+        # Slot 0 must still remain 1000.0!
+        self.assertEqual(self.printer.get_slot_grams("0"), 1000.0)
+        # Slot 3 (4th slot) must be accurately deducted: 462.0 - 19.79 = 442.21
+        self.assertEqual(self.printer.get_slot_grams("3"), 442.21)
+        self.assertTrue(self.printer._job_deducted)
 
     def test_automatic_has_ams_detection(self) -> None:
         # 1. No AMS exist bits
