@@ -275,11 +275,24 @@ async def handle_rfid_sync(message: Message, app):
             existing = next((s for s in spools.values() if s.get("tag_uid") == tag_uid), None)
 
             if existing:
+                prev_g = float(existing.get("remaining_grams", 0.0))
                 existing["remaining_grams"] = rem_g
                 existing["assigned_printer_id"] = p.id
                 existing["assigned_slot_key"] = str(slot_id)
                 spools[existing["id"]] = existing
                 updated_count += 1
+                if abs(rem_g - prev_g) > 0.01:
+                    delta = rem_g - prev_g
+                    await app.storage.record_spool_movement(
+                        spool_id=existing["id"],
+                        spool_name=existing.get("name", "Котушка"),
+                        action="refill" if delta > 0 else "manual_edit",
+                        weight_change_g=round(delta, 2),
+                        prev_weight_g=round(prev_g, 2),
+                        new_weight_g=round(rem_g, 2),
+                        reason="RFID оновлення ваги (AMS)",
+                        user="RFID",
+                    )
             else:
                 spool_name = f"Bambu {t_type} {t_sub}".strip()
                 if not t_sub:
@@ -298,6 +311,16 @@ async def handle_rfid_sync(message: Message, app):
                     "quantity": 1,
                 }
                 added_count += 1
+                await app.storage.record_spool_movement(
+                    spool_id=new_id,
+                    spool_name=spool_name,
+                    action="initial_stock",
+                    weight_change_g=round(rem_g, 2),
+                    prev_weight_g=0.0,
+                    new_weight_g=round(rem_g, 2),
+                    reason="RFID авто-виявлення (AMS)",
+                    user="RFID",
+                )
 
     if added_count > 0 or updated_count > 0:
         await app.storage.save_spools(spools)

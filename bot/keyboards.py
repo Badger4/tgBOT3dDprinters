@@ -301,6 +301,7 @@ def get_filament_menu_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
         [KeyboardButton(text=t("btn_add_spool", lang)), KeyboardButton(text=t("btn_rfid_sync", lang))],
         [KeyboardButton(text=t("btn_mount_spool", lang)), KeyboardButton(text=t("btn_unmount_spool", lang))],
         [KeyboardButton(text=t("btn_edit_spool", lang)), KeyboardButton(text=t("btn_delete_spool", lang))],
+        [KeyboardButton(text=t("btn_spool_movements", lang)), KeyboardButton(text=t("btn_spools_pdf", lang))],
         [KeyboardButton(text=t("btn_back", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -706,6 +707,81 @@ def get_history_date_filter_keyboard(
 
     buttons.append([InlineKeyboardButton(text="⬅️ " + ("Back to history" if is_en else "Назад до історії"), callback_data="hist_back")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_spool_movements_keyboard(
+    page: int,
+    total_pages: int,
+    spool_filter: str = "all",
+    lang: str = "uk",
+) -> InlineKeyboardMarkup:
+    is_en = lang == "en"
+    keyboard = []
+
+    # Filter & PDF Export row
+    filt_label = "🔍 Filter" if is_en else "🔍 Фільтр"
+    if spool_filter != "all":
+        filt_label = "❌ Clear filter" if is_en else "❌ Скинути фільтр"
+    pdf_label = "📥 PDF Audit" if is_en else "📥 PDF Аудит"
+
+    keyboard.append([
+        InlineKeyboardButton(text=filt_label, callback_data="mov_filter_clear" if spool_filter != "all" else "mov_filter_menu"),
+        InlineKeyboardButton(text=pdf_label, callback_data="mov_export_pdf"),
+    ])
+
+    # Pagination row
+    if total_pages > 1:
+        pag_row = []
+        if page > 0:
+            pag_row.append(InlineKeyboardButton(text="◀️", callback_data=f"mov_page:{page - 1}:{spool_filter}"))
+        else:
+            pag_row.append(InlineKeyboardButton(text="▪️", callback_data="mov_noop"))
+
+        pag_row.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="mov_noop"))
+
+        if page < total_pages - 1:
+            pag_row.append(InlineKeyboardButton(text="▶️", callback_data=f"mov_page:{page + 1}:{spool_filter}"))
+        else:
+            pag_row.append(InlineKeyboardButton(text="▪️", callback_data="mov_noop"))
+
+        keyboard.append(pag_row)
+
+    # Refresh row
+    keyboard.append([
+        InlineKeyboardButton(text="🔄 " + ("Refresh" if is_en else "Оновити"), callback_data=f"mov_page:{page}:{spool_filter}")
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_spool_filter_keyboard(
+    spools: dict[str, dict[str, Any]],
+    current_filter: str = "all",
+    lang: str = "uk",
+) -> InlineKeyboardMarkup:
+    is_en = lang == "en"
+    buttons = []
+    all_check = " ✅" if current_filter == "all" else ""
+    buttons.append([InlineKeyboardButton(text=f"🌐 {'All spools' if is_en else 'Всі котушки'}{all_check}", callback_data="mov_filter:all")])
+
+    for s_id, s in list(spools.items())[:15]:
+        s_name = s.get("name", "Spool")
+        check = " ✅" if str(s_id) == str(current_filter) else ""
+        buttons.append([InlineKeyboardButton(text=f"🧵 {s_name[:20]}{check}", callback_data=f"mov_filter:{s_id}")])
+
+    buttons.append([InlineKeyboardButton(text="⬅️ " + ("Back to audit" if is_en else "Назад до аудиту"), callback_data="mov_page:0:all")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_warehouse_pdf_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:
+    is_en = lang == "en"
+    buttons = [
+        [InlineKeyboardButton(text="📦 " + ("Stock Inventory (PDF)" if is_en else "Залишки на складі (PDF)"), callback_data="pdf_export_spools")],
+        [InlineKeyboardButton(text="📜 " + ("Movements Audit (PDF)" if is_en else "Журнал аудиту руху (PDF)"), callback_data="pdf_export_movements")],
+        [InlineKeyboardButton(text="📥 " + ("Download Both Reports" if is_en else "Завантажити обидва звіти"), callback_data="pdf_export_both")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 
 

@@ -232,6 +232,16 @@ async def handle_preset_callback(callback: CallbackQuery, app):
         "quantity": 1,
     }
     await app.storage.save_spools(spools)
+    await app.storage.record_spool_movement(
+        spool_id=new_id,
+        spool_name=p_name,
+        action="initial_stock",
+        weight_change_g=p_grams,
+        prev_weight_g=0.0,
+        new_weight_g=p_grams,
+        reason="Внесення на склад за пресетом (Telegram)",
+        user=user.get("username") or user.get("first_name") or f"TG:{callback.from_user.id}",
+    )
 
     user["state"] = "idle"
     user.get("context_data", {}).pop("new_spool", None)
@@ -534,6 +544,16 @@ async def handle_filament_states(message: Message, app) -> bool:
             "quantity": qty,
         }
         await app.storage.save_spools(spools)
+        await app.storage.record_spool_movement(
+            spool_id=new_id,
+            spool_name=sp_name,
+            action="initial_stock",
+            weight_change_g=round(float(sp_grams) * qty, 2),
+            prev_weight_g=0.0,
+            new_weight_g=round(float(sp_grams), 2),
+            reason=f"Внесення на склад через Telegram бот ({qty} шт)",
+            user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
+        )
 
         user["state"] = "idle"
         user.get("context_data", {}).pop("new_spool", None)
@@ -1178,10 +1198,26 @@ async def handle_filament_states(message: Message, app) -> bool:
             await message.answer("⚠️ Котушку не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
             return True
 
+        prev_g = float(target_spool.get("remaining_grams", 0.0))
         new_g = float(val)
         target_spool["remaining_grams"] = new_g
         spools[spool_id] = target_spool
         await app.storage.save_spools(spools)
+
+        if abs(new_g - prev_g) > 0.01:
+            delta = new_g - prev_g
+            action = "refill" if delta > 0 else "manual_edit"
+            reason = "Поповнення котушки (Telegram)" if delta > 0 else "Ручне коригування ваги (Telegram)"
+            await app.storage.record_spool_movement(
+                spool_id=spool_id,
+                spool_name=target_spool.get("name", "Котушка"),
+                action=action,
+                weight_change_g=round(delta, 2),
+                prev_weight_g=round(prev_g, 2),
+                new_weight_g=round(new_g, 2),
+                reason=reason,
+                user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
+            )
 
         p_id = target_spool.get("assigned_printer_id")
         slot_k = target_spool.get("assigned_slot_key")
@@ -1300,6 +1336,18 @@ async def handle_filament_states(message: Message, app) -> bool:
                     await app.save_printers_config()
                 await app.storage.save_spools(spools)
 
+                prev_w = float(sp.get("remaining_grams", 0.0))
+                await app.storage.record_spool_movement(
+                    spool_id=spool_id,
+                    spool_name=sp.get("name", "Котушка"),
+                    action="write_off",
+                    weight_change_g=-prev_w,
+                    prev_weight_g=prev_w,
+                    new_weight_g=0.0,
+                    reason="Списання / Видалення котушки зі складу (Telegram)",
+                    user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
+                )
+
                 user["state"] = "idle"
                 user.get("context_data", {}).pop("delete_spool_id", None)
                 await app.storage.save_user(user)
@@ -1346,9 +1394,23 @@ async def handle_filament_states(message: Message, app) -> bool:
             spool_updated = False
             for s_id, s in list(spools.items()):
                 if s.get("assigned_printer_id") == target_printer.id and str(s.get("assigned_slot_key")) in [str(slot_key), "255" if str(slot_key) == "254" else str(slot_key)]:
-                    s["remaining_grams"] = float(val)
+                    prev_w = float(s.get("remaining_grams", 0.0))
+                    new_w = float(val)
+                    s["remaining_grams"] = new_w
                     spools[s_id] = s
                     spool_updated = True
+                    if abs(new_w - prev_w) > 0.01:
+                        delta = new_w - prev_w
+                        await app.storage.record_spool_movement(
+                            spool_id=s_id,
+                            spool_name=s.get("name", "Котушка"),
+                            action="refill" if delta > 0 else "manual_edit",
+                            weight_change_g=round(delta, 2),
+                            prev_weight_g=round(prev_w, 2),
+                            new_weight_g=round(new_w, 2),
+                            reason=f"Ручне коригування ваги слоту {slot_lbl} (Telegram)",
+                            user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
+                        )
                     break
             if spool_updated:
                 await app.storage.save_spools(spools)

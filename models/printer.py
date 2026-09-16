@@ -529,6 +529,61 @@ class BambuPrinter:
             pass
         return None
 
+    def _deduct_spool_warehouse(self, slot_key: str, deducted_grams: float) -> None:
+        """Deducts grams from mounted spool in warehouse storage and logs audit movement."""
+        if not self.storage or deducted_grams <= 0:
+            return
+        try:
+            loop = self._get_active_event_loop()
+            if not loop or not loop.is_running():
+                return
+
+            async def _do_deduct():
+                try:
+                    spools = await self.storage.load_spools()
+                    spool_to_deduct = None
+                    spool_id_to_deduct = None
+                    target_slot_str = str(slot_key)
+                    for s_id, s in spools.items():
+                        if s.get("assigned_printer_id") == self.id and str(s.get("assigned_slot_key")) in [
+                            target_slot_str,
+                            "255" if target_slot_str == "254" else target_slot_str,
+                        ]:
+                            spool_to_deduct = s
+                            spool_id_to_deduct = s_id
+                            break
+
+                    if spool_to_deduct and spool_id_to_deduct:
+                        prev_w = float(spool_to_deduct.get("remaining_grams", 0.0))
+                        new_w = max(0.0, round(prev_w - deducted_grams, 2))
+                        spool_to_deduct["remaining_grams"] = new_w
+                        spools[spool_id_to_deduct] = spool_to_deduct
+                        await self.storage.save_spools(spools)
+                        await self.storage.record_spool_movement(
+                            spool_id=spool_id_to_deduct,
+                            spool_name=spool_to_deduct.get("name", "Котушка"),
+                            action="print",
+                            weight_change_g=-round(deducted_grams, 2),
+                            prev_weight_g=round(prev_w, 2),
+                            new_weight_g=new_w,
+                            reason=f"Друк: {self.subtask_name or 'Завдання'}",
+                            user=self.name,
+                        )
+                except Exception as ex:
+                    logger.warning(f"Error in _deduct_spool_warehouse async task for [{self.name}]: {ex}")
+
+            try:
+                current_loop = asyncio.get_running_loop()
+                if current_loop is loop and current_loop.is_running():
+                    current_loop.create_task(_do_deduct())
+                    return
+            except RuntimeError:
+                pass
+
+            asyncio.run_coroutine_threadsafe(_do_deduct(), loop)
+        except Exception as e:
+            logger.warning(f"Failed to schedule _deduct_spool_warehouse for [{self.name}]: {e}")
+
     def init_mqtt(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
         if not self.ip or not self.serial_number:
             logger.warning(f"[{self.name}] Missing IP or Serial, MQTT disabled.")
@@ -649,6 +704,7 @@ class BambuPrinter:
                             self.set_slot_grams(new_w, active_key)
                             self._job_deducted = True
                             self.last_job_grams = self._current_job_grams
+                            self._deduct_spool_warehouse(active_key, self._current_job_grams)
                             logger.info(
                                 f"💾 Auto-deducted {self._current_job_grams}g (via FTPS) from AMS Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
                             )
@@ -892,6 +948,7 @@ class BambuPrinter:
                         self.set_slot_grams(new_w, active_key)
                         self._job_deducted = True
                         self.last_job_grams = self._current_job_grams
+                        self._deduct_spool_warehouse(active_key, self._current_job_grams)
                         logger.info(
                             f"💾 Auto-deducted {self._current_job_grams}g from Slot {active_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
                         )
@@ -966,6 +1023,7 @@ class BambuPrinter:
                             self.set_slot_grams(new_w, active_key)
                             self._job_deducted = True
                             self.last_job_grams = final_weight
+                            self._deduct_spool_warehouse(active_key, final_weight)
                             logger.info(
                                 f"💾 Auto-deducted {final_weight}g from AMS Slot {active_key} for [{self.name}] on job completion. Old: {old_w}g -> New: {new_w}g"
                             )
@@ -1411,6 +1469,7 @@ class BambuPrinter:
                 self.set_slot_grams(new_w, deduct_key)
                 self._job_deducted = True
                 self.last_job_grams = w_g
+                self._deduct_spool_warehouse(deduct_key, w_g)
                 logger.info(
                     f"💾 Auto-deducted {w_g}g from Slot {deduct_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
                 )

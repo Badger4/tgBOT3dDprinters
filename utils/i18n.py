@@ -71,6 +71,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "uk": "🗑️ Видалити",
         "en": "🗑️ Delete Spool",
     },
+    "btn_spool_movements": {
+        "uk": "📜 Аудит руху",
+        "en": "📜 Movement Audit",
+    },
+    "btn_spools_pdf": {
+        "uk": "📄 Експорт PDF",
+        "en": "📄 Export PDF",
+    },
     "btn_back": {
         "uk": "⬅️ Назад",
         "en": "⬅️ Back",

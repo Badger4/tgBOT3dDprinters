@@ -3,6 +3,7 @@ Full coverage end-to-end unit tests for all Telegram bot handlers:
 Dashboard, History, PDF Export, Printer Status, Filament, AMS Slots, Maintenance, and Callbacks.
 """
 
+import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +18,9 @@ from storage.manager import StorageManager
 class TestBotHandlersFull(unittest.TestCase):
     def setUp(self):
         self.router = setup_routers()
-        self.sm = StorageManager(Path("./printers_storage"))
+        self.temp_dir_obj = tempfile.TemporaryDirectory()
+        self.temp_dir = Path(self.temp_dir_obj.name)
+        self.sm = StorageManager(self.temp_dir)
         self.app = MagicMock()
         self.app.storage = self.sm
         self.app.printers = {}
@@ -27,6 +30,10 @@ class TestBotHandlersFull(unittest.TestCase):
 
         self.chat = Chat(id=777, type="private")
         self.user_obj = User(id=777, is_bot=False, first_name="Tester")
+
+    def tearDown(self):
+        if hasattr(self, "temp_dir_obj"):
+            self.temp_dir_obj.cleanup()
 
     async def _send_msg(self, text: str) -> AsyncMock:
         msg = Message(message_id=101, date=datetime.now(), chat=self.chat, from_user=self.user_obj, text=text)

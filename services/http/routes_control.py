@@ -69,8 +69,22 @@ async def handle_printer_control(request: web.Request) -> web.Response:
         spools = await app_obj.storage.load_spools()
         for s_id, s in spools.items():
             if s.get("assigned_printer_id") == p.id and str(s.get("assigned_slot_key")) == slot_id:
-                s["remaining_grams"] = round(float(grams), 1)
+                prev_w = float(s.get("remaining_grams", 0.0))
+                new_w = round(float(grams), 1)
+                s["remaining_grams"] = new_w
                 spools[s_id] = s
+                if abs(new_w - prev_w) > 0.01:
+                    delta = new_w - prev_w
+                    await app_obj.storage.record_spool_movement(
+                        spool_id=s_id,
+                        spool_name=s.get("name", "Котушка"),
+                        action="refill" if delta > 0 else "manual_edit",
+                        weight_change_g=round(delta, 2),
+                        prev_weight_g=round(prev_w, 2),
+                        new_weight_g=round(new_w, 2),
+                        reason=f"Коригування ваги слоту {slot_id} (Web)",
+                        user="Admin",
+                    )
         await app_obj.storage.save_spools(spools)
         await app_obj.save_printers_config()
         return web.json_response({"status": "ok", "action": action, "grams": grams, "slot_id": raw_slot if raw_slot is not None else "255"})

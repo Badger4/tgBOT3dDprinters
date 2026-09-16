@@ -8,6 +8,11 @@ from bot.handlers.filament.mount import router as mount_router, handle_mount_spo
 from bot.handlers.filament.add import router as add_router, handle_add_spool_start, handle_preset_callback
 from bot.handlers.filament.edit import router as edit_router, handle_edit_spool_start
 from bot.handlers.filament.delete import router as delete_router, handle_delete_spool_start
+from bot.handlers.filament.movements import (
+    router as movements_router,
+    handle_spool_movements_view,
+    handle_export_warehouse_pdf_menu,
+)
 
 router = Router()
 router.include_router(view_router)
@@ -15,6 +20,7 @@ router.include_router(mount_router)
 router.include_router(add_router)
 router.include_router(edit_router)
 router.include_router(delete_router)
+router.include_router(movements_router)
 
 __all__ = [
     "router",
@@ -28,4 +34,6 @@ __all__ = [
     "handle_preset_callback",
     "handle_edit_spool_start",
     "handle_delete_spool_start",
+    "handle_spool_movements_view",
+    "handle_export_warehouse_pdf_menu",
 ]
