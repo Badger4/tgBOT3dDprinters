@@ -5,6 +5,7 @@ Bambu Lab 3D Printer MQTT client and domain model.
 import asyncio
 import hashlib
 import html
+import inspect
 import io
 import json
 import re
@@ -161,6 +162,7 @@ class BambuPrinter:
         self._current_job_grams = 0.0
         self._job_deducted = False
         self._is_calibrating = False
+        self._last_completed_subtask: str | None = None
         self.last_job_grams = 0.0
         self.current_job_objects: list[dict[str, Any]] = []
         self.skipped_objects: list[int] = []
@@ -214,6 +216,10 @@ class BambuPrinter:
         self.ams_enabled: bool | None = bool(raw_ams_enabled) if raw_ams_enabled is not None else None
         self.ams_trays_info: dict[str, dict] = dict(config.get("ams_trays_info", {}))
         self._has_ams_telemetry: bool | None = config.get("has_ams")
+        self._known_trays_state: dict[str, dict] = {}
+        self._trays_initialized: bool = False
+        self.tray_event_callback: Any | None = None
+        self._pending_tray_events: list[dict] = []
 
     @property
     def has_ams(self) -> bool:
@@ -853,6 +859,9 @@ class BambuPrinter:
             if "vt_tray_info" in parsed:
                 self.ams_trays_info["254"] = parsed["vt_tray_info"]
 
+            # Step 2b: Automatic hardware tray load/unload delta detection
+            self._check_tray_state_deltas()
+
             filament = None
             if self.active_ams_tray == 254 or not self.has_ams:
                 filament = print_data.get("vt_tray", {}).get("tray_type")
@@ -871,7 +880,18 @@ class BambuPrinter:
 
             # Subtask change & calibration tracking
             curr_subtask = str(self.subtask_name or "").strip()
-            is_calib_name = any(k in curr_subtask.lower() for k in ["calib", "g32", "calibration"])
+            calib_keywords = [
+                "calib", "calibration", "g32", "g29", "leveling", "bed_level",
+                "vibration", "resonance", "flow_cali", "motor_noise", "noise_cali"
+            ]
+            raw_gcode_file = str(print_data.get("gcode_file") or print_data.get("gcode_file_prepare") or "").lower()
+            print_type_str = str(print_data.get("print_type") or "").lower()
+
+            is_calib_name = (
+                any(k in curr_subtask.lower() for k in calib_keywords)
+                or any(k in raw_gcode_file for k in calib_keywords)
+                or print_type_str in ["cali", "calibration"]
+            )
             if is_calib_name:
                 self._is_calibrating = True
 
@@ -903,45 +923,51 @@ class BambuPrinter:
             # Always sync active slot weight to printer's main filament_grams property
             self.filament_grams = self.get_slot_grams()
 
-            # Extract model weight
-            w_val = extract_model_weight(print_data)
-            if w_val > 0 and self._current_job_grams == 0.0:
-                self._current_job_grams = w_val
+            # Extract model weight only for real print jobs (when NOT calibrating)
+            total_layers_count = int(getattr(self, "total_layer_num", 0) or 0)
+            if not getattr(self, "_is_calibrating", False):
+                w_val = extract_model_weight(print_data)
+                if w_val > 0 and self._current_job_grams == 0.0:
+                    self._current_job_grams = w_val
 
-            # Check OrcaSlicer cache file if weight is still 0.0 (strictly verify filename match or recent slice timestamp)
-            if self._current_job_grams == 0.0:
-                cache_file = STORAGE_DIR / "last_sliced_weight.json"
-                if cache_file.exists():
-                    try:
-                        c_data = json.loads(cache_file.read_text(encoding="utf-8"))
-                        c_w = float(c_data.get("weight", 0.0))
-                        c_ts = float(c_data.get("timestamp", 0.0))
-                        c_fname = str(c_data.get("filename") or c_data.get("path") or "").strip().lower()
-                        s_name = str(self.subtask_name or "").strip().lower()
-                        clean_c = re.sub(r"\.(gcode|3mf)$", "", c_fname).replace("\\", "/").split("/")[-1]
-                        clean_s = re.sub(r"\.(gcode|3mf)$", "", s_name).replace("\\", "/").split("/")[-1]
+                # Check OrcaSlicer cache file if weight is still 0.0 (strictly require real print with layers)
+                if self._current_job_grams == 0.0 and total_layers_count > 0:
+                    cache_file = STORAGE_DIR / "last_sliced_weight.json"
+                    if cache_file.exists():
+                        try:
+                            c_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                            c_w = float(c_data.get("weight", 0.0))
+                            c_ts = float(c_data.get("timestamp", 0.0))
+                            c_fname = str(c_data.get("filename") or c_data.get("path") or "").strip().lower()
+                            s_name = str(self.subtask_name or "").strip().lower()
+                            clean_c = re.sub(r"\.(gcode|3mf)$", "", c_fname).replace("\\", "/").split("/")[-1]
+                            clean_s = re.sub(r"\.(gcode|3mf)$", "", s_name).replace("\\", "/").split("/")[-1]
 
-                        fname_match = bool(clean_c and clean_s and clean_s != "untitled" and (clean_c in clean_s or clean_s in clean_c))
-                        recent_slice = bool(c_ts > 0 and (time.time() - c_ts < 300) and (not clean_s or clean_s == "untitled"))
-                        if (c_w > 0 or "objects" in c_data) and (fname_match or recent_slice):
-                            if c_w > 0:
-                                self._current_job_grams = c_w
-                            if isinstance(c_data.get("objects"), list) and c_data["objects"]:
-                                self.current_job_objects = c_data["objects"]
-                                logger.info(f"🧩 Loaded {len(self.current_job_objects)} cached objects for [{self.name}]")
-                            logger.info(f"💡 Loaded OrcaSlicer cached weight {c_w}g for [{self.name}] (matched '{clean_c}')")
-                    except Exception as e:
-                        logger.warning(f"Error reading OrcaSlicer weight cache: {e}")
+                            fname_match = bool(clean_c and clean_s and clean_s != "untitled" and (clean_c in clean_s or clean_s in clean_c))
+                            recent_slice = bool(c_ts > 0 and (time.time() - c_ts < 300) and (not clean_s or clean_s == "untitled"))
+                            if (c_w > 0 or "objects" in c_data) and (fname_match or recent_slice):
+                                if c_w > 0:
+                                    self._current_job_grams = c_w
+                                if isinstance(c_data.get("objects"), list) and c_data["objects"]:
+                                    self.current_job_objects = c_data["objects"]
+                                    logger.info(f"🧩 Loaded {len(self.current_job_objects)} cached objects for [{self.name}]")
+                                logger.info(f"💡 Loaded OrcaSlicer cached weight {c_w}g for [{self.name}] (matched '{clean_c}')")
+                        except Exception as e:
+                            logger.warning(f"Error reading OrcaSlicer weight cache: {e}")
 
-            # Check subtask filename regex if weight is still 0.0
-            if self._current_job_grams == 0.0 and self.subtask_name:
-                w_fname = extract_subtask_weight(self.subtask_name)
-                if w_fname > 0:
-                    self._current_job_grams = w_fname
-                    logger.info(f"💡 Extracted weight {w_fname}g from subtask_name for [{self.name}]")
+                # Check subtask filename regex if weight is still 0.0 (only when printing a file with layers or explicitly started)
+                if self._current_job_grams == 0.0 and self.subtask_name and (total_layers_count > 0 or getattr(self, "_job_started_from_app", False)):
+                    w_fname = extract_subtask_weight(self.subtask_name)
+                    if w_fname > 0:
+                        self._current_job_grams = w_fname
+                        logger.info(f"💡 Extracted weight {w_fname}g from subtask_name for [{self.name}]")
 
             # Trigger FTPS fetch to download 3MF/gcode from printer SD card and extract exact weight/objects from slice_info.config / .gcode
-            if self.gcode_state in ["RUNNING", "PAUSE"] and (self._current_job_grams == 0.0 or not self.current_job_objects):
+            if (
+                self.gcode_state in ["RUNNING", "PAUSE"]
+                and not getattr(self, "_is_calibrating", False)
+                and (self._current_job_grams == 0.0 or not self.current_job_objects)
+            ):
                 now_ts = time.time()
                 if (
                     not self._ftps_fetching
@@ -959,7 +985,29 @@ class BambuPrinter:
                     self.current_job_objects = [{"id": str(oid), "name": f"Об'єкт #{oid}"} for oid in skipped_ids]
 
             if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]:
-                if not getattr(self, "_is_calibrating", False) and self._current_job_grams > 0 and not self._job_deducted:
+                is_calib = bool(getattr(self, "_is_calibrating", False))
+                total_layers = int(getattr(self, "total_layer_num", 0) or 0)
+                is_completed_duplicate = bool(
+                    self.subtask_name
+                    and self.subtask_name == getattr(self, "_last_completed_subtask", None)
+                    and total_layers <= 0
+                )
+                has_real_file = bool(
+                    self.subtask_name
+                    and any(str(self.subtask_name).lower().endswith(ext) for ext in [".3mf", ".gcode"])
+                    and not is_calib
+                )
+                is_valid_print_job = (
+                    not is_calib
+                    and not is_completed_duplicate
+                    and (total_layers > 0 or has_real_file or getattr(self, "_job_started_from_app", False))
+                )
+
+                if (
+                    is_valid_print_job
+                    and self._current_job_grams > 0
+                    and not self._job_deducted
+                ):
                     active_key = self.get_active_spool_key()
                     if active_key is None and not getattr(self, "has_ams", False):
                         active_key = AMSSlot.EXTERNAL.value
@@ -979,7 +1027,7 @@ class BambuPrinter:
                         )
                         self._trigger_save()
 
-                if self.subtask_name and not getattr(self, "_is_calibrating", False):
+                if self.subtask_name and is_valid_print_job:
                     from utils.spool_fingerprint import build_spool_fingerprint, save_active_print_context
 
                     active_print_context = {
@@ -996,20 +1044,42 @@ class BambuPrinter:
                     save_active_print_context(self.id, active_print_context)
 
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
-                if getattr(self, "_is_calibrating", False):
+                was_calibrating = bool(getattr(self, "_is_calibrating", False))
+                total_layers = int(getattr(self, "total_layer_num", 0) or 0)
+                is_completed_duplicate = bool(
+                    self.subtask_name
+                    and self.subtask_name == getattr(self, "_last_completed_subtask", None)
+                    and total_layers <= 0
+                )
+
+                if was_calibrating or is_completed_duplicate:
                     self._job_deducted = True
                     self._current_job_grams = 0.0
+                    self._is_printing = False
+                    self._was_running = False
+                    self._history_recorded = True
                     self._is_calibrating = False
+
                 was_active = (
                     self._is_printing
                     or getattr(self, "_was_running", False)
                     or getattr(self, "_job_started_from_app", False)
                 )
-                should_record_history = was_active and not getattr(self, "_history_recorded", False)
+                has_real_file = bool(
+                    self.subtask_name
+                    and any(str(self.subtask_name).lower().endswith(ext) for ext in [".3mf", ".gcode"])
+                    and not was_calibrating
+                )
+                is_valid_finish = (
+                    (total_layers > 0 or has_real_file or getattr(self, "_job_started_from_app", False))
+                    and not was_calibrating
+                    and not is_completed_duplicate
+                )
+                should_record_history = was_active and not getattr(self, "_history_recorded", False) and is_valid_finish
 
-                if self.gcode_state == "FINISH" or should_record_history:
+                if (self.gcode_state == "FINISH" or should_record_history) and is_valid_finish:
                     if not self._job_deducted:
-                        if self._current_job_grams == 0.0:
+                        if self._current_job_grams == 0.0 and total_layers > 0:
                             cache_file = STORAGE_DIR / "last_sliced_weight.json"
                             if cache_file.exists():
                                 try:
@@ -1057,7 +1127,7 @@ class BambuPrinter:
                     if self.finish_timestamp == 0.0:
                         self.finish_timestamp = time.time()
 
-                    if should_record_history:
+                    if should_record_history and is_valid_finish:
                         logger.info(f"🎉 Print finished/completed on [{self.name}] (state: {self.gcode_state})!")
                         final_weight = getattr(self, "last_job_grams", 0.0) or getattr(self, "_current_job_grams", 0.0) or 0.0
                         if final_weight == 0.0 and self.subtask_name:
@@ -1103,6 +1173,7 @@ class BambuPrinter:
                                 asyncio.run_coroutine_threadsafe(self.storage.add_history_entry(entry), loop_to_use)
                             else:
                                 logger.warning(f"⚠️ Event loop unresolvable for history entry on [{self.name}]")
+                        self._last_completed_subtask = str(self.subtask_name or "").strip()
                         self._history_recorded = True
                         self._is_printing = False
                         self._was_running = False
@@ -1129,6 +1200,8 @@ class BambuPrinter:
                     self._last_ftps_time = 0.0
                     self._current_job_grams = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self._current_job_grams
                     self._history_recorded = False if self.gcode_state in ["IDLE", "FAILED"] else self._history_recorded
+                    if self.gcode_state in ["IDLE", "FAILED"]:
+                        self._is_calibrating = False
 
         except Exception as e:
             logger.error(f"Error processing MQTT message for [{self.name}]: {e}")
@@ -1159,6 +1232,198 @@ class BambuPrinter:
         payload = json.dumps({"print": {"sequence_id": str(int(time.time())), "command": "stop"}})
         self._client.publish(f"device/{self.serial_number}/request", payload)
         return True
+
+    def unload_filament(self, slot_id: int | str | None = None) -> bool:
+        """
+        Commands printer to unload filament.
+        Safety check: Refuses to execute if printer is actively printing or paused during a print.
+        Sends native unload_filament, AMS unload (target 255) if applicable, and standard gcode file fallback.
+        """
+        if self.is_printing or self.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
+            logger.warning(f"⚠️ Cannot unload filament on [{self.name}]: printer is active ({self.gcode_state})")
+            return False
+        if not self._client or not self._client.is_connected():
+            logger.warning(f"⚠️ Cannot unload filament on [{self.name}]: MQTT not connected")
+            return False
+
+        seq = int(time.time())
+        # 1. Native Bambu unload command
+        payload_unload = json.dumps({
+            "print": {
+                "sequence_id": str(seq),
+                "command": "unload_filament"
+            }
+        })
+        self._client.publish(f"device/{self.serial_number}/request", payload_unload)
+
+        # 2. If AMS is present or slot is an AMS slot (0..3), command ams_change_filament with target 255 (unload)
+        slot_str = str(slot_id).strip() if slot_id is not None else ""
+        if slot_str in ["0", "1", "2", "3"] or self.has_ams:
+            payload_ams = json.dumps({
+                "print": {
+                    "sequence_id": str(seq + 1),
+                    "command": "ams_change_filament",
+                    "target": 255
+                }
+            })
+            self._client.publish(f"device/{self.serial_number}/request", payload_ams)
+
+        # 3. Standard Bambu macro G-code fallback
+        payload_gcode = json.dumps({
+            "print": {
+                "sequence_id": str(seq + 2),
+                "command": "gcode_file",
+                "param": "/usr/etc/print/filament_unload.gcode"
+            }
+        })
+        self._client.publish(f"device/{self.serial_number}/request", payload_gcode)
+        logger.info(f"📤 Sent Unload Filament commands to [{self.name}] ({self.serial_number}) for slot {slot_id}")
+        return True
+
+    def load_filament(self, slot_id: int | str | None = None, target_temp: int | None = None) -> bool:
+        """
+        Commands printer to load filament into the extruder.
+        Safety check: Refuses to execute if printer is actively printing or paused during print.
+        """
+        if self.is_printing or self.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
+            logger.warning(f"⚠️ Cannot load filament on [{self.name}]: printer is active ({self.gcode_state})")
+            return False
+        if not self._client or not self._client.is_connected():
+            logger.warning(f"⚠️ Cannot load filament on [{self.name}]: MQTT not connected")
+            return False
+
+        seq = int(time.time())
+        slot_str = str(slot_id).strip() if slot_id is not None else ""
+        tray_target = None
+        if slot_str in ["0", "1", "2", "3"]:
+            tray_target = int(slot_str)
+
+        if tray_target is not None:
+            params: dict[str, Any] = {"target": tray_target}
+            if target_temp:
+                params["curr_temp"] = int(target_temp)
+                params["tar_temp"] = int(target_temp)
+            payload_ams = json.dumps({
+                "print": {
+                    "sequence_id": str(seq),
+                    "command": "ams_change_filament",
+                    **params
+                }
+            })
+            self._client.publish(f"device/{self.serial_number}/request", payload_ams)
+
+        payload_gcode = json.dumps({
+            "print": {
+                "sequence_id": str(seq + 1),
+                "command": "gcode_file",
+                "param": "/usr/etc/print/filament_load.gcode"
+            }
+        })
+        self._client.publish(f"device/{self.serial_number}/request", payload_gcode)
+        logger.info(f"📥 Sent Load Filament commands to [{self.name}] ({self.serial_number}) for slot {slot_id}")
+        return True
+
+    def _is_tray_loaded(self, t_info: dict) -> bool:
+        if not isinstance(t_info, dict):
+            return False
+        if t_info.get("empty", False):
+            return False
+        t_type = str(t_info.get("type") or t_info.get("tray_type") or "").strip().lower()
+        if not t_type or t_type in ["empty", "null", "none"]:
+            return False
+        return True
+
+    def _check_tray_state_deltas(self) -> None:
+        """
+        Detects physical tray unload and load events based on live MQTT telemetry.
+        Prevents false positives on initial connection by establishing baseline state first.
+        """
+        curr_trays = dict(self.ams_trays_info)
+        if not self._trays_initialized:
+            for k, t_data in curr_trays.items():
+                if isinstance(t_data, dict):
+                    self._known_trays_state[str(k)] = {
+                        "loaded": self._is_tray_loaded(t_data),
+                        "type": str(t_data.get("type") or t_data.get("tray_type") or "").strip(),
+                        "color": str(t_data.get("color") or "").strip(),
+                        "tray_color": str(t_data.get("tray_color") or "").strip(),
+                    }
+            if curr_trays:
+                self._trays_initialized = True
+            return
+
+        for k, t_data in curr_trays.items():
+            if not isinstance(t_data, dict):
+                continue
+            k_str = str(k)
+            now_loaded = self._is_tray_loaded(t_data)
+            now_type = str(t_data.get("type") or t_data.get("tray_type") or "").strip()
+            now_color = str(t_data.get("color") or "").strip()
+            now_tray_color = str(t_data.get("tray_color") or "").strip()
+
+            was_state = self._known_trays_state.get(k_str)
+            if was_state is not None:
+                was_loaded = was_state.get("loaded", False)
+                was_type = was_state.get("type", "")
+
+                # Transition 1: Tray was loaded, now empty -> Hardware Unload!
+                if was_loaded and not now_loaded:
+                    event = {
+                        "event": "tray_unloaded",
+                        "printer_id": self.id,
+                        "printer_name": self.name,
+                        "slot_id": k_str,
+                        "prev_type": was_type,
+                        "timestamp": time.time(),
+                    }
+                    logger.info(f"🔄 [Filament Auto] Tray {k_str} on [{self.name}] unloaded on hardware (was {was_type})")
+                    self._dispatch_tray_event(event)
+
+                # Transition 2: Tray was empty, now loaded -> Hardware Load!
+                elif (not was_loaded and now_loaded) or (now_loaded and not was_type and now_type):
+                    event = {
+                        "event": "tray_loaded",
+                        "printer_id": self.id,
+                        "printer_name": self.name,
+                        "slot_id": k_str,
+                        "filament_type": now_type,
+                        "color": now_color,
+                        "tray_color": now_tray_color,
+                        "tray_info": dict(t_data),
+                        "timestamp": time.time(),
+                    }
+                    logger.info(f"🔄 [Filament Auto] Tray {k_str} on [{self.name}] loaded on hardware ({now_type})")
+                    self._dispatch_tray_event(event)
+
+            self._known_trays_state[k_str] = {
+                "loaded": now_loaded,
+                "type": now_type,
+                "color": now_color,
+                "tray_color": now_tray_color,
+            }
+
+    def _dispatch_tray_event(self, event: dict) -> None:
+        self._pending_tray_events.append(event)
+        if self.tray_event_callback:
+            loop_to_use = getattr(self, "_main_loop", None) or self._get_active_event_loop()
+            if loop_to_use and loop_to_use.is_running():
+                try:
+                    if inspect.iscoroutinefunction(self.tray_event_callback):
+                        asyncio.run_coroutine_threadsafe(self.tray_event_callback(self, event), loop_to_use)
+                    else:
+                        loop_to_use.call_soon_threadsafe(self.tray_event_callback, self, event)
+                except Exception as e:
+                    logger.warning(f"Failed dispatching tray event for [{self.name}]: {e}")
+            elif not inspect.iscoroutinefunction(self.tray_event_callback):
+                try:
+                    self.tray_event_callback(self, event)
+                except Exception as e:
+                    logger.warning(f"Failed direct callback dispatch for [{self.name}]: {e}")
+
+    def pop_tray_events(self) -> list[dict]:
+        events = list(self._pending_tray_events)
+        self._pending_tray_events.clear()
+        return events
 
     def set_speed_level(self, level: int) -> bool:
         """Sets speed level: 1 = Silent (50%), 2 = Standard (100%), 3 = Sport (124%), 4 = Ludicrous (166%)."""

@@ -160,6 +160,7 @@ window.openAddSpoolModal = function(spool = null) {
     const gramsEl = document.getElementById("spool-grams");
     const qtyEl = document.getElementById("spool-quantity");
     const priceEl = document.getElementById("spool-price");
+    const totalPriceEl = document.getElementById("spool-total-price");
     const colEl = document.getElementById("spool-color");
 
     if (!modal) return;
@@ -169,9 +170,12 @@ window.openAddSpoolModal = function(spool = null) {
         if (titleEl) titleEl.textContent = "✏️ Редагувати котушку";
         if (nameEl) nameEl.value = spool.name || "";
         if (typeEl) typeEl.value = spool.type || "PLA";
-        if (gramsEl) gramsEl.value = spool.remaining_grams !== undefined ? spool.remaining_grams : 1000;
+        const curGrams = spool.remaining_grams !== undefined ? spool.remaining_grams : 1000;
+        const curPrice = spool.price_per_kg || spool.price_uah || 650;
+        if (gramsEl) gramsEl.value = curGrams;
         if (qtyEl) qtyEl.value = spool.quantity || 1;
-        if (priceEl) priceEl.value = spool.price_per_kg || spool.price_uah || 650;
+        if (priceEl) priceEl.value = curPrice;
+        if (totalPriceEl) totalPriceEl.value = Math.round((curPrice * curGrams / 1000) * 100) / 100;
         if (colEl) colEl.value = spool.color || "#3b82f6";
     } else {
         window._editingSpoolId = null;
@@ -181,6 +185,7 @@ window.openAddSpoolModal = function(spool = null) {
         if (gramsEl) gramsEl.value = 1000;
         if (qtyEl) qtyEl.value = 1;
         if (priceEl) priceEl.value = 650;
+        if (totalPriceEl) totalPriceEl.value = 650;
         if (colEl) colEl.value = "#3b82f6";
     }
 
@@ -268,9 +273,200 @@ window.submitSaveSpool = async function(e) {
     }
 };
 
-window.openSpoolMovementsModal = async function() {
+let allMovementsCache = [];
+let movementsFiltersBound = false;
+
+function getMovementsPdfExportUrl() {
+    const spoolSelect = document.getElementById("mov-filter-spool");
+    const actionSelect = document.getElementById("mov-filter-action");
+    const dateSelect = document.getElementById("mov-filter-date");
+    const searchInput = document.getElementById("mov-filter-search");
+
+    const sFilter = spoolSelect ? spoolSelect.value : "all";
+    const aFilter = actionSelect ? actionSelect.value : "all";
+    const dFilter = dateSelect ? dateSelect.value : "all";
+    const qFilter = searchInput ? searchInput.value.trim() : "";
+
+    const url = new URL("/api/spools/movements/export_pdf", window.location.origin);
+    const initData = window.Telegram?.WebApp?.initData || "";
+    const sessionToken = localStorage.getItem("web_session_token") || "";
+    if (initData) url.searchParams.set("initData", initData);
+    if (sessionToken) url.searchParams.set("token", sessionToken);
+
+    if (sFilter && sFilter !== "all") url.searchParams.set("spool_id", sFilter);
+    if (aFilter && aFilter !== "all") url.searchParams.set("action", aFilter);
+    if (dFilter && dFilter !== "all") url.searchParams.set("date", dFilter);
+    if (qFilter) url.searchParams.set("q", qFilter);
+
+    return url.toString();
+}
+
+function renderFilteredMovements() {
+    const tbody = document.getElementById("spool-movements-table-body");
+    const spoolSelect = document.getElementById("mov-filter-spool");
+    const actionSelect = document.getElementById("mov-filter-action");
+    const dateSelect = document.getElementById("mov-filter-date");
+    const searchInput = document.getElementById("mov-filter-search");
+    const pdfBtn = document.getElementById("btn-export-movements-pdf");
+
+    if (!tbody) return;
+
+    const sFilter = spoolSelect ? spoolSelect.value : "all";
+    const aFilter = actionSelect ? actionSelect.value : "all";
+    const dFilter = dateSelect ? dateSelect.value : "all";
+    const qFilter = searchInput ? searchInput.value.trim().toLowerCase() : "";
+
+    if (pdfBtn) {
+        pdfBtn.href = getMovementsPdfExportUrl();
+    }
+
+    if (!allMovementsCache || allMovementsCache.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted p-4">
+            <i class="fa-solid fa-box-open fa-2x mb-2 d-block opacity-50"></i>
+            <b>Записів у журналі аудиту поки немає</b><br>
+            <small class="text-muted">Зміни ваги котушок при друці або поповненні фіксуватимуться тут автоматично</small>
+        </td></tr>`;
+        return;
+    }
+
+    const nowSec = Date.now() / 1000;
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+    const yesterdayStart = todayStart - 86400;
+
+    const filtered = allMovementsCache.filter(m => {
+        // 1. Spool
+        if (sFilter && sFilter !== "all" && String(m.spool_id) !== String(sFilter)) {
+            return false;
+        }
+
+        // 2. Action
+        if (aFilter && aFilter !== "all") {
+            const mAct = String(m.action || "").toLowerCase();
+            if (aFilter === "stock") {
+                if (mAct !== "initial_stock" && mAct !== "refill") return false;
+            } else if (mAct !== aFilter) {
+                return false;
+            }
+        }
+
+        // 3. Date
+        if (dFilter && dFilter !== "all") {
+            const ts = Number(m.timestamp || 0);
+            if (dFilter === "today" && ts < todayStart) return false;
+            if (dFilter === "yesterday" && (ts < yesterdayStart || ts >= todayStart)) return false;
+            if (dFilter === "week" && ts < (nowSec - 7 * 86400)) return false;
+            if (dFilter === "month" && ts < (nowSec - 30 * 86400)) return false;
+        }
+
+        // 4. Search query
+        if (qFilter) {
+            const nameStr = String(m.spool_name || "").toLowerCase();
+            const reasonStr = String(m.reason || "").toLowerCase();
+            const userStr = String(m.user || "").toLowerCase();
+            const actStr = String(m.action || "").toLowerCase();
+            if (!nameStr.includes(qFilter) && !reasonStr.includes(qFilter) && !userStr.includes(qFilter) && !actStr.includes(qFilter)) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted p-4">
+            <i class="fa-solid fa-filter-circle-xmark fa-2x mb-2 d-block opacity-50"></i>
+            <b>Не знайдено записів за обраними фільтрами</b><br>
+            <small class="text-muted">Спробуйте змінити або скинути параметри фільтрації</small>
+        </td></tr>`;
+        return;
+    }
+
+    const actionLabels = {
+        "initial_stock": "➕ Внесення",
+        "refill": "📦 Поповнення",
+        "manual_edit": "✏️ Коригування",
+        "print": "🖨️ Друк",
+        "write_off": "🗑️ Списання"
+    };
+
+    tbody.innerHTML = filtered.map(m => {
+        const dt = m.datetime || (m.timestamp ? new Date(m.timestamp * 1000).toLocaleString("uk-UA") : "-");
+        const changeG = Number(m.weight_change_g || 0);
+        const changeStr = changeG >= 0 ? `<span class="text-success">+${changeG.toFixed(1)}g</span>` : `<span class="text-danger">${changeG.toFixed(1)}g</span>`;
+        const actLabel = actionLabels[m.action] || escapeHtml(m.action || "Зміна");
+
+        return `
+            <tr>
+                <td style="white-space:nowrap; font-size:12px;">${escapeHtml(dt)}</td>
+                <td><b>${escapeHtml(m.spool_name || "Котушка")}</b></td>
+                <td>${actLabel}</td>
+                <td>${changeStr}</td>
+                <td><strong>${(Number(m.new_weight_g || 0)).toFixed(1)}g</strong></td>
+                <td class="text-muted small">${escapeHtml(m.user || "System")}</td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function initMovementsFilterEvents() {
+    if (movementsFiltersBound) return;
+    movementsFiltersBound = true;
+
+    const spoolSelect = document.getElementById("mov-filter-spool");
+    const actionSelect = document.getElementById("mov-filter-action");
+    const dateSelect = document.getElementById("mov-filter-date");
+    const searchInput = document.getElementById("mov-filter-search");
+    const resetBtn = document.getElementById("mov-filter-reset-btn");
+    const pdfBtn = document.getElementById("btn-export-movements-pdf");
+
+    const onFilterChange = () => renderFilteredMovements();
+
+    if (spoolSelect) spoolSelect.addEventListener("change", onFilterChange);
+    if (actionSelect) actionSelect.addEventListener("change", onFilterChange);
+    if (dateSelect) dateSelect.addEventListener("change", onFilterChange);
+    if (searchInput) {
+        let timer = null;
+        searchInput.addEventListener("input", () => {
+            clearTimeout(timer);
+            timer = setTimeout(onFilterChange, 200);
+        });
+    }
+
+    if (resetBtn) {
+        resetBtn.addEventListener("click", () => {
+            if (spoolSelect) spoolSelect.value = "all";
+            if (actionSelect) actionSelect.value = "all";
+            if (dateSelect) dateSelect.value = "all";
+            if (searchInput) searchInput.value = "";
+            renderFilteredMovements();
+        });
+    }
+
+    if (pdfBtn) {
+        const updatePdfHref = () => {
+            pdfBtn.href = getMovementsPdfExportUrl();
+        };
+        pdfBtn.addEventListener("mouseenter", updatePdfHref);
+        pdfBtn.addEventListener("touchstart", updatePdfHref, { passive: true });
+        pdfBtn.addEventListener("click", (e) => {
+            updatePdfHref();
+            if (window.Telegram?.WebApp?.openLink) {
+                e.preventDefault();
+                window.Telegram.WebApp.openLink(pdfBtn.href);
+            }
+        });
+    }
+}
+
+window.openSpoolMovementsModal = async function(options = {}) {
     const modal = document.getElementById("spool-movements-modal");
     const tbody = document.getElementById("spool-movements-table-body");
+    const spoolSelect = document.getElementById("mov-filter-spool");
+    const actionSelect = document.getElementById("mov-filter-action");
+    const dateSelect = document.getElementById("mov-filter-date");
+    const searchInput = document.getElementById("mov-filter-search");
+
     if (!modal) return;
 
     modal.style.display = "flex";
@@ -278,6 +474,40 @@ window.openSpoolMovementsModal = async function() {
     if (window.Telegram?.WebApp?.HapticFeedback) {
         try { window.Telegram.WebApp.HapticFeedback.impactOccurred("light"); } catch(e){}
     }
+
+    initMovementsFilterEvents();
+
+    // Populate spool select options
+    if (spoolSelect) {
+        const desiredSpool = options.spoolId || spoolSelect.value || "all";
+        let optHtml = `<option value="all">🧵 Всі котушки</option>`;
+
+        let spoolsMap = window.spoolsData;
+        if (!spoolsMap || typeof spoolsMap !== "object") {
+            try {
+                const sRes = await fetch("/api/spools");
+                if (sRes.ok) spoolsMap = await sRes.json();
+            } catch(e) {}
+        }
+
+        if (spoolsMap && typeof spoolsMap === "object") {
+            Object.values(spoolsMap).forEach(s => {
+                const sName = escapeHtml(s.name || "Котушка");
+                const sType = escapeHtml(s.type || "");
+                optHtml += `<option value="${s.id}">${sName} (${sType})</option>`;
+            });
+        }
+        spoolSelect.innerHTML = optHtml;
+        if (options.spoolId) {
+            spoolSelect.value = options.spoolId;
+        } else if (desiredSpool) {
+            spoolSelect.value = desiredSpool;
+        }
+    }
+
+    if (options.action && actionSelect) actionSelect.value = options.action;
+    if (options.date && dateSelect) dateSelect.value = options.date;
+    if (options.query && searchInput) searchInput.value = options.query;
 
     if (!tbody) return;
     tbody.innerHTML = `<tr><td colspan="6" class="text-center p-3"><i class="fa-solid fa-spinner fa-spin me-2"></i>Завантаження журналу аудиту...</td></tr>`;
@@ -296,46 +526,16 @@ window.openSpoolMovementsModal = async function() {
         }
 
         const data = await res.json();
-        if (!Array.isArray(data) || data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted p-4">
-                <i class="fa-solid fa-box-open fa-2x mb-2 d-block opacity-50"></i>
-                <b>Записів у журналі аудиту поки немає</b><br>
-                <small class="text-muted">Зміни ваги котушок при друці або поповненні фіксуватимуться тут автоматично</small>
-            </td></tr>`;
-            return;
-        }
-
-        const actionLabels = {
-            "initial_stock": "➕ Внесення",
-            "refill": "📦 Поповнення",
-            "manual_edit": "✏️ Коригування",
-            "print": "🖨️ Друк",
-            "write_off": "🗑️ Списання"
-        };
-
-        const sorted = [...data].reverse();
-
-        tbody.innerHTML = sorted.map(m => {
-            const dt = m.datetime || (m.timestamp ? new Date(m.timestamp * 1000).toLocaleString("uk-UA") : "-");
-            const changeG = Number(m.weight_change_g || 0);
-            const changeStr = changeG >= 0 ? `<span class="text-success">+${changeG.toFixed(1)}g</span>` : `<span class="text-danger">${changeG.toFixed(1)}g</span>`;
-            const actLabel = actionLabels[m.action] || escapeHtml(m.action || "Зміна");
-
-            return `
-                <tr>
-                    <td style="white-space:nowrap; font-size:12px;">${escapeHtml(dt)}</td>
-                    <td><b>${escapeHtml(m.spool_name || "Котушка")}</b></td>
-                    <td>${actLabel}</td>
-                    <td>${changeStr}</td>
-                    <td><strong>${(Number(m.new_weight_g || 0)).toFixed(1)}g</strong></td>
-                    <td class="text-muted small">${escapeHtml(m.user || "System")}</td>
-                </tr>
-            `;
-        }).join("");
+        allMovementsCache = Array.isArray(data) ? [...data].reverse() : [];
+        renderFilteredMovements();
     } catch (e) {
         console.error("Spool movements load error:", e);
         tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger p-3">Помилка завантаження журналу аудиту</td></tr>`;
     }
+};
+
+window.openSpoolMovementsFor = function(spoolId) {
+    window.openSpoolMovementsModal({ spoolId });
 };
 
 window.closeSpoolMovementsModal = function(e) {
@@ -1123,7 +1323,8 @@ document.addEventListener("DOMContentLoaded", () => {
                         const idx = parseInt(choice.trim()) - 1;
                         if (!isNaN(idx) && availableSpools[idx]) {
                             const targetSpool = availableSpools[idx];
-                            await sendPrinterAction({ action: "assign_spool", spool_id: targetSpool.id, slot_id: sId });
+                            const loadHw = confirm("Запустити фізичне завантаження (Load Filament) на принтері?");
+                            await sendPrinterAction({ action: "assign_spool", spool_id: targetSpool.id, slot_id: sId, load_hardware: loadHw });
                         } else {
                             alert("Невірно вибраний номер!");
                         }
@@ -1154,8 +1355,9 @@ document.addEventListener("DOMContentLoaded", () => {
             amsSlotsContainer.querySelectorAll(".btn-unassign-slot-spool").forEach(btn => {
                 btn.addEventListener("click", () => {
                     const sId = btn.getAttribute("data-slot");
-                    if (confirm("Зняти котушку зі слоту?")) {
-                        sendPrinterAction({ action: "unassign_spool", slot_id: sId });
+                    if (confirm("Зняти котушку зі слоту в базі даних?")) {
+                        const unloadHw = confirm("Запустити фізичне вивантаження (Unload Filament) на принтері?");
+                        sendPrinterAction({ action: "unassign_spool", slot_id: sId, unload_hardware: unloadHw });
                     }
                 });
             });
@@ -1721,6 +1923,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ]);
             const printers = await printersRes.json();
             const spools = await spoolsRes.json();
+            window.spoolsData = spools;
 
             // Render AMS for printers if container exists
             if (container) {
@@ -1859,11 +2062,12 @@ document.addEventListener("DOMContentLoaded", () => {
                         e.stopPropagation();
                         const pId = btn.getAttribute("data-printer");
                         const slotId = btn.getAttribute("data-slot");
-                        if (confirm("Зняти котушку з цього слоту?")) {
+                        if (confirm("Зняти котушку з цього слоту в базі даних?")) {
+                            const unloadHw = confirm("Запустити фізичне вивантаження (Unload Filament) на принтері?");
                             await fetch(`/api/printers/${pId}/control`, {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ action: "unassign_spool", slot_id: slotId })
+                                body: JSON.stringify({ action: "unassign_spool", slot_id: slotId, unload_hardware: unloadHw })
                             });
                             loadMaterials();
                         }
@@ -1891,6 +2095,9 @@ document.addEventListener("DOMContentLoaded", () => {
                             </div>
                         </div>
                         <div class="spool-right d-flex align-items-center gap-2">
+                            <button class="btn btn-xs btn-outline btn-history-spool" data-id="${s.id}" title="Історія аудиту руху">
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                            </button>
                             <button class="btn btn-xs btn-primary btn-assign-spool" data-id="${s.id}" title="Встановити на принтер">
                                 <i class="fa-solid fa-truck-ramp-box"></i> На принтер
                             </button>
@@ -1902,6 +2109,14 @@ document.addEventListener("DOMContentLoaded", () => {
                             </button>
                         </div>
                     </div>`).join("");
+
+                // Audit history of spool
+                document.querySelectorAll(".btn-history-spool").forEach(b => {
+                    b.addEventListener("click", () => {
+                        const id = b.getAttribute("data-id");
+                        window.openSpoolMovementsFor(id);
+                    });
+                });
 
                 // Assign spool to printer
                 document.querySelectorAll(".btn-assign-spool").forEach(b => {
@@ -1982,6 +2197,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+            const loadHw = confirm("Запустити фізичне завантаження (Load Filament) на принтері?");
             triggerHaptic("medium");
             confirmAssignBtn.disabled = true;
             confirmAssignBtn.textContent = "⏳ Встановлення...";
@@ -1993,7 +2209,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     body: JSON.stringify({
                         action: "assign_spool",
                         spool_id: selectedSpoolForAssign.id,
-                        slot_id: slotId
+                        slot_id: slotId,
+                        load_hardware: loadHw
                     })
                 });
                 const result = await res.json().catch(() => ({}));
@@ -2042,9 +2259,40 @@ document.addEventListener("DOMContentLoaded", () => {
             if (nameEl && pName) nameEl.value = pName;
             if (typeEl && pType) typeEl.value = pType;
             if (colorEl && pColor) colorEl.value = pColor;
-            if (priceEl && pPrice) priceEl.value = pPrice;
+            if (priceEl && pPrice) {
+                priceEl.value = pPrice;
+                syncSpoolPrices("kg");
+            }
         });
     });
+
+    function syncSpoolPrices(source) {
+        const gramsEl = document.getElementById("spool-grams");
+        const priceKgEl = document.getElementById("spool-price");
+        const totalPriceEl = document.getElementById("spool-total-price");
+        if (!priceKgEl || !totalPriceEl) return;
+        const grams = parseFloat(gramsEl ? gramsEl.value : 1000) || 1000;
+        if (grams <= 0) return;
+
+        if (source === "total") {
+            const total = parseFloat(totalPriceEl.value);
+            if (!isNaN(total) && total >= 0) {
+                priceKgEl.value = Math.round((total / grams * 1000) * 100) / 100;
+            }
+        } else {
+            const priceKg = parseFloat(priceKgEl.value);
+            if (!isNaN(priceKg) && priceKg >= 0) {
+                totalPriceEl.value = Math.round((priceKg * grams / 1000) * 100) / 100;
+            }
+        }
+    }
+
+    const spoolGramsInput = document.getElementById("spool-grams");
+    const spoolPriceInput = document.getElementById("spool-price");
+    const spoolTotalPriceInput = document.getElementById("spool-total-price");
+    if (spoolPriceInput) spoolPriceInput.addEventListener("input", () => syncSpoolPrices("kg"));
+    if (spoolTotalPriceInput) spoolTotalPriceInput.addEventListener("input", () => syncSpoolPrices("total"));
+    if (spoolGramsInput) spoolGramsInput.addEventListener("input", () => syncSpoolPrices("kg"));
 
     if (addSpoolBtn) {
         addSpoolBtn.addEventListener("click", (e) => {
@@ -2446,9 +2694,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const updateHref = () => {
             const initData = window.Telegram?.WebApp?.initData || "";
             const sessionToken = localStorage.getItem("web_session_token") || "";
-            const url = new URL(baseUrl, window.location.origin);
-            if (initData) url.searchParams.set("initData", initData);
-            if (sessionToken) url.searchParams.set("token", sessionToken);
+            const effectiveUrl = (linkId === "btn-export-movements-pdf" && typeof getMovementsPdfExportUrl === "function")
+                ? getMovementsPdfExportUrl()
+                : baseUrl;
+            const url = new URL(effectiveUrl, window.location.origin);
+            if (initData && !url.searchParams.has("initData")) url.searchParams.set("initData", initData);
+            if (sessionToken && !url.searchParams.has("token")) url.searchParams.set("token", sessionToken);
             el.href = url.toString();
         };
         el.addEventListener("mouseenter", updateHref);

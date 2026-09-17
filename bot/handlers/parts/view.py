@@ -370,7 +370,7 @@ async def handle_spools_pdf_report_bot(message: Message, app: Any):
     from services.report_generator import generate_spools_pdf_report
 
     spools = await app.storage.load_spools()
-    pdf_bytes = generate_spools_pdf_report(spools)
+    pdf_bytes = generate_spools_pdf_report(spools, printers=getattr(app, "printers", None))
     date_str = time.strftime("%Y-%m-%d_%H-%M")
     doc_file = BufferedInputFile(pdf_bytes, filename=f"spools_report_{date_str}.pdf")
 
@@ -397,7 +397,7 @@ async def handle_warehouse_pdf_report_bot(message: Message, app: Any):
 
     spools = await app.storage.load_spools()
     parts = await app.storage.load_parts()
-    pdf_bytes = generate_warehouse_pdf_report(spools, parts, report_type="all")
+    pdf_bytes = generate_warehouse_pdf_report(spools, parts, report_type="all", printers=getattr(app, "printers", None))
     date_str = time.strftime("%Y-%m-%d_%H-%M")
     doc_file = BufferedInputFile(pdf_bytes, filename=f"warehouse_report_{date_str}.pdf")
 

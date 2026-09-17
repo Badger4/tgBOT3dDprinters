@@ -235,6 +235,28 @@ def get_wizard_nav_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     )
 
 
+def get_spool_price_keyboard(grams: float = 1000.0, lang: str = "uk") -> ReplyKeyboardMarkup:
+    """Navigation keyboard for spool price step with total price option."""
+    kg = (grams or 1000.0) / 1000.0
+    kg_str = f"{kg:g}"
+    if lang != "en":
+        btn_total = f"🏷️ Ціна за всю котушку ({kg_str} кг)" if kg != 1 else "🏷️ Ціна за всю котушку"
+        btn_step_back = "↩️ Крок назад"
+        btn_cancel = "❌ Скасувати"
+    else:
+        btn_total = f"🏷️ Price for entire spool ({kg_str} kg)" if kg != 1 else "🏷️ Price for entire spool"
+        btn_step_back = "↩️ Step back"
+        btn_cancel = "❌ Cancel"
+
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=btn_total)],
+            [KeyboardButton(text=btn_step_back), KeyboardButton(text=btn_cancel)],
+        ],
+        resize_keyboard=True,
+    )
+
+
 def get_filament_types_keyboard(lang: str = "uk", include_step_back: bool = True) -> ReplyKeyboardMarkup:
     """Returns reply keyboard with popular filament types for quick 1-tap selection without auto-detection."""
     popular = [
@@ -262,18 +284,23 @@ def get_filament_types_keyboard(lang: str = "uk", include_step_back: bool = True
 
 
 def get_filament_colors_keyboard(lang: str = "uk", include_step_back: bool = True) -> ReplyKeyboardMarkup:
-    """Returns keyboard with popular filament colors palette."""
-    from utils.filament_utils import COLOR_NAMES_UK, COLOR_NAMES_EN
-
-    colors = COLOR_NAMES_EN if lang == "en" else COLOR_NAMES_UK
-    keyboard = []
-    for i in range(0, len(colors), 3):
-        chunk = colors[i : i + 3]
-        keyboard.append([KeyboardButton(text=label) for label, _ in chunk])
+    """Returns compact keyboard with popular base filament colors."""
+    if lang != "en":
+        keyboard = [
+            [KeyboardButton(text="⚫ Чорний"), KeyboardButton(text="⚪ Білий"), KeyboardButton(text="🩶 Сірий"), KeyboardButton(text="🔘 Прозорий")],
+            [KeyboardButton(text="🔴 Червоний"), KeyboardButton(text="🔵 Синій"), KeyboardButton(text="🟢 Зелений"), KeyboardButton(text="🟡 Жовтий")],
+        ]
+        btn_step_back = "↩️ Крок назад"
+        btn_cancel = "❌ Скасувати"
+    else:
+        keyboard = [
+            [KeyboardButton(text="⚫ Black"), KeyboardButton(text="⚪ White"), KeyboardButton(text="🩶 Grey"), KeyboardButton(text="🔘 Clear")],
+            [KeyboardButton(text="🔴 Red"), KeyboardButton(text="🔵 Blue"), KeyboardButton(text="🟢 Green"), KeyboardButton(text="🟡 Yellow")],
+        ]
+        btn_step_back = "↩️ Step back"
+        btn_cancel = "❌ Cancel"
 
     if include_step_back:
-        btn_step_back = "↩️ Крок назад" if lang != "en" else "↩️ Step back"
-        btn_cancel = "❌ Скасувати" if lang != "en" else "❌ Cancel"
         keyboard.append([KeyboardButton(text=btn_step_back), KeyboardButton(text=btn_cancel)])
     else:
         keyboard.append([KeyboardButton(text=t("btn_back", lang))])
@@ -717,20 +744,48 @@ def get_spool_movements_keyboard(
     total_pages: int,
     spool_filter: str = "all",
     lang: str = "uk",
+    active_filters: dict[str, Any] | None = None,
 ) -> InlineKeyboardMarkup:
     is_en = lang == "en"
     keyboard = []
 
-    # Filter & PDF Export row
-    filt_label = "🔍 Filter" if is_en else "🔍 Фільтр"
-    if spool_filter != "all":
-        filt_label = "❌ Clear filter" if is_en else "❌ Скинути фільтр"
-    pdf_label = "📥 PDF Audit" if is_en else "📥 PDF Аудит"
+    filters = active_filters or {}
+    has_active_filters = (
+        (spool_filter != "all" and spool_filter)
+        or (filters.get("spool", "all") not in ["all", ""])
+        or (filters.get("action", "all") not in ["all", ""])
+        or (filters.get("date", "all") not in ["all", ""])
+        or bool(filters.get("query", ""))
+    )
 
-    keyboard.append([
-        InlineKeyboardButton(text=filt_label, callback_data="mov_filter_clear" if spool_filter != "all" else "mov_filter_menu"),
-        InlineKeyboardButton(text=pdf_label, callback_data="mov_export_pdf"),
-    ])
+    # Count active filter dimensions
+    active_count = 0
+    if filters.get("spool", "all") not in ["all", ""] or (spool_filter != "all" and spool_filter):
+        active_count += 1
+    if filters.get("action", "all") not in ["all", ""]:
+        active_count += 1
+    if filters.get("date", "all") not in ["all", ""]:
+        active_count += 1
+    if filters.get("query", ""):
+        active_count += 1
+
+    filt_btn_text = f"🔍 Фільтри ({active_count})" if active_count > 0 else ("🔍 Filter" if is_en else "🔍 Фільтри")
+    pdf_label = "📥 PDF Аудит" if not is_en else "📥 PDF Audit"
+
+    if has_active_filters:
+        clear_label = "❌ Скинути" if not is_en else "❌ Clear"
+        keyboard.append([
+            InlineKeyboardButton(text=filt_btn_text, callback_data="mov_filter_menu"),
+            InlineKeyboardButton(text=clear_label, callback_data="mov_f_clear"),
+        ])
+        keyboard.append([
+            InlineKeyboardButton(text=pdf_label, callback_data="mov_export_pdf"),
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton(text=filt_btn_text, callback_data="mov_filter_menu"),
+            InlineKeyboardButton(text=pdf_label, callback_data="mov_export_pdf"),
+        ])
 
     # Pagination row
     if total_pages > 1:
@@ -757,23 +812,171 @@ def get_spool_movements_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
+def get_movements_filter_hub_keyboard(
+    filters: dict[str, Any],
+    spool_name: str = "",
+    lang: str = "uk",
+) -> InlineKeyboardMarkup:
+    """Renders the main filter configuration hub for warehouse movements audit."""
+    is_en = lang == "en"
+    keyboard = []
+
+    # 1. Spool row
+    sp_val = filters.get("spool", "all")
+    if sp_val != "all" and spool_name:
+        s_title = f"🧵 {spool_name[:16]}..." if len(spool_name) > 16 else f"🧵 {spool_name}"
+    else:
+        s_title = "🧵 Всі котушки" if not is_en else "🧵 All spools"
+    keyboard.append([InlineKeyboardButton(text=s_title, callback_data="mov_f_spool_menu:0")])
+
+    # 2. Date & Action row
+    date_val = filters.get("date", "all")
+    date_map = {
+        "today": "Сьогодні" if not is_en else "Today",
+        "yesterday": "Вчора" if not is_en else "Yesterday",
+        "week": "7 днів" if not is_en else "7 days",
+        "month": "30 днів" if not is_en else "30 days",
+        "all": "Весь час" if not is_en else "All time",
+    }
+    d_label = f"📅 {date_map.get(date_val, 'Весь час')}"
+
+    act_val = filters.get("action", "all")
+    act_map = {
+        "print": "🖨️ Друк",
+        "manual_edit": "✏️ Коригування",
+        "initial_stock": "📦 Внесення",
+        "refill": "➕ Поповнення",
+        "write_off": "🗑️ Списання",
+        "all": "⚡ Всі дії" if not is_en else "⚡ All actions",
+    }
+    a_label = f"{act_map.get(act_val, '⚡ Всі дії')}"
+    keyboard.append([
+        InlineKeyboardButton(text=d_label, callback_data="mov_f_date_menu"),
+        InlineKeyboardButton(text=a_label, callback_data="mov_f_action_menu"),
+    ])
+
+    # 3. Search query row
+    q_val = filters.get("query", "").strip()
+    if q_val:
+        q_label = f"🔍 Пошук: '{q_val[:12]}'"
+    else:
+        q_label = "🔍 Пошук за назвою..." if not is_en else "🔍 Search query..."
+    keyboard.append([InlineKeyboardButton(text=q_label, callback_data="mov_f_search_prompt")])
+
+    # 4. Actions row: Reset all & Return
+    keyboard.append([
+        InlineKeyboardButton(text="❌ Скинути всі" if not is_en else "❌ Clear all", callback_data="mov_f_clear"),
+        InlineKeyboardButton(text="⬅️ До журналу" if not is_en else "⬅️ Back to log", callback_data="mov_f_back"),
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_movements_date_filter_keyboard(
+    current_date: str = "all",
+    lang: str = "uk",
+) -> InlineKeyboardMarkup:
+    """Filter choices for date ranges."""
+    is_en = lang == "en"
+    dates = [
+        ("all", "🌐 За весь час" if not is_en else "🌐 All time"),
+        ("today", "📅 Сьогодні" if not is_en else "📅 Today"),
+        ("yesterday", "📅 Вчора" if not is_en else "📅 Yesterday"),
+        ("week", "📅 Останні 7 днів" if not is_en else "📅 Last 7 days"),
+        ("month", "📅 Останні 30 днів" if not is_en else "📅 Last 30 days"),
+    ]
+    keyboard = []
+    for code, label in dates:
+        mark = " ✅" if code == current_date else ""
+        keyboard.append([InlineKeyboardButton(text=f"{label}{mark}", callback_data=f"mov_f_set_date:{code}")])
+    keyboard.append([InlineKeyboardButton(text="⬅️ Назад до фільтрів" if not is_en else "⬅️ Back to filters", callback_data="mov_filter_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_movements_action_filter_keyboard(
+    current_action: str = "all",
+    lang: str = "uk",
+) -> InlineKeyboardMarkup:
+    """Filter choices for movement action types."""
+    is_en = lang == "en"
+    actions = [
+        ("all", "🌐 Всі операції" if not is_en else "🌐 All actions"),
+        ("print", "🖨️ Тільки друк" if not is_en else "🖨️ Print only"),
+        ("manual_edit", "✏️ Ручне коригування" if not is_en else "✏️ Manual edit"),
+        ("initial_stock", "📦 Внесення на склад" if not is_en else "📦 Initial stock"),
+        ("refill", "➕ Поповнення запасу" if not is_en else "➕ Refill"),
+        ("write_off", "🗑️ Списання / Видалення" if not is_en else "🗑️ Write-off"),
+    ]
+    keyboard = []
+    for code, label in actions:
+        mark = " ✅" if code == current_action else ""
+        keyboard.append([InlineKeyboardButton(text=f"{label}{mark}", callback_data=f"mov_f_set_act:{code}")])
+    keyboard.append([InlineKeyboardButton(text="⬅️ Назад до фільтрів" if not is_en else "⬅️ Back to filters", callback_data="mov_filter_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_movements_spool_select_keyboard(
+    spools: dict[str, dict[str, Any]],
+    current_spool: str = "all",
+    page: int = 0,
+    lang: str = "uk",
+) -> InlineKeyboardMarkup:
+    """2-column paginated spool selector for audit filtering."""
+    from utils.filament_utils import get_color_emoji
+    is_en = lang == "en"
+    keyboard = []
+
+    # All spools button
+    all_mark = " ✅" if current_spool == "all" else ""
+    keyboard.append([InlineKeyboardButton(text=f"🌐 {'All spools' if is_en else 'Всі котушки'}{all_mark}", callback_data="mov_f_set_spool:all")])
+
+    spool_items = list(spools.items())
+    per_page = 6
+    total_pages = max(1, (len(spool_items) + per_page - 1) // per_page)
+    page = max(0, min(page, total_pages - 1))
+    page_spools = spool_items[page * per_page : (page + 1) * per_page]
+
+    # Grid 2 per row
+    row = []
+    for s_id, s in page_spools:
+        s_name = str(s.get("name", "Spool"))
+        short_name = s_name[:14] + "…" if len(s_name) > 15 else s_name
+        s_color = s.get("color_name") or s.get("color", "")
+        ico = get_color_emoji(s_color)
+        mark = " ✅" if str(s_id) == str(current_spool) else ""
+        btn_text = f"{ico} {short_name}{mark}"
+        row.append(InlineKeyboardButton(text=btn_text, callback_data=f"mov_f_set_spool:{s_id}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    # Pagination row
+    if total_pages > 1:
+        p_row = []
+        if page > 0:
+            p_row.append(InlineKeyboardButton(text="◀️", callback_data=f"mov_f_spool_page:{page - 1}"))
+        else:
+            p_row.append(InlineKeyboardButton(text="▪️", callback_data="mov_noop"))
+        p_row.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="mov_noop"))
+        if page < total_pages - 1:
+            p_row.append(InlineKeyboardButton(text="▶️", callback_data=f"mov_f_spool_page:{page + 1}"))
+        else:
+            p_row.append(InlineKeyboardButton(text="▪️", callback_data="mov_noop"))
+        keyboard.append(p_row)
+
+    keyboard.append([InlineKeyboardButton(text="⬅️ Назад до фільтрів" if not is_en else "⬅️ Back to filters", callback_data="mov_filter_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
 def get_spool_filter_keyboard(
     spools: dict[str, dict[str, Any]],
     current_filter: str = "all",
     lang: str = "uk",
 ) -> InlineKeyboardMarkup:
-    is_en = lang == "en"
-    buttons = []
-    all_check = " ✅" if current_filter == "all" else ""
-    buttons.append([InlineKeyboardButton(text=f"🌐 {'All spools' if is_en else 'Всі котушки'}{all_check}", callback_data="mov_filter:all")])
-
-    for s_id, s in list(spools.items())[:15]:
-        s_name = s.get("name", "Spool")
-        check = " ✅" if str(s_id) == str(current_filter) else ""
-        buttons.append([InlineKeyboardButton(text=f"🧵 {s_name[:20]}{check}", callback_data=f"mov_filter:{s_id}")])
-
-    buttons.append([InlineKeyboardButton(text="⬅️ " + ("Back to audit" if is_en else "Назад до аудиту"), callback_data="mov_page:0:all")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    """Legacy wrapper delegating to modern spool selector."""
+    return get_movements_spool_select_keyboard(spools, current_spool=current_filter, page=0, lang=lang)
 
 
 def get_warehouse_pdf_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:

@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 from aiogram import F, Router
 from aiogram.enums import ParseMode
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup
 from bot.keyboards import (
     get_ams_slots_keyboard,
     get_main_keyboard,
@@ -195,6 +195,19 @@ async def handle_unmount_spool_start(message: Message, app):
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
             )
+            hw_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Так, вивантажити" if u_lang != "en" else "✅ Yes, Unload", callback_data=f"hw_unload:{target_printer.id}:{slot_k}"),
+                    InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
+                ]
+            ])
+            await message.answer(
+                "❓ <b>Чи запустити функцію Unload Filament на принтері?</b>"
+                if u_lang != "en"
+                else "❓ <b>Execute physical Unload Filament on printer?</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=hw_kb,
+            )
             return
 
     if not mounted_list:
@@ -218,3 +231,200 @@ async def handle_unmount_spool_start(message: Message, app):
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True),
     )
+
+
+# ==========================================
+# Hardware Load/Unload & Auto Sync Callbacks
+# ==========================================
+
+@router.callback_query(F.data.startswith("hw_unload:"))
+async def handle_hw_unload_callback(call: CallbackQuery, app):
+    chat_id = str(call.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    parts = call.data.split(":")
+    p_id = parts[1]
+    slot_id = parts[2] if len(parts) > 2 else "254"
+    printer = app.printers.get(p_id)
+
+    if not printer:
+        await call.answer("⚠️ Принтер не знайдено!" if u_lang != "en" else "⚠️ Printer not found!", show_alert=True)
+        return
+
+    if getattr(printer, "is_printing", False) or printer.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
+        await call.answer(
+            "⚠️ Неможливо вивантажити: принтер зараз виконує друк!"
+            if u_lang != "en" else
+            "⚠️ Cannot unload: printer is currently printing!",
+            show_alert=True,
+        )
+        return
+
+    slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
+    slot_label = slot_names.get(str(slot_id), f"Слот {slot_id}")
+
+    success = printer.unload_filament(slot_id=slot_id)
+    if success:
+        await call.answer("Команду Unload надіслано!" if u_lang != "en" else "Unload command sent!")
+        await call.message.edit_text(
+            f"🔄 <b>На принтер {html.escape(printer.name)} [{slot_label}] надіслано команду Unload Filament!</b>\n"
+            f"Принтер обріже нитку та почне вивантаження.",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await call.answer("❌ Помилка відправки команди (перевірте зв'язок з принтером)!", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("hw_load:"))
+async def handle_hw_load_callback(call: CallbackQuery, app):
+    chat_id = str(call.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    parts = call.data.split(":")
+    p_id = parts[1]
+    slot_id = parts[2] if len(parts) > 2 else "254"
+    printer = app.printers.get(p_id)
+
+    if not printer:
+        await call.answer("⚠️ Принтер не знайдено!" if u_lang != "en" else "⚠️ Printer not found!", show_alert=True)
+        return
+
+    if getattr(printer, "is_printing", False) or printer.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
+        await call.answer(
+            "⚠️ Неможливо завантажити: принтер зараз виконує друк!"
+            if u_lang != "en" else
+            "⚠️ Cannot load: printer is currently printing!",
+            show_alert=True,
+        )
+        return
+
+    slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
+    slot_label = slot_names.get(str(slot_id), f"Слот {slot_id}")
+
+    success = printer.load_filament(slot_id=slot_id)
+    if success:
+        await call.answer("Команду Load надіслано!" if u_lang != "en" else "Load command sent!")
+        await call.message.edit_text(
+            f"🔄 <b>На принтер {html.escape(printer.name)} [{slot_label}] надіслано команду Load Filament!</b>\n"
+            f"Принтер нагріє сопло та розпочне подачу нитки.",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await call.answer("❌ Помилка відправки команди (перевірте зв'язок з принтером)!", show_alert=True)
+
+
+@router.callback_query(F.data == "hw_skip")
+async def handle_hw_skip_callback(call: CallbackQuery):
+    await call.message.delete_reply_markup()
+    await call.answer("Дію пропущено")
+
+
+@router.callback_query(F.data.startswith("fil_auto_mount:"))
+async def handle_fil_auto_mount_callback(call: CallbackQuery, app):
+    parts = call.data.split(":")
+    p_id = parts[1]
+    slot_id = parts[2]
+    fil_type = parts[3] if len(parts) > 3 else ""
+    target_p = app.printers.get(p_id)
+    if not target_p:
+        await call.answer("Принтер не знайдено", show_alert=True)
+        return
+
+    spools = await app.storage.load_spools()
+    avail = [s for s in spools.values() if not s.get("assigned_printer_id") and int(s.get("quantity", 1)) > 0]
+    if not avail:
+        await call.answer("На Складі немає вільних котушок", show_alert=True)
+        return
+
+    # Sort matching type first
+    if fil_type:
+        avail.sort(key=lambda s: 0 if str(s.get("type", "")).upper() == fil_type.upper() else 1)
+
+    slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT"}
+    s_label = slot_names.get(str(slot_id), f"Слот {slot_id}")
+
+    buttons = []
+    for s in avail[:8]:
+        s_name = s.get("name", "Spool")
+        s_mat = s.get("type", "PLA")
+        s_grams = s.get("remaining_grams", 1000.0)
+        btn_txt = f"🧵 {s_name} ({s_mat}, {s_grams}g)"
+        buttons.append([InlineKeyboardButton(text=btn_txt, callback_data=f"fil_pick:{p_id}:{slot_id}:{s['id']}")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Скасувати", callback_data=f"fil_auto_skip:{p_id}:{slot_id}")])
+
+    await call.message.edit_text(
+        f"📦 <b>Оберіть котушку зі Складу для слоту {s_label} на {html.escape(target_p.name)}:</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("fil_pick:"))
+async def handle_fil_pick_callback(call: CallbackQuery, app):
+    parts = call.data.split(":")
+    p_id = parts[1]
+    slot_id = parts[2]
+    spool_id = parts[3]
+    target_p = app.printers.get(p_id)
+    if not target_p:
+        await call.answer("Принтер не знайдено", show_alert=True)
+        return
+
+    spools = await app.storage.load_spools()
+    spool = spools.get(spool_id)
+    if not spool:
+        await call.answer("Котушку не знайдено на складі", show_alert=True)
+        return
+
+    from bot.handlers.filament.add import assign_spool_to_slot
+    mounted, rem_qty = assign_spool_to_slot(spools, spool, target_p, slot_id)
+    await app.storage.save_spools(spools)
+    await app.save_printers_config()
+
+    slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
+    slot_label = slot_names.get(str(slot_id), f"Слот {slot_id}")
+
+    rem_txt = f"\n📦 Залишок на складі: {rem_qty} шт." if rem_qty > 0 else ""
+    await call.message.edit_text(
+        f"✅ <b>Котушку {html.escape(mounted['name'])} успішно прив'язано до {html.escape(target_p.name)} [{slot_label}]!</b>{rem_txt}",
+        parse_mode=ParseMode.HTML,
+    )
+    await call.answer("Котушку встановлено!")
+
+
+@router.callback_query(F.data.startswith("fil_auto_add:"))
+async def handle_fil_auto_add_callback(call: CallbackQuery, app):
+    parts = call.data.split(":")
+    p_id = parts[1]
+    slot_id = parts[2]
+    fil_type = parts[3] if len(parts) > 3 else "PLA"
+    chat_id = str(call.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+
+    user["state"] = "add_spool_name"
+    user["context_data"] = {
+        "target_printer_id": p_id,
+        "target_slot_key": slot_id,
+        "auto_mount_on_create": True,
+        "prefill_type": fil_type,
+    }
+    await app.storage.save_user(user)
+
+    slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT"}
+    s_label = slot_names.get(str(slot_id), f"Слот {slot_id}")
+
+    await call.message.edit_text(
+        f"➕ <b>Створення нової котушки ({fil_type}) для {s_label}:</b>\n\n"
+        f"Введіть назву або виробника котушки (наприклад: <code>Bambu Lab Basic</code> або <code>Devil Design</code>):",
+        parse_mode=ParseMode.HTML,
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("fil_auto_skip"))
+async def handle_fil_auto_skip_callback(call: CallbackQuery):
+    await call.message.edit_text("✖ <b>Прив'язку котушки пропущено.</b>", parse_mode=ParseMode.HTML)
+    await call.answer("Пропущено")

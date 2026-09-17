@@ -7,12 +7,13 @@ import uuid
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup
 from bot.keyboards import (
     get_filament_menu_keyboard,
     get_spool_presets_inline_keyboard,
     get_filament_types_keyboard,
     get_wizard_nav_keyboard,
+    get_spool_price_keyboard,
     get_spool_edit_fields_keyboard,
     get_confirm_delete_spool_keyboard,
     get_printers_keyboard,
@@ -271,6 +272,7 @@ FILAMENT_STATES = {
     "add_spool_color",
     "add_spool_grams",
     "add_spool_price",
+    "add_spool_total_price",
     "add_spool_quantity",
     "select_spool_to_mount",
     "select_printer_for_mount",
@@ -351,9 +353,11 @@ async def handle_filament_states(message: Message, app) -> bool:
             user["state"] = "add_spool_color"
             await app.storage.save_user(user)
             prompt = (
-                f"🌈 <b>Оберіть або введіть колір пластику</b> (попередній: <b>{cur_col}</b>):"
+                f"🎨 <b>Оберіть базовий колір або напишіть будь-який відтінок текстом</b> (попередній: <b>{cur_col}</b>):\n\n"
+                "💡 <i>Наприклад: <code>бірюзовий</code>, <code>графіт</code>, <code>хакі</code>, <code>бордовий</code>, <code>м'ятний</code>, <code>лаванда</code>, <code>бежевий</code>, <code>золотий</code> чи HEX (<code>#0D9488</code>)</i>"
                 if u_lang != "en"
-                else f"🌈 <b>Select or enter filament color</b> (previous: <b>{cur_col}</b>):"
+                else f"🎨 <b>Select a base color or type any custom shade</b> (previous: <b>{cur_col}</b>):\n\n"
+                "💡 <i>E.g.: <code>turquoise</code>, <code>graphite</code>, <code>khaki</code>, <code>burgundy</code>, <code>mint</code>, <code>lavender</code>, <code>beige</code>, <code>gold</code> or HEX (<code>#0D9488</code>)</i>"
             )
             await message.answer(
                 prompt,
@@ -378,19 +382,54 @@ async def handle_filament_states(message: Message, app) -> bool:
             )
             return True
 
-        if state == "add_spool_quantity":
-            cur_pr = user.get("context_data", {}).get("new_spool", {}).get("price_per_kg", 850.0)
+        if state == "add_spool_total_price":
+            cur_sp = user.get("context_data", {}).get("new_spool", {})
+            cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
             user["state"] = "add_spool_price"
             await app.storage.save_user(user)
+            kg = cur_grams / 1000.0
+            kg_str = f"{kg:g}"
             prompt = (
-                f"💰 <b>Введіть ціну за 1 кг у грн</b> (попередня: <code>{cur_pr} грн</code>):"
-                if u_lang != "en"
-                else f"💰 <b>Enter price per 1 kg in UAH</b> (previous: <code>{cur_pr} UAH</code>):"
+                f"💰 <b>Введіть ціну за 1 кг у грн:</b>\n\n"
+                f"💡 <i>Підказка: вага вашої котушки — {cur_grams:g}г ({kg_str} кг).\n"
+                f"Щоб вказати ціну за всю котушку, введіть суму та розділіть її на {kg_str} (наприклад: <code>1500/{kg_str}</code>).\n"
+                f"Або натисніть кнопку <b>«🏷️ Ціна за всю котушку»</b> нижче.</i>"
+                if u_lang != "en" else
+                f"💰 <b>Enter price per 1 kg in UAH:</b>\n\n"
+                f"💡 <i>Hint: spool weight is {cur_grams:g}g ({kg_str} kg).\n"
+                f"To enter total cost for {kg_str} kg, divide it by {kg_str} (e.g. <code>1500/{kg_str}</code>).\n"
+                f"Or tap <b>«🏷️ Price for entire spool»</b> below.</i>"
             )
             await message.answer(
                 prompt,
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_wizard_nav_keyboard(lang=u_lang),
+                reply_markup=get_spool_price_keyboard(cur_grams, lang=u_lang),
+            )
+            return True
+
+        if state == "add_spool_quantity":
+            cur_sp = user.get("context_data", {}).get("new_spool", {})
+            cur_pr = cur_sp.get("price_per_kg", 850.0)
+            cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
+            user["state"] = "add_spool_price"
+            await app.storage.save_user(user)
+            kg = cur_grams / 1000.0
+            kg_str = f"{kg:g}"
+            prompt = (
+                f"💰 <b>Введіть ціну за 1 кг у грн</b> (попередня: <code>{cur_pr:.1f} грн</code>):"
+                if u_lang != "en"
+                else f"💰 <b>Enter price per 1 kg in UAH</b> (previous: <code>{cur_pr:.1f} UAH</code>):"
+            )
+            if u_lang != "en" and kg != 1:
+                prompt += (
+                    f"\n\n💡 <i>Підказка: вага вашої котушки — {cur_grams:g}г ({kg_str} кг).\n"
+                    f"Щоб вказати ціну за всю котушку, введіть суму та розділіть на {kg_str} (наприклад: <code>1500/{kg_str}</code>).\n"
+                    f"Або натисніть кнопку <b>«🏷️ Ціна за всю котушку»</b> нижче.</i>"
+                )
+            await message.answer(
+                prompt,
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_spool_price_keyboard(cur_grams, lang=u_lang),
             )
             return True
 
@@ -430,10 +469,15 @@ async def handle_filament_states(message: Message, app) -> bool:
         user.setdefault("context_data", {}).setdefault("new_spool", {})["type"] = text.upper()
         user["state"] = "add_spool_color"
         await app.storage.save_user(user)
-        await message.answer(
-            "🌈 <b>Оберіть або введіть колір пластику:</b>"
+        prompt = (
+            "🎨 <b>Оберіть базовий колір або напишіть будь-який відтінок текстом:</b>\n\n"
+            "💡 <i>Наприклад: <code>бірюзовий</code>, <code>графіт</code>, <code>хакі</code>, <code>бордовий</code>, <code>м'ятний</code>, <code>лаванда</code>, <code>бежевий</code>, <code>золотий</code> чи HEX (<code>#0D9488</code>)</i>"
             if u_lang != "en" else
-            "🌈 <b>Select or enter filament color:</b>",
+            "🎨 <b>Select a base color or type any custom shade:</b>\n\n"
+            "💡 <i>E.g.: <code>turquoise</code>, <code>graphite</code>, <code>khaki</code>, <code>burgundy</code>, <code>mint</code>, <code>lavender</code>, <code>beige</code>, <code>gold</code> or HEX (<code>#0D9488</code>)</i>"
+        )
+        await message.answer(
+            prompt,
             parse_mode=ParseMode.HTML,
             reply_markup=get_filament_colors_keyboard(lang=u_lang, include_step_back=True),
         )
@@ -448,9 +492,13 @@ async def handle_filament_states(message: Message, app) -> bool:
         user.setdefault("context_data", {}).setdefault("new_spool", {})["color_name"] = color_label
         user["state"] = "add_spool_grams"
         await app.storage.save_user(user)
+
+        color_disp = get_color_display_name({"color": hex_code, "color_name": color_label}, lang=u_lang)
         await message.answer(
+            f"✅ <b>Обрано колір:</b> {color_disp}\n\n"
             "⚖️ <b>Введіть початкову вагу котушки у грамах (наприклад: 1000):</b>"
             if u_lang != "en" else
+            f"✅ <b>Selected color:</b> {color_disp}\n\n"
             "⚖️ <b>Enter spool weight in grams (e.g. 1000):</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_wizard_nav_keyboard(lang=u_lang),
@@ -469,29 +517,80 @@ async def handle_filament_states(message: Message, app) -> bool:
                 reply_markup=get_wizard_nav_keyboard(lang=u_lang),
             )
             return True
-        user.setdefault("context_data", {}).setdefault("new_spool", {})["remaining_grams"] = float(val)
-        user.setdefault("context_data", {}).setdefault("new_spool", {})["initial_grams"] = float(val)
+        grams_val = float(val)
+        user.setdefault("context_data", {}).setdefault("new_spool", {})["remaining_grams"] = grams_val
+        user.setdefault("context_data", {}).setdefault("new_spool", {})["initial_grams"] = grams_val
         user["state"] = "add_spool_price"
         await app.storage.save_user(user)
+
+        kg = grams_val / 1000.0
+        kg_str = f"{kg:g}"
+        if u_lang != "en":
+            if kg != 1:
+                prompt = (
+                    f"💰 <b>Введіть ціну за 1 кг у грн:</b>\n\n"
+                    f"💡 <i>Підказка: вага вашої котушки — {grams_val:g}г ({kg_str} кг).\n"
+                    f"Щоб вказати ціну за {kg_str} кг, введіть її вартість і розділіть на {kg_str} (наприклад: <code>1500/{kg_str}</code>).\n"
+                    f"Або натисніть кнопку <b>«🏷️ Ціна за всю котушку»</b> нижче.</i>"
+                )
+            else:
+                prompt = (
+                    "💰 <b>Введіть ціну за 1 кг у грн (наприклад: 850):</b>\n\n"
+                    "💡 <i>Підказка: ви також можете вказати математичний вираз (наприклад: <code>1700/2</code>) "
+                    "або натиснути <b>«🏷️ Ціна за всю котушку»</b> нижче.</i>"
+                )
+        else:
+            if kg != 1:
+                prompt = (
+                    f"💰 <b>Enter price per 1 kg in UAH:</b>\n\n"
+                    f"💡 <i>Hint: spool weight is {grams_val:g}g ({kg_str} kg).\n"
+                    f"To enter total cost for {kg_str} kg, divide it by {kg_str} (e.g. <code>1500/{kg_str}</code>).\n"
+                    f"Or tap <b>«🏷️ Price for entire spool»</b> below.</i>"
+                )
+            else:
+                prompt = (
+                    "💰 <b>Enter price per 1 kg in UAH (e.g. 850):</b>\n\n"
+                    "💡 <i>Hint: you can also enter a math expression (e.g. <code>1700/2</code>) "
+                    "or tap <b>«🏷️ Price for entire spool»</b> below.</i>"
+                )
         await message.answer(
-            "💰 <b>Введіть ціну за 1 кг у грн (наприклад: 850):</b>"
-            if u_lang != "en" else
-            "💰 <b>Enter price per 1 кг in UAH (e.g. 850):</b>",
+            prompt,
             parse_mode=ParseMode.HTML,
-            reply_markup=get_wizard_nav_keyboard(lang=u_lang),
+            reply_markup=get_spool_price_keyboard(grams_val, lang=u_lang),
         )
         return True
 
     if state == "add_spool_price":
+        low_t = text.strip().lower()
+        if "ціна за всю котушку" in low_t or "price for entire spool" in low_t or "всю котушку" in low_t:
+            cur_sp = user.get("context_data", {}).get("new_spool", {})
+            cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
+            kg = cur_grams / 1000.0
+            kg_str = f"{kg:g}"
+            user["state"] = "add_spool_total_price"
+            await app.storage.save_user(user)
+            await message.answer(
+                f"🏷️ <b>Введіть вартість усієї котушки ({cur_grams:g}г / {kg_str} кг) у грн (наприклад: <code>1500</code>):</b>\n\n"
+                f"<i>Бот автоматично розрахує вартість 1 кг філаменту.</i>"
+                if u_lang != "en" else
+                f"🏷️ <b>Enter total price for the entire spool ({cur_grams:g}g / {kg_str} kg) in UAH (e.g. <code>1500</code>):</b>\n\n"
+                f"<i>The bot will automatically calculate the price per 1 kg.</i>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_wizard_nav_keyboard(lang=u_lang),
+            )
+            return True
+
         clean_text = text.replace("грн", "").replace("uah", "").strip()
         val = safe_eval_math(clean_text)
         if val is None or not isinstance(val, (int, float)) or val < 0:
+            cur_sp = user.get("context_data", {}).get("new_spool", {})
+            cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
             await message.answer(
-                "⚠️ Будь ласка, введіть коректну ціну у грн (додатнє число, наприклад: <code>850</code>):"
+                "⚠️ Будь ласка, введіть коректну ціну у грн (додатнє число або формула, наприклад: <code>850</code> чи <code>1500/3</code>):"
                 if u_lang != "en" else
-                "⚠️ Please enter a valid price in UAH (positive number, e.g. <code>850</code>):",
+                "⚠️ Please enter a valid price in UAH (positive number or formula, e.g. <code>850</code> or <code>1500/3</code>):",
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_wizard_nav_keyboard(lang=u_lang),
+                reply_markup=get_spool_price_keyboard(cur_grams, lang=u_lang),
             )
             return True
         user.setdefault("context_data", {}).setdefault("new_spool", {})["price_per_kg"] = float(val)
@@ -501,6 +600,40 @@ async def handle_filament_states(message: Message, app) -> bool:
             "📦 <b>Введіть кількість таких котушок на Складі (наприклад: 1 або 7):</b>"
             if u_lang != "en" else
             "📦 <b>Enter quantity of such spools in stock (e.g. 1 or 7):</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_spool_quantity_keyboard(lang=u_lang),
+        )
+        return True
+
+    if state == "add_spool_total_price":
+        clean_text = text.replace("грн", "").replace("uah", "").strip()
+        val = safe_eval_math(clean_text)
+        if val is None or not isinstance(val, (int, float)) or val < 0:
+            await message.answer(
+                "⚠️ Будь ласка, введіть коректну вартість усієї котушки у грн (додатнє число або вираз, наприклад: <code>1500</code>):"
+                if u_lang != "en" else
+                "⚠️ Please enter a valid total spool price in UAH (positive number, e.g. <code>1500</code>):",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_wizard_nav_keyboard(lang=u_lang),
+            )
+            return True
+        total_price = float(val)
+        cur_sp = user.get("context_data", {}).get("new_spool", {})
+        cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
+        calc_price_per_kg = round((total_price / cur_grams) * 1000.0, 2) if cur_grams > 0 else total_price
+        user.setdefault("context_data", {}).setdefault("new_spool", {})["price_per_kg"] = calc_price_per_kg
+        user["state"] = "add_spool_quantity"
+        await app.storage.save_user(user)
+        kg = cur_grams / 1000.0
+        kg_str = f"{kg:g}"
+        await message.answer(
+            f"✅ <b>Зафіксовано:</b> {total_price:g} грн за {cur_grams:g}г ({kg_str} кг) → "
+            f"ціна за 1 кг: <b>{calc_price_per_kg:g} грн/кг</b>\n\n"
+            f"📦 <b>Введіть кількість таких котушок на Складі (наприклад: 1 або 7):</b>"
+            if u_lang != "en" else
+            f"✅ <b>Recorded:</b> {total_price:g} UAH for {cur_grams:g}g ({kg_str} kg) → "
+            f"price per 1 kg: <b>{calc_price_per_kg:g} UAH/kg</b>\n\n"
+            f"📦 <b>Enter quantity of such spools in stock (e.g. 1 or 7):</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_spool_quantity_keyboard(lang=u_lang),
         )
@@ -555,11 +688,50 @@ async def handle_filament_states(message: Message, app) -> bool:
             user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
         )
 
+        target_pid = ctx_data.get("target_printer_id")
+        target_slot = ctx_data.get("target_slot_key")
+        auto_mount = ctx_data.get("auto_mount_on_create")
+
         user["state"] = "idle"
         user.get("context_data", {}).pop("new_spool", None)
+        user.get("context_data", {}).pop("auto_mount_on_create", None)
+        user.get("context_data", {}).pop("target_printer_id", None)
+        user.get("context_data", {}).pop("target_slot_key", None)
+        user.get("context_data", {}).pop("prefill_type", None)
         await app.storage.save_user(user)
 
         color_disp = get_color_display_name({"color": sp_color, "color_name": sp_color_name}, lang=u_lang)
+        target_p = app.printers.get(target_pid) if target_pid else None
+
+        if auto_mount and target_p and target_slot:
+            created_spool = spools[new_id]
+            mounted_spool, _ = assign_spool_to_slot(spools, created_spool, target_p, target_slot)
+            await app.storage.save_spools(spools)
+            await app.save_printers_config()
+
+            slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
+            s_label = slot_names.get(str(target_slot), f"Слот {target_slot}")
+
+            await message.answer(
+                f"✅ <b>Котушку {color_disp} {html.escape(sp_name)} створено та автоматично встановлено на {html.escape(target_p.name)} [{s_label}]!</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
+            )
+            hw_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Так, завантажити" if u_lang != "en" else "✅ Yes, Load", callback_data=f"hw_load:{target_p.id}:{target_slot}"),
+                    InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
+                ]
+            ])
+            await message.answer(
+                "❓ <b>Чи запустити функцію Load Filament на принтері?</b>"
+                if u_lang != "en" else
+                "❓ <b>Execute physical Load Filament on printer?</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=hw_kb,
+            )
+            return True
+
         await message.answer(
             f"✅ <b>Котушку {color_disp} {html.escape(sp_name)} успішно додано на Склад!</b>\n\n"
             f"🎨 Тип: <b>{html.escape(sp_type)}</b>\n"
@@ -650,6 +822,19 @@ async def handle_filament_states(message: Message, app) -> bool:
                         parse_mode=ParseMode.HTML,
                         reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
                     )
+                    hw_kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [
+                            InlineKeyboardButton(text="✅ Так, завантажити" if u_lang != "en" else "✅ Yes, Load", callback_data=f"hw_load:{target_p.id}:254"),
+                            InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
+                        ]
+                    ])
+                    await message.answer(
+                        "❓ <b>Чи запустити функцію Load Filament на принтері?</b>"
+                        if u_lang != "en" else
+                        "❓ <b>Execute physical Load Filament on printer?</b>",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=hw_kb,
+                    )
             else:
                 user["state"] = "select_printer_for_mount"
                 await app.storage.save_user(user)
@@ -716,6 +901,19 @@ async def handle_filament_states(message: Message, app) -> bool:
                     parse_mode=ParseMode.HTML,
                     reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
                 )
+                hw_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="✅ Так, завантажити" if u_lang != "en" else "✅ Yes, Load", callback_data=f"hw_load:{target_p.id}:254"),
+                        InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
+                    ]
+                ])
+                await message.answer(
+                    "❓ <b>Чи запустити функцію Load Filament на принтері?</b>"
+                    if u_lang != "en" else
+                    "❓ <b>Execute physical Load Filament on printer?</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=hw_kb,
+                )
         else:
             await message.answer(
                 "⚠️ Оберіть принтер зі списку на клавіатурі."
@@ -775,6 +973,19 @@ async def handle_filament_states(message: Message, app) -> bool:
             f"✅ <b>Spool {html.escape(mounted_spool['name'])} mounted on {html.escape(target_p.name)} [{slot_label}]!</b>{stock_info_en}",
             parse_mode=ParseMode.HTML,
             reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
+        )
+        hw_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Так, завантажити" if u_lang != "en" else "✅ Yes, Load", callback_data=f"hw_load:{target_p.id}:{slot_key}"),
+                InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
+            ]
+        ])
+        await message.answer(
+            "❓ <b>Чи запустити функцію Load Filament на принтері?</b>"
+            if u_lang != "en" else
+            "❓ <b>Execute physical Load Filament on printer?</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=hw_kb,
         )
         return True
 
@@ -872,6 +1083,19 @@ async def handle_filament_states(message: Message, app) -> bool:
                 f"✅ <b>Spool successfully unmounted: {res_desc}!</b>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb,
+            )
+            hw_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Так, вивантажити" if u_lang != "en" else "✅ Yes, Unload", callback_data=f"hw_unload:{p_id}:{slot_k}"),
+                    InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
+                ]
+            ])
+            await message.answer(
+                "❓ <b>Чи запустити функцію Unload Filament на принтері?</b>"
+                if u_lang != "en" else
+                "❓ <b>Execute physical Unload Filament on printer?</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=hw_kb,
             )
         else:
             await message.answer(
@@ -993,10 +1217,17 @@ async def handle_filament_states(message: Message, app) -> bool:
             user["state"] = "edit_spool_color"
             await app.storage.save_user(user)
             cur_color_disp = get_color_display_name(cur_spool, lang=u_lang)
-            await message.answer(
-                f"🌈 <b>Оберіть або введіть новий колір пластику</b>\n(поточний: <b>{cur_color_disp}</b>):"
+            prompt = (
+                f"🎨 <b>Оберіть базовий колір або напишіть будь-який відтінок текстом:</b>\n"
+                f"(поточний: <b>{cur_color_disp}</b>)\n\n"
+                f"💡 <i>Наприклад: <code>бірюзовий</code>, <code>графіт</code>, <code>хакі</code>, <code>бордовий</code>, <code>м'ятний</code> або HEX (<code>#0D9488</code>)</i>"
                 if u_lang != "en" else
-                f"🌈 <b>Select or enter new filament color</b>\n(current: <b>{cur_color_disp}</b>):",
+                f"🎨 <b>Select a base color or enter shade as text:</b>\n"
+                f"(current: <b>{cur_color_disp}</b>)\n\n"
+                f"💡 <i>E.g.: <code>turquoise</code>, <code>graphite</code>, <code>khaki</code>, <code>burgundy</code>, <code>mint</code> or HEX (<code>#0D9488</code>)</i>"
+            )
+            await message.answer(
+                prompt,
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_filament_colors_keyboard(lang=u_lang, include_step_back=False),
             )

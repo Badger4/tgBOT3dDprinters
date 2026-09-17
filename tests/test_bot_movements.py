@@ -235,3 +235,104 @@ class TestBotMovements(unittest.TestCase):
 
         import asyncio
         asyncio.run(run_test())
+
+    def test_multi_level_filtering_workflows(self):
+        async def run_test():
+            await self.sm.save_user({"user_id": "777", "chat_id": "777", "state": "idle", "context_data": {}})
+            await self.sm.save_spools({
+                "spool_a": {"id": "spool_a", "name": "Bambu Matte Black", "type": "PLA"},
+                "spool_b": {"id": "spool_b", "name": "Devil Design Blue", "type": "PETG"},
+            })
+
+            # Seed movements
+            now_ts = time.time()
+            await self.sm.record_spool_movement(
+                spool_id="spool_a",
+                spool_name="Bambu Matte Black",
+                action="initial_stock",
+                weight_change_g=1000.0,
+                prev_weight_g=0.0,
+                new_weight_g=1000.0,
+                reason="Arrival",
+                user="Admin",
+            )
+            await self.sm.record_spool_movement(
+                spool_id="spool_a",
+                spool_name="Bambu Matte Black",
+                action="print",
+                weight_change_g=-120.0,
+                prev_weight_g=1000.0,
+                new_weight_g=880.0,
+                reason="Model Drone_Arm_v2",
+                user="Printer A1",
+            )
+            await self.sm.record_spool_movement(
+                spool_id="spool_b",
+                spool_name="Devil Design Blue",
+                action="refill",
+                weight_change_g=500.0,
+                prev_weight_g=500.0,
+                new_weight_g=1000.0,
+                reason="Added extra",
+                user="Admin",
+            )
+
+            # 1. Open filter hub
+            msg_hub = await self._send_cb("mov_filter_menu")
+            self.assertTrue(msg_hub.edit_text.called)
+            hub_text = msg_hub.edit_text.call_args[0][0]
+            self.assertIn("Панель фільтрів", hub_text)
+
+            # 2. Date submenu & Set Date
+            msg_date = await self._send_cb("mov_f_date_menu")
+            self.assertTrue(msg_date.edit_text.called)
+            msg_set_date = await self._send_cb("mov_f_set_date:today")
+            self.assertTrue(msg_set_date.edit_text.called)
+
+            # 3. Action submenu & Set Action
+            msg_act = await self._send_cb("mov_f_action_menu")
+            self.assertTrue(msg_act.edit_text.called)
+            msg_set_act = await self._send_cb("mov_f_set_act:print")
+            self.assertTrue(msg_set_act.edit_text.called)
+
+            # 4. Spool submenu & Set Spool
+            msg_spool = await self._send_cb("mov_f_spool_menu:0")
+            self.assertTrue(msg_spool.edit_text.called)
+            msg_set_spool = await self._send_cb("mov_f_set_spool:spool_a")
+            self.assertTrue(msg_set_spool.edit_text.called)
+
+            # 5. Return to log and verify filtered content
+            msg_back = await self._send_cb("mov_f_back")
+            self.assertTrue(msg_back.edit_text.called)
+            back_text = msg_back.edit_text.call_args[0][0]
+            self.assertIn("Drone_Arm_v2", back_text)
+            self.assertNotIn("Devil Design Blue", back_text)
+
+            # 6. Search query workflow: prompt then user message
+            msg_prompt = await self._send_cb("mov_f_search_prompt")
+            self.assertTrue(msg_prompt.edit_text.called)
+
+            # Send message "Drone"
+            ans_search = await self._send_msg("Drone")
+            self.assertTrue(ans_search.called)
+            search_text = ans_search.call_args[0][0]
+            self.assertIn("Drone_Arm_v2", search_text)
+
+            # 7. Direct spool shortcut
+            msg_direct = await self._send_cb("mov_spool_direct:spool_b")
+            self.assertTrue(msg_direct.edit_text.called)
+            direct_text = msg_direct.edit_text.call_args[0][0]
+            self.assertIn("Devil Design Blue", direct_text)
+            self.assertNotIn("Drone_Arm_v2", direct_text)
+
+            # 8. Reset all filters
+            msg_clear = await self._send_cb("mov_f_clear")
+            self.assertTrue(msg_clear.edit_text.called)
+
+            # 9. PDF export with filtered movements
+            await self._send_cb("mov_f_set_spool:spool_a")
+            msg_pdf = await self._send_cb("mov_export_pdf")
+            self.assertTrue(msg_pdf.answer_document.called)
+
+        import asyncio
+        asyncio.run(run_test())

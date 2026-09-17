@@ -138,6 +138,75 @@ class TestReportGenerator(unittest.TestCase):
         self.assertTrue(pdf_calc.startswith(b"%PDF"))
         self.assertTrue(len(pdf_calc) > 1000)
 
+    def test_option_b_warehouse_and_mounted_spools(self):
+        from services.report_generator import (
+            _format_slot_name,
+            _resolve_printer_name,
+            generate_spools_pdf_report,
+            generate_warehouse_pdf_report,
+        )
+
+        # 1. Test slot and printer resolvers
+        self.assertEqual(_format_slot_name("0"), "Слот A1 (AMS)")
+        self.assertEqual(_format_slot_name("254"), "Слот VT (Зовнішній)")
+        self.assertEqual(_format_slot_name("255"), "Слот VT (Зовнішній)")
+        self.assertEqual(_format_slot_name("custom_slot"), "Слот custom_slot")
+        self.assertEqual(_format_slot_name(None), "Невідомий слот")
+
+        printers = {
+            "p_p1s": SimpleNamespace(id="p_p1s", name="Bambu Lab P1S"),
+            "p_a1m": {"id": "p_a1m", "name": "A1 mini"},
+        }
+        self.assertEqual(_resolve_printer_name("p_p1s", printers), "Bambu Lab P1S")
+        self.assertEqual(_resolve_printer_name("p_a1m", printers), "A1 mini")
+        self.assertEqual(_resolve_printer_name("unknown_p", printers), "Принтер unknown_p")
+        self.assertEqual(_resolve_printer_name(None, printers), "Невідомий принтер")
+
+        # 2. Test Spools PDF generation with TPU 95A mounted and PLA on warehouse
+        spools = {
+            "s_wh": {
+                "id": "s_wh",
+                "name": "Eryone PLA White",
+                "type": "PLA",
+                "color": "Білий",
+                "initial_grams": 1000.0,
+                "remaining_grams": 900.0,
+                "price_per_kg": 700.0,
+                "quantity": 1,
+                "assigned_printer_id": None,
+                "assigned_slot_key": None,
+            },
+            "s_tpu": {
+                "id": "s_tpu",
+                "name": "Bambu TPU 95A HF",
+                "type": "TPU",
+                "color": "Чорний",
+                "initial_grams": 1000.0,
+                "remaining_grams": 850.0,
+                "price_per_kg": 1200.0,
+                "quantity": 1,
+                "assigned_printer_id": "p_p1s",
+                "assigned_slot_key": "254",
+            },
+        }
+
+        # Generate Option B PDF
+        pdf_bytes = generate_spools_pdf_report(spools, printers=printers)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+        self.assertTrue(len(pdf_bytes) > 1000)
+
+        # Test delegating via generate_warehouse_pdf_report with printers
+        pdf_ware = generate_warehouse_pdf_report(spools, report_type="spools", printers=printers)
+        self.assertTrue(pdf_ware.startswith(b"%PDF"))
+        self.assertTrue(len(pdf_ware) > 1000)
+
+    def test_empty_spools_pdf_report(self):
+        from services.report_generator import generate_spools_pdf_report
+
+        empty_pdf = generate_spools_pdf_report({})
+        self.assertTrue(empty_pdf.startswith(b"%PDF"))
+        self.assertTrue(len(empty_pdf) > 1000)
+
 
 if __name__ == "__main__":
     unittest.main()

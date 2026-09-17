@@ -122,3 +122,118 @@ class TestSpoolAuditLog(AioHTTPTestCase):
         self.assertIsNone(data_unmount["spool"]["assigned_printer_id"])
         self.assertIsNone(data_unmount["spool"]["assigned_slot_key"])
 
+    async def test_filtered_movements_api_and_utils(self):
+        import time
+        from datetime import datetime, timedelta
+        from utils.filament_utils import filter_spool_movements
+
+        now = time.time()
+        yesterday_ts = (datetime.now() - timedelta(days=1, hours=1)).timestamp()
+        week_old_ts = (datetime.now() - timedelta(days=5)).timestamp()
+        month_old_ts = (datetime.now() - timedelta(days=20)).timestamp()
+        ancient_ts = (datetime.now() - timedelta(days=45)).timestamp()
+
+        movements = [
+            {
+                "timestamp": now,
+                "spool_id": "spool_x",
+                "spool_name": "Bambu PLA Black",
+                "action": "print",
+                "weight_change_g": -50.0,
+                "prev_weight_g": 1000.0,
+                "new_weight_g": 950.0,
+                "reason": "Model Benchy_Boat_v1",
+                "user": "Printer_1",
+            },
+            {
+                "timestamp": yesterday_ts,
+                "spool_id": "spool_x",
+                "spool_name": "Bambu PLA Black",
+                "action": "manual_edit",
+                "weight_change_g": 10.0,
+                "prev_weight_g": 950.0,
+                "new_weight_g": 960.0,
+                "reason": "Calibrated scale",
+                "user": "Tech",
+            },
+            {
+                "timestamp": week_old_ts,
+                "spool_id": "spool_y",
+                "spool_name": "Prusament PETG Orange",
+                "action": "refill",
+                "weight_change_g": 1000.0,
+                "prev_weight_g": 0.0,
+                "new_weight_g": 1000.0,
+                "reason": "Warehouse arrival",
+                "user": "Admin",
+            },
+            {
+                "timestamp": month_old_ts,
+                "spool_id": "spool_y",
+                "spool_name": "Prusament PETG Orange",
+                "action": "initial_stock",
+                "weight_change_g": 1000.0,
+                "prev_weight_g": 0.0,
+                "new_weight_g": 1000.0,
+                "reason": "Batch intake",
+                "user": "Admin",
+            },
+            {
+                "timestamp": ancient_ts,
+                "spool_id": "spool_z",
+                "spool_name": "Generic TPU",
+                "action": "write_off",
+                "weight_change_g": -500.0,
+                "prev_weight_g": 500.0,
+                "new_weight_g": 0.0,
+                "reason": "Expired moist",
+                "user": "Tech",
+            },
+        ]
+
+        # 1. Test filter_spool_movements directly
+        # By spool
+        res_spool = filter_spool_movements(movements, spool_id="spool_x")
+        self.assertEqual(len(res_spool), 2)
+        # By action
+        res_act = filter_spool_movements(movements, action="print")
+        self.assertEqual(len(res_act), 1)
+        self.assertEqual(res_act[0]["action"], "print")
+        # Stock action alias (covers initial_stock and refill)
+        res_stock = filter_spool_movements(movements, action="stock")
+        self.assertEqual(len(res_stock), 2)
+        # By query
+        res_q = filter_spool_movements(movements, query="benchy")
+        self.assertEqual(len(res_q), 1)
+        self.assertEqual(res_q[0]["reason"], "Model Benchy_Boat_v1")
+        # By dates
+        res_today = filter_spool_movements(movements, date_range="today")
+        self.assertTrue(len(res_today) >= 1)
+        res_week = filter_spool_movements(movements, date_range="week")
+        self.assertTrue(len(res_week) >= 3)
+        res_month = filter_spool_movements(movements, date_range="month")
+        self.assertEqual(len(res_month), 4)
+
+        # 2. Test via REST API
+        await self.app_obj.storage.save_json(self.app_obj.storage.movements_file, movements)
+
+        # GET with action filter
+        r1 = await self.client.get("/api/spools/movements?action=print", headers=self.headers)
+        self.assertEqual(r1.status, 200)
+        d1 = await r1.json()
+        self.assertEqual(len(d1), 1)
+        self.assertEqual(d1[0]["action"], "print")
+
+        # GET with query filter
+        r2 = await self.client.get("/api/spools/movements?q=Orange", headers=self.headers)
+        self.assertEqual(r2.status, 200)
+        d2 = await r2.json()
+        self.assertEqual(len(d2), 2)
+
+        # Export PDF with filters
+        r3 = await self.client.get("/api/spools/movements/export_pdf?action=print&date=today", headers=self.headers)
+        self.assertEqual(r3.status, 200)
+        pdf_bytes = await r3.read()
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+

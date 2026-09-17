@@ -172,6 +172,11 @@ async def handle_printer_control(request: web.Request) -> web.Response:
 
         await app_obj.storage.save_spools(spools)
         await app_obj.save_printers_config()
+
+        if data.get("load_hardware") is True and hasattr(p, "load_filament"):
+            if not (getattr(p, "is_printing", False) or p.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]):
+                p.load_filament(slot_id=raw_slot)
+
         return web.json_response({"status": "ok", "action": "assign_spool", "spool": target_spool, "slot_id": raw_slot if raw_slot is not None else "255"})
     elif action == "unassign_spool":
         raw_slot = data.get("slot_id") or data.get("slot_key")
@@ -220,6 +225,11 @@ async def handle_printer_control(request: web.Request) -> web.Response:
         if hasattr(p, "ams_slots") and isinstance(p.ams_slots, dict):
             p.ams_slots[slot_id] = 0.0
         await app_obj.save_printers_config()
+
+        if data.get("unload_hardware") is True and hasattr(p, "unload_filament"):
+            if not (getattr(p, "is_printing", False) or p.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]):
+                p.unload_filament(slot_id=slot_id)
+
         return web.json_response(
             {
                 "status": "ok",
@@ -228,6 +238,19 @@ async def handle_printer_control(request: web.Request) -> web.Response:
                 "remaining_grams": 0.0,
             }
         )
+    elif action == "unload_filament":
+        raw_slot = data.get("slot_id") or data.get("slot_key")
+        if getattr(p, "is_printing", False) or p.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
+            return web.json_response({"error": "Неможливо вивантажити: принтер зараз виконує друк!"}, status=400)
+        success = p.unload_filament(slot_id=raw_slot)
+        return web.json_response({"status": "ok" if success else "error", "action": "unload_filament", "slot_id": raw_slot})
+    elif action == "load_filament":
+        raw_slot = data.get("slot_id") or data.get("slot_key")
+        target_temp = data.get("target_temp") or data.get("temp")
+        if getattr(p, "is_printing", False) or p.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
+            return web.json_response({"error": "Неможливо завантажити: принтер зараз виконує друк!"}, status=400)
+        success = p.load_filament(slot_id=raw_slot, target_temp=target_temp)
+        return web.json_response({"status": "ok" if success else "error", "action": "load_filament", "slot_id": raw_slot})
     elif action == "set_ams_enabled":
         enabled = bool(data.get("enabled", False))
         p.ams_enabled = enabled

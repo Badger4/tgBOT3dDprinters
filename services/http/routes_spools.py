@@ -46,19 +46,25 @@ async def handle_get_spools(request: web.Request) -> web.Response:
 
 
 async def handle_get_spool_movements(request: web.Request) -> web.Response:
-    """GET /api/spools/movements - Retrieve warehouse audit movement log."""
+    """GET /api/spools/movements - Retrieve warehouse audit movement log with optional filters."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
     spool_id_filter = request.query.get("spool_id", "").strip()
+    action_filter = request.query.get("action", "").strip()
+    date_filter = request.query.get("date", "").strip()
+    query_filter = request.query.get("q", "").strip()
 
+    from utils.filament_utils import filter_spool_movements
     movements = await app_obj.storage.load_spool_movements()
-    if spool_id_filter:
-        movements = [m for m in movements if m.get("spool_id") == spool_id_filter]
-
-    # Return sorted descending by timestamp
-    movements = sorted(movements, key=lambda x: x.get("timestamp", 0), reverse=True)
+    movements = filter_spool_movements(
+        movements,
+        spool_id=spool_id_filter,
+        action=action_filter,
+        date_range=date_filter,
+        query=query_filter,
+    )
     return web.json_response(movements)
 
 
@@ -257,7 +263,9 @@ async def handle_export_warehouse_csv(request: web.Request) -> web.Response:
         report_type = request.query.get("type", "spools")
 
         from services.report_generator import generate_warehouse_pdf_report
-        pdf_bytes = generate_warehouse_pdf_report(spools, parts, report_type=report_type)
+        pdf_bytes = generate_warehouse_pdf_report(
+            spools, parts, report_type=report_type, printers=getattr(app_obj, "printers", None)
+        )
 
         filename = "parts_report.pdf" if report_type == "parts" else "spools_report.pdf"
         headers = {
@@ -295,7 +303,14 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
                     price_kg = float(s.get("price_per_kg") or 650.0)
                     qty = max(1, int(s.get("quantity", 1)))
                     slot = s.get("assigned_slot_key")
-                    status_text = f"Слот {slot}" if slot else "На складі"
+                    p_id = s.get("assigned_printer_id")
+                    if p_id or slot:
+                        from services.report_generator import _format_slot_name, _resolve_printer_name
+                        p_name = _resolve_printer_name(p_id, getattr(app_obj, "printers", None))
+                        slot_desc = _format_slot_name(slot)
+                        status_text = f"{p_name} ({slot_desc})"
+                    else:
+                        status_text = "На складі"
 
                     val = (rem_g / 1000.0) * price_kg * qty
                     total_spools += qty
@@ -395,10 +410,39 @@ async def handle_export_movements_pdf(request: web.Request) -> web.Response:
 
     try:
         app_obj = request.app["app_obj"]
+        spool_id_filter = request.query.get("spool_id", "").strip()
+        action_filter = request.query.get("action", "").strip()
+        date_filter = request.query.get("date", "").strip()
+        query_filter = request.query.get("q", "").strip()
+
+        from utils.filament_utils import filter_spool_movements
         movements = await app_obj.storage.load_spool_movements()
+        movements = filter_spool_movements(
+            movements,
+            spool_id=spool_id_filter,
+            action=action_filter,
+            date_range=date_filter,
+            query=query_filter,
+        )
+
+        filter_parts = []
+        if spool_id_filter and spool_id_filter != "all":
+            spools = await app_obj.storage.load_spools()
+            s_name = spools.get(spool_id_filter, {}).get("name", spool_id_filter) if isinstance(spools, dict) else spool_id_filter
+            filter_parts.append(f"Котушка: {s_name}")
+        if action_filter and action_filter != "all":
+            act_names = {"print": "Друк", "manual_edit": "Коригування", "initial_stock": "Внесення", "refill": "Поповнення", "write_off": "Списання", "stock": "Внесення/Поповнення"}
+            filter_parts.append(f"Дія: {act_names.get(action_filter, action_filter)}")
+        if date_filter and date_filter != "all":
+            date_names = {"today": "Сьогодні", "yesterday": "Вчора", "week": "Останні 7 днів", "month": "Останні 30 днів"}
+            filter_parts.append(f"Період: {date_names.get(date_filter, date_filter)}")
+        if query_filter:
+            filter_parts.append(f"Пошук: '{query_filter}'")
+
+        filter_subtitle = " | ".join(filter_parts) if filter_parts else None
 
         from services.report_generator import generate_movements_pdf_report
-        pdf_bytes = generate_movements_pdf_report(movements)
+        pdf_bytes = generate_movements_pdf_report(movements, filter_subtitle=filter_subtitle)
 
         headers = {
             "Content-Disposition": 'attachment; filename="spool_movements_audit.pdf"; filename*=UTF-8\'\'spool_movements_audit.pdf',

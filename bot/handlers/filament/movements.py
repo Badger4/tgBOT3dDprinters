@@ -1,21 +1,27 @@
 """
-Spool warehouse movements audit log and PDF export handlers.
+Spool warehouse movements audit log and PDF export handlers with multi-level filtering.
 """
 
 import html
 import math
 import time
+from typing import Any
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.keyboards import (
     get_filament_menu_keyboard,
+    get_movements_action_filter_keyboard,
+    get_movements_date_filter_keyboard,
+    get_movements_filter_hub_keyboard,
+    get_movements_spool_select_keyboard,
     get_spool_filter_keyboard,
     get_spool_movements_keyboard,
     get_warehouse_pdf_keyboard,
 )
+from utils.filament_utils import filter_spool_movements
 
 router = Router()
 
@@ -36,6 +42,33 @@ ACTION_MAP_EN = {
     "write_off": "🗑️ Write-off",
     "print": "🖨️ Print Deduction",
 }
+
+DATE_MAP_UK = {
+    "today": "Сьогодні",
+    "yesterday": "Вчора",
+    "week": "Останні 7 днів",
+    "month": "Останні 30 днів",
+    "all": "За весь час",
+}
+
+DATE_MAP_EN = {
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "week": "Last 7 days",
+    "month": "Last 30 days",
+    "all": "All time",
+}
+
+
+def get_user_mov_filters(user: dict) -> dict[str, Any]:
+    """Retrieve or initialize active movement audit filters for the user."""
+    ctx = user.setdefault("context_data", {})
+    filt = ctx.setdefault("mov_filters", {})
+    filt.setdefault("spool", "all")
+    filt.setdefault("action", "all")
+    filt.setdefault("date", "all")
+    filt.setdefault("query", "")
+    return filt
 
 
 def format_movement_entry(m: dict, is_en: bool = False) -> str:
@@ -63,19 +96,46 @@ def build_movements_page_text(
     page: int,
     spool_filter: str = "all",
     spool_name_filter: str = "",
+    filters: dict[str, Any] | None = None,
     is_en: bool = False,
 ) -> tuple[str, int]:
+    filters = filters or {}
     total_count = len(movements)
+
+    # Build active filter badge strings
+    badges = []
+    active_spool = filters.get("spool", spool_filter)
+    if active_spool != "all" and spool_name_filter:
+        badges.append(f"🧵 {html.escape(spool_name_filter)}")
+
+    active_date = filters.get("date", "all")
+    if active_date != "all":
+        d_map = DATE_MAP_EN if is_en else DATE_MAP_UK
+        badges.append(f"📅 {d_map.get(active_date, active_date)}")
+
+    active_act = filters.get("action", "all")
+    if active_act != "all":
+        a_map = ACTION_MAP_EN if is_en else ACTION_MAP_UK
+        badges.append(a_map.get(active_act, active_act))
+
+    active_query = str(filters.get("query", "")).strip()
+    if active_query:
+        badges.append(f'🔍 "{html.escape(active_query)}"')
+
+    has_filters = len(badges) > 0 or (spool_filter != "all" and bool(spool_name_filter))
+
     if total_count == 0:
-        if spool_filter != "all":
+        if has_filters:
+            filter_summary = " | ".join(badges) if badges else f"🧵 {html.escape(spool_name_filter)}"
             msg = (
-                f"🔍 <b>Movement Audit:</b>\nNo recorded movements for spool <b>{html.escape(spool_name_filter)}</b>."
-                if is_en
-                else f"🔍 <b>Аудит руху:</b>\nНемає записів для котушки <b>{html.escape(spool_name_filter)}</b>."
+                f"🔍 <b>{'Movement Audit' if is_en else 'Аудит руху'}:</b>\n\n"
+                f"ℹ️ {'No movements found matching the active filters' if is_en else 'Не знайдено записів руху за обраними фільтрами'}:\n"
+                f"<b>{filter_summary}</b>\n\n"
+                f"<i>{'Click \"Filter\" below to adjust criteria or \"Clear\" to view all records.' if is_en else 'Натисніть «Фільтри» нижче щоб змінити критерії або «Скинути» для показу всіх записів.'}</i>"
             )
         else:
             msg = (
-                "📜 <b>Spool Movements Audit Log</b>\n\n"
+                "📜 <b>Warehouse Movements Audit Log</b>\n\n"
                 "ℹ️ <i>Audit log is currently empty. Any warehouse operations (adding, refilling, printing, write-offs) will be recorded here automatically.</i>"
                 if is_en
                 else "📜 <b>Журнал аудиту руху матеріалів складу</b>\n\n"
@@ -91,8 +151,11 @@ def build_movements_page_text(
     page_items = movements[start_idx:end_idx]
 
     filter_info = ""
-    if spool_filter != "all" and spool_name_filter:
-        filter_info = f"\n🔍 Фільтр: <b>{html.escape(spool_name_filter)}</b>" if not is_en else f"\n🔍 Filter: <b>{html.escape(spool_name_filter)}</b>"
+    if badges:
+        filter_label = "Filters" if is_en else "Фільтри"
+        filter_info = f"\n🔍 <b>{filter_label}:</b> {' | '.join(badges)}"
+    elif spool_filter != "all" and spool_name_filter:
+        filter_info = f"\n🔍 <b>{'Filter' if is_en else 'Фільтр'}:</b> 🧵 <b>{html.escape(spool_name_filter)}</b>"
 
     header = (
         f"📜 <b>Журнал аудиту руху матеріалів складу</b>{filter_info}\n"
@@ -104,6 +167,60 @@ def build_movements_page_text(
 
     body = "\n".join(format_movement_entry(m, is_en=is_en) for m in page_items)
     return f"{header}{body}", total_pages
+
+
+async def render_movements_page(
+    chat_id: str,
+    app,
+    page: int = 0,
+    callback: CallbackQuery | None = None,
+    message: Message | None = None,
+):
+    """Unified rendering routine for movements log page with active filters."""
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+    filters = get_user_mov_filters(user)
+
+    all_movements = await app.storage.load_spool_movements()
+    spools = await app.storage.load_spools()
+
+    spool_id_filter = filters.get("spool", "all")
+    spool_name_filter = ""
+    if spool_id_filter != "all":
+        spool_name_filter = spools.get(spool_id_filter, {}).get("name", spool_id_filter)
+
+    filtered = filter_spool_movements(
+        all_movements,
+        spool_id=spool_id_filter,
+        action=filters.get("action", "all"),
+        date_range=filters.get("date", "all"),
+        query=filters.get("query", ""),
+    )
+
+    text, total_pages = build_movements_page_text(
+        filtered,
+        page=page,
+        spool_filter=spool_id_filter,
+        spool_name_filter=spool_name_filter,
+        filters=filters,
+        is_en=is_en,
+    )
+    kb = get_spool_movements_keyboard(
+        page=page,
+        total_pages=total_pages,
+        spool_filter=spool_id_filter,
+        lang=u_lang,
+        active_filters=filters,
+    )
+
+    if callback and callback.message:
+        try:
+            await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except Exception:
+            pass
+    elif message:
+        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
 @router.message(
@@ -129,62 +246,85 @@ async def handle_spool_movements_view(message: Message, app, state: FSMContext |
         return
 
     user = await app.storage.load_user(chat_id)
-    u_lang = user.get("language", "uk")
-    is_en = u_lang == "en"
+    if user.get("state") == "awaiting_mov_search":
+        user["state"] = "idle"
+        await app.storage.save_user(user)
 
-    movements = await app.storage.load_spool_movements()
-    movements = sorted(movements, key=lambda x: x.get("timestamp", 0), reverse=True)
-
-    text, total_pages = build_movements_page_text(movements, page=0, spool_filter="all", is_en=is_en)
-    kb = get_spool_movements_keyboard(page=0, total_pages=total_pages, spool_filter="all", lang=u_lang)
-    await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+    await render_movements_page(chat_id=chat_id, app=app, page=0, message=message)
 
 
 @router.callback_query(F.data.startswith("mov_page:"))
 async def handle_movements_page_callback(callback: CallbackQuery, app):
     chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    parts = callback.data.split(":")
+    page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    await render_movements_page(chat_id=chat_id, app=app, page=page, callback=callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "mov_filter_menu")
+async def handle_movements_filter_hub_callback(callback: CallbackQuery, app):
+    """Renders the filter hub menu showing current selections."""
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
     is_en = u_lang == "en"
+    filters = get_user_mov_filters(user)
 
-    parts = callback.data.split(":")
-    page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-    spool_filter = parts[2] if len(parts) > 2 else "all"
+    spools = await app.storage.load_spools()
+    spool_name = ""
+    if filters.get("spool", "all") != "all":
+        spool_name = spools.get(filters["spool"], {}).get("name", filters["spool"])
 
-    movements = await app.storage.load_spool_movements()
-    spool_name_filter = ""
-    if spool_filter != "all":
-        spools = await app.storage.load_spools()
-        spool_name_filter = spools.get(spool_filter, {}).get("name", spool_filter)
-        movements = [m for m in movements if m.get("spool_id") == spool_filter]
+    d_val = filters.get("date", "all")
+    d_map = DATE_MAP_EN if is_en else DATE_MAP_UK
+    d_txt = d_map.get(d_val, "За весь час" if not is_en else "All time")
 
-    movements = sorted(movements, key=lambda x: x.get("timestamp", 0), reverse=True)
-    text, total_pages = build_movements_page_text(
-        movements, page=page, spool_filter=spool_filter, spool_name_filter=spool_name_filter, is_en=is_en
+    a_val = filters.get("action", "all")
+    a_map = ACTION_MAP_EN if is_en else ACTION_MAP_UK
+    a_txt = a_map.get(a_val, "Всі операції" if not is_en else "All actions")
+
+    s_txt = spool_name if spool_name else ("Всі котушки" if not is_en else "All spools")
+    q_txt = filters.get("query", "").strip() or ("— (немає)" if not is_en else "— (none)")
+
+    msg_text = (
+        "🔍 <b>Панель фільтрів аудиту руху:</b>\n\n"
+        f"• 🧵 <b>Котушка:</b> {html.escape(s_txt)}\n"
+        f"• 📅 <b>Період:</b> {d_txt}\n"
+        f"• ⚡ <b>Операція:</b> {a_txt}\n"
+        f"• 🔍 <b>Пошук:</b> <i>{html.escape(q_txt)}</i>\n\n"
+        "<i>Натисніть кнопку нижче, щоб налаштувати відповідний критерій:</i>"
+        if not is_en
+        else "🔍 <b>Movement Audit Filter Hub:</b>\n\n"
+        f"• 🧵 <b>Spool:</b> {html.escape(s_txt)}\n"
+        f"• 📅 <b>Date Range:</b> {d_txt}\n"
+        f"• ⚡ <b>Action Type:</b> {a_txt}\n"
+        f"• 🔍 <b>Search Text:</b> <i>{html.escape(q_txt)}</i>\n\n"
+        "<i>Select an option below to adjust criteria:</i>"
     )
-    kb = get_spool_movements_keyboard(page=page, total_pages=total_pages, spool_filter=spool_filter, lang=u_lang)
 
+    kb = get_movements_filter_hub_keyboard(filters, spool_name=spool_name, lang=u_lang)
     try:
         if callback.message:
-            await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+            await callback.message.edit_text(msg_text, parse_mode=ParseMode.HTML, reply_markup=kb)
     except Exception:
         pass
     await callback.answer()
 
 
-@router.callback_query(F.data == "mov_filter_menu")
-async def handle_movements_filter_menu_callback(callback: CallbackQuery, app):
+@router.callback_query(F.data == "mov_f_date_menu")
+async def handle_movements_date_submenu(callback: CallbackQuery, app):
     chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
     is_en = u_lang == "en"
+    filters = get_user_mov_filters(user)
 
-    spools = await app.storage.load_spools()
-    kb = get_spool_filter_keyboard(spools, current_filter="all", lang=u_lang)
+    kb = get_movements_date_filter_keyboard(current_date=filters.get("date", "all"), lang=u_lang)
     msg_text = (
-        "🔍 <b>Оберіть котушку для фільтрації журналу аудиту:</b>"
+        "📅 <b>Оберіть період часу для фільтрації записів:</b>"
         if not is_en
-        else "🔍 <b>Select spool to filter audit movements:</b>"
+        else "📅 <b>Select date range for filtering records:</b>"
     )
     try:
         if callback.message:
@@ -194,53 +334,244 @@ async def handle_movements_filter_menu_callback(callback: CallbackQuery, app):
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("mov_filter:"))
-async def handle_movements_filter_select_callback(callback: CallbackQuery, app):
+@router.callback_query(F.data.startswith("mov_f_set_date:"))
+async def handle_movements_set_date(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    user = await app.storage.load_user(chat_id)
+    filters = get_user_mov_filters(user)
+
+    date_code = callback.data.split(":", 1)[1]
+    filters["date"] = date_code
+    await app.storage.save_user(user)
+
+    # Return to filter hub
+    await handle_movements_filter_hub_callback(callback, app)
+
+
+@router.callback_query(F.data == "mov_f_action_menu")
+async def handle_movements_action_submenu(callback: CallbackQuery, app):
     chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
     is_en = u_lang == "en"
+    filters = get_user_mov_filters(user)
 
-    spool_filter = callback.data.split(":", 1)[1]
-    movements = await app.storage.load_spool_movements()
-    spool_name_filter = ""
-    if spool_filter != "all":
-        spools = await app.storage.load_spools()
-        spool_name_filter = spools.get(spool_filter, {}).get("name", spool_filter)
-        movements = [m for m in movements if m.get("spool_id") == spool_filter]
-
-    movements = sorted(movements, key=lambda x: x.get("timestamp", 0), reverse=True)
-    text, total_pages = build_movements_page_text(
-        movements, page=0, spool_filter=spool_filter, spool_name_filter=spool_name_filter, is_en=is_en
+    kb = get_movements_action_filter_keyboard(current_action=filters.get("action", "all"), lang=u_lang)
+    msg_text = (
+        "⚡ <b>Оберіть тип операції для фільтрації:</b>"
+        if not is_en
+        else "⚡ <b>Select action type for filtering:</b>"
     )
-    kb = get_spool_movements_keyboard(page=0, total_pages=total_pages, spool_filter=spool_filter, lang=u_lang)
-
     try:
         if callback.message:
-            await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+            await callback.message.edit_text(msg_text, parse_mode=ParseMode.HTML, reply_markup=kb)
     except Exception:
         pass
     await callback.answer()
 
 
-@router.callback_query(F.data == "mov_filter_clear")
-async def handle_movements_filter_clear(callback: CallbackQuery, app):
+@router.callback_query(F.data.startswith("mov_f_set_act:"))
+async def handle_movements_set_action(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    user = await app.storage.load_user(chat_id)
+    filters = get_user_mov_filters(user)
+
+    act_code = callback.data.split(":", 1)[1]
+    filters["action"] = act_code
+    await app.storage.save_user(user)
+
+    # Return to filter hub
+    await handle_movements_filter_hub_callback(callback, app)
+
+
+@router.callback_query(F.data.startswith("mov_f_spool_menu:") | F.data.startswith("mov_f_spool_page:"))
+async def handle_movements_spool_submenu(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+    filters = get_user_mov_filters(user)
+
+    parts = callback.data.split(":")
+    page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+
+    spools = await app.storage.load_spools()
+    kb = get_movements_spool_select_keyboard(
+        spools,
+        current_spool=filters.get("spool", "all"),
+        page=page,
+        lang=u_lang,
+    )
+    msg_text = (
+        "🧵 <b>Оберіть котушку зі складу для фільтрації:</b>"
+        if not is_en
+        else "🧵 <b>Select spool from stock to filter:</b>"
+    )
+    try:
+        if callback.message:
+            await callback.message.edit_text(msg_text, parse_mode=ParseMode.HTML, reply_markup=kb)
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("mov_f_set_spool:"))
+async def handle_movements_set_spool(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    user = await app.storage.load_user(chat_id)
+    filters = get_user_mov_filters(user)
+
+    spool_code = callback.data.split(":", 1)[1]
+    filters["spool"] = spool_code
+    await app.storage.save_user(user)
+
+    # Return to filter hub
+    await handle_movements_filter_hub_callback(callback, app)
+
+
+@router.callback_query(F.data == "mov_f_search_prompt")
+async def handle_movements_search_prompt(callback: CallbackQuery, app):
     chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
     is_en = u_lang == "en"
 
-    movements = await app.storage.load_spool_movements()
-    movements = sorted(movements, key=lambda x: x.get("timestamp", 0), reverse=True)
-    text, total_pages = build_movements_page_text(movements, page=0, spool_filter="all", is_en=is_en)
-    kb = get_spool_movements_keyboard(page=0, total_pages=total_pages, spool_filter="all", lang=u_lang)
+    user["state"] = "awaiting_mov_search"
+    await app.storage.save_user(user)
+
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="❌ Очистити пошук" if not is_en else "❌ Clear search",
+                    callback_data="mov_f_clear_search",
+                ),
+                InlineKeyboardButton(
+                    text="⬅️ До фільтрів" if not is_en else "⬅️ Back to filters",
+                    callback_data="mov_filter_menu",
+                ),
+            ]
+        ]
+    )
+
+    msg_text = (
+        "🔍 <b>Пошук по журналу аудиту руху</b>\n\n"
+        "Надішліть у чат текстове повідомлення з ключовим словом (назва моделі/деталі, причина коригування, ім'я користувача або назва котушки).\n\n"
+        "<i>Для скасування або очищення пошуку натисніть кнопку нижче або надішліть «скинути».</i>"
+        if not is_en
+        else "🔍 <b>Search movements audit log</b>\n\n"
+        "Send a message with your search keyword (model name, correction reason, user name, or spool name).\n\n"
+        "<i>To cancel or clear search, click below or send \"clear\".</i>"
+    )
 
     try:
         if callback.message:
-            await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+            await callback.message.edit_text(msg_text, parse_mode=ParseMode.HTML, reply_markup=cancel_kb)
     except Exception:
         pass
-    await callback.answer("✅ Фільтр скинуто" if not is_en else "✅ Filter cleared")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "mov_f_clear_search")
+async def handle_movements_clear_search(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    filters = get_user_mov_filters(user)
+
+    filters["query"] = ""
+    user["state"] = "idle"
+    await app.storage.save_user(user)
+
+    await callback.answer("🔍 Пошук очищено" if u_lang != "en" else "🔍 Search cleared")
+    await handle_movements_filter_hub_callback(callback, app)
+
+
+async def mov_search_state_filter(message: Message, app) -> bool:
+    if not message.text:
+        return False
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    return user.get("state") == "awaiting_mov_search"
+
+
+@router.message(mov_search_state_filter)
+async def handle_movements_search_input(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    filters = get_user_mov_filters(user)
+
+    raw_text = (message.text or "").strip()
+    if raw_text.lower() in ["❌", "скасувати", "cancel", "скинути", "clear", "-", "none"]:
+        filters["query"] = ""
+    else:
+        filters["query"] = raw_text
+
+    user["state"] = "idle"
+    await app.storage.save_user(user)
+
+    # Render filtered log
+    await render_movements_page(chat_id=chat_id, app=app, page=0, message=message)
+
+
+@router.callback_query(F.data.in_(["mov_f_clear", "mov_filter_clear"]))
+async def handle_movements_filter_clear_all(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+    filters = get_user_mov_filters(user)
+
+    filters["spool"] = "all"
+    filters["action"] = "all"
+    filters["date"] = "all"
+    filters["query"] = ""
+    user["state"] = "idle"
+    await app.storage.save_user(user)
+
+    await callback.answer("✅ Всі фільтри скинуто" if not is_en else "✅ All filters reset")
+    await render_movements_page(chat_id=chat_id, app=app, page=0, callback=callback)
+
+
+@router.callback_query(F.data == "mov_f_back")
+async def handle_movements_back_to_log(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    await render_movements_page(chat_id=chat_id, app=app, page=0, callback=callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("mov_spool_direct:"))
+async def handle_movements_spool_direct(callback: CallbackQuery, app):
+    """Direct jump to movements log pre-filtered for a specific spool."""
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    user = await app.storage.load_user(chat_id)
+    filters = get_user_mov_filters(user)
+
+    target_spool = callback.data.split(":", 1)[1]
+    filters["spool"] = target_spool
+    filters["action"] = "all"
+    filters["date"] = "all"
+    filters["query"] = ""
+    user["state"] = "idle"
+    await app.storage.save_user(user)
+
+    await render_movements_page(chat_id=chat_id, app=app, page=0, callback=callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("mov_filter:"))
+async def handle_legacy_mov_filter(callback: CallbackQuery, app):
+    """Backward compatibility for legacy spool filter callbacks."""
+    chat_id = str(callback.message.chat.id) if callback.message else str(callback.from_user.id)
+    user = await app.storage.load_user(chat_id)
+    filters = get_user_mov_filters(user)
+
+    spool_code = callback.data.split(":", 1)[1]
+    filters["spool"] = spool_code
+    await app.storage.save_user(user)
+
+    await render_movements_page(chat_id=chat_id, app=app, page=0, callback=callback)
+    await callback.answer()
 
 
 @router.message(
@@ -280,19 +611,50 @@ async def handle_export_movements_pdf_callback(callback: CallbackQuery, app):
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
     is_en = u_lang == "en"
+    filters = get_user_mov_filters(user)
 
     await callback.answer("⏳ Формування PDF звіту..." if not is_en else "⏳ Generating PDF report...")
     try:
-        movements = await app.storage.load_spool_movements()
+        all_movements = await app.storage.load_spool_movements()
+        spools = await app.storage.load_spools()
+
+        spool_name = ""
+        if filters.get("spool", "all") != "all":
+            spool_name = spools.get(filters["spool"], {}).get("name", filters["spool"])
+
+        filtered = filter_spool_movements(
+            all_movements,
+            spool_id=filters.get("spool", "all"),
+            action=filters.get("action", "all"),
+            date_range=filters.get("date", "all"),
+            query=filters.get("query", ""),
+        )
+
+        subtitles = []
+        if filters.get("spool", "all") != "all" and spool_name:
+            subtitles.append(f"Котушка: {spool_name}" if not is_en else f"Spool: {spool_name}")
+        if filters.get("date", "all") != "all":
+            d_map = DATE_MAP_EN if is_en else DATE_MAP_UK
+            subtitles.append(f"Період: {d_map.get(filters['date'])}" if not is_en else f"Period: {d_map.get(filters['date'])}")
+        if filters.get("action", "all") != "all":
+            a_map = ACTION_MAP_EN if is_en else ACTION_MAP_UK
+            subtitles.append(f"Операція: {a_map.get(filters['action'])}" if not is_en else f"Action: {a_map.get(filters['action'])}")
+        if filters.get("query", "").strip():
+            subtitles.append(f'Пошук: "{filters["query"].strip()}"' if not is_en else f'Search: "{filters["query"].strip()}"')
+
+        filter_sub = " | ".join(subtitles) if subtitles else None
+
         from services.report_generator import generate_movements_pdf_report
-        pdf_bytes = generate_movements_pdf_report(movements)
+        pdf_bytes = generate_movements_pdf_report(filtered, filter_subtitle=filter_sub)
 
         filename = f"spool_movements_audit_{int(time.time())}.pdf"
         doc = BufferedInputFile(pdf_bytes, filename=filename)
         cap = (
-            "📜 <b>Журнал аудиту руху матеріалів складу (PDF)</b>"
+            f"📜 <b>Журнал аудиту руху матеріалів складу (PDF)</b>"
+            f"{f' — {filter_sub}' if filter_sub else ''}"
             if not is_en
-            else "📜 <b>Warehouse Movements Audit Log (PDF)</b>"
+            else f"📜 <b>Warehouse Movements Audit Log (PDF)</b>"
+            f"{f' — {filter_sub}' if filter_sub else ''}"
         )
         if callback.message:
             await callback.message.answer_document(doc, caption=cap, parse_mode=ParseMode.HTML)
@@ -314,7 +676,7 @@ async def handle_export_spools_pdf_callback(callback: CallbackQuery, app):
     try:
         spools = await app.storage.load_spools()
         from services.report_generator import generate_spools_pdf_report
-        pdf_bytes = generate_spools_pdf_report(spools)
+        pdf_bytes = generate_spools_pdf_report(spools, printers=getattr(app, "printers", None))
 
         filename = f"spools_inventory_{int(time.time())}.pdf"
         doc = BufferedInputFile(pdf_bytes, filename=filename)
@@ -345,8 +707,14 @@ async def handle_export_both_pdfs_callback(callback: CallbackQuery, app):
         movements = await app.storage.load_spool_movements()
         from services.report_generator import generate_movements_pdf_report, generate_spools_pdf_report
 
-        doc_spools = BufferedInputFile(generate_spools_pdf_report(spools), filename=f"spools_inventory_{int(time.time())}.pdf")
-        doc_movements = BufferedInputFile(generate_movements_pdf_report(movements), filename=f"spool_movements_audit_{int(time.time())}.pdf")
+        doc_spools = BufferedInputFile(
+            generate_spools_pdf_report(spools, printers=getattr(app, "printers", None)),
+            filename=f"spools_inventory_{int(time.time())}.pdf",
+        )
+        doc_movements = BufferedInputFile(
+            generate_movements_pdf_report(movements),
+            filename=f"spool_movements_audit_{int(time.time())}.pdf",
+        )
 
         if callback.message:
             await callback.message.answer_document(

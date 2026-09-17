@@ -317,6 +317,79 @@ class TestPrinterModel(unittest.TestCase):
         self.assertTrue(self.printer._job_deducted)
         self.assertEqual(self.printer.get_slot_grams("254"), initial_grams)
 
+    def test_screen_calibration_zero_layers_prevents_weight_deduction(self) -> None:
+        self.printer._client = MagicMock()
+        self.printer._client.is_connected.return_value = True
+        self.printer.subtask_name = "PreviousPrint_75g.3mf"
+        self.printer._last_completed_subtask = "PreviousPrint_75g.3mf"
+        initial_grams = self.printer.get_slot_grams("254")
+
+        msg = MagicMock()
+        msg.topic = f"device/{self.printer.serial_number}/report"
+        msg.payload = json.dumps({
+            "print": {
+                "gcode_state": "RUNNING",
+                "subtask_name": "PreviousPrint_75g.3mf",
+                "total_layer_num": 0,
+                "layer_num": 0,
+            }
+        }).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        # Weight must NOT be deducted because total_layer_num is 0
+        self.assertEqual(self.printer.get_slot_grams("254"), initial_grams)
+
+        msg.payload = json.dumps({
+            "print": {
+                "gcode_state": "FINISH",
+                "subtask_name": "PreviousPrint_75g.3mf",
+                "total_layer_num": 0,
+            }
+        }).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        self.assertEqual(self.printer.get_slot_grams("254"), initial_grams)
+
+    def test_screen_calibration_bed_leveling_keyword_prevents_weight(self) -> None:
+        self.printer._client = MagicMock()
+        self.printer._client.is_connected.return_value = True
+        initial_grams = self.printer.get_slot_grams("254")
+
+        msg = MagicMock()
+        msg.topic = f"device/{self.printer.serial_number}/report"
+        msg.payload = json.dumps({
+            "print": {
+                "gcode_state": "RUNNING",
+                "subtask_name": "auto_bed_leveling",
+            }
+        }).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        self.assertTrue(self.printer._is_calibrating)
+        self.assertEqual(self.printer.get_slot_grams("254"), initial_grams)
+
+    def test_real_print_with_layers_deducts_weight(self) -> None:
+        self.printer._client = MagicMock()
+        self.printer._client.is_connected.return_value = True
+        self.printer.subtask_name = "NewPart_30g.3mf"
+        initial_grams = self.printer.get_slot_grams("254")
+
+        msg = MagicMock()
+        msg.topic = f"device/{self.printer.serial_number}/report"
+        msg.payload = json.dumps({
+            "print": {
+                "gcode_state": "RUNNING",
+                "subtask_name": "NewPart_30g.3mf",
+                "total_layer_num": 200,
+                "layer_num": 1,
+            }
+        }).encode("utf-8")
+        self.printer._on_message(None, None, msg)
+
+        # 30g extracted from subtask name and deducted
+        self.assertTrue(self.printer._job_deducted)
+        self.assertEqual(self.printer.get_slot_grams("254"), initial_grams - 30.0)
+
     def test_get_active_spool_key_and_sentinels(self) -> None:
         # Idle state (255) -> returns None
         self.printer.active_ams_tray = 255

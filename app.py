@@ -43,6 +43,7 @@ class PrinterBotApp:
         for p_config in printers_data:
             p_obj = BambuPrinter(p_config, self.storage, save_callback=self.save_printers_config)
             p_obj._main_loop = running_loop
+            p_obj.tray_event_callback = self.handle_tray_event
             asyncio.create_task(asyncio.to_thread(p_obj.init_mqtt, running_loop))
             self.printers[p_obj.id] = p_obj
 
@@ -88,11 +89,19 @@ class PrinterBotApp:
                 logger.warning(f"Failed sending message to {chat_id}: {e}")
             return False
 
-    async def send_notification(self, event_type: str, text: str, reply_markup: Any | None = None, printer: Any | None = None) -> None:
+    async def send_notification(
+        self,
+        event_type: str,
+        text: str,
+        reply_markup: Any | None = None,
+        printer: Any | None = None,
+        parse_mode: str | None = None,
+    ) -> None:
         if printer and hasattr(printer, "get_notify_dict"):
             p_dict = printer.get_notify_dict()
             if not p_dict.get(event_type, True):
                 return
+        p_mode = parse_mode or (ParseMode.HTML if ("<b>" in text or "<code>" in text) else ParseMode.MARKDOWN)
         users = await self.storage.load_all_users()
         for chat_id, udata in users.items():
             if udata.get("chat_active") is False:
@@ -100,7 +109,85 @@ class PrinterBotApp:
             user_allows = udata.get("notify", {}).get(event_type, True)
             is_app = udata.get("is_approved", False) or await self.is_user_admin(chat_id)
             if user_allows and is_app:
-                await self.safe_send_message(chat_id, text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+                await self.safe_send_message(chat_id, text, parse_mode=p_mode, reply_markup=reply_markup)
+
+    async def handle_tray_event(self, printer: BambuPrinter, event: dict) -> None:
+        """
+        Handles physical tray load/unload events from printer hardware telemetry.
+        - On tray_unloaded: Automatically unmounts assigned spool to warehouse and notifies user.
+        - On tray_loaded: Asks user via interactive Telegram keyboard to pick or add a spool.
+        """
+        event_type = event.get("event")
+        slot_id = str(event.get("slot_id", "254"))
+        slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
+        slot_label = slot_names.get(slot_id, f"Слот {slot_id}")
+
+        if event_type == "tray_unloaded":
+            spools = await self.storage.load_spools()
+            assigned_spool = None
+            for s_id, s in spools.items():
+                if s.get("assigned_printer_id") == printer.id and str(s.get("assigned_slot_key")) in [slot_id, "255" if slot_id == "254" else slot_id]:
+                    assigned_spool = s
+                    break
+
+            if assigned_spool:
+                from bot.handlers.filament.add import unassign_spool_from_slot
+                res_desc, _ = unassign_spool_from_slot(spools, assigned_spool, printer, slot_id)
+                await self.storage.save_spools(spools)
+                printer.set_slot_grams(0.0, slot_id=slot_id)
+                await self.save_printers_config()
+
+                await self.storage.record_spool_movement(
+                    spool_id=assigned_spool["id"],
+                    spool_name=assigned_spool.get("name", "Котушка"),
+                    action="unassign",
+                    weight_change_g=0.0,
+                    prev_weight_g=float(assigned_spool.get("remaining_grams", 1000.0)),
+                    new_weight_g=float(assigned_spool.get("remaining_grams", 1000.0)),
+                    reason="Автоматичне повернення на склад (вивантажено на принтері)",
+                    user="Bambu Hardware",
+                    printer_id=printer.id,
+                    slot_key=slot_id,
+                )
+
+                notif_text = (
+                    f"🔓 <b>Філамент вивантажено на принтері {html.escape(printer.name)} [{slot_label}]!</b>\n\n"
+                    f"📦 Котушку <b>{html.escape(assigned_spool.get('name', 'Котушка'))}</b> ({assigned_spool.get('type', 'PLA')}) "
+                    f"автоматично знято зі слоту та повернено на Склад ({res_desc})."
+                )
+                await self.send_notification("finish", notif_text, parse_mode=ParseMode.HTML)
+                logger.info(f"🔓 [Auto Unmount] Spool {assigned_spool['id']} auto-returned to warehouse from {printer.name} slot {slot_id}")
+
+        elif event_type == "tray_loaded":
+            fil_type = str(event.get("filament_type") or "PLA").strip().upper()
+            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+            prompt_text = (
+                f"📥 <b>На принтері {html.escape(printer.name)} [{slot_label}] завантажено новий філамент ({fil_type})!</b>\n\n"
+                f"Оберіть дію: прив'язати наявну котушку зі Складу чи зареєструвати нову?"
+            )
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="📦 Обрати зі Складу",
+                            callback_data=f"fil_auto_mount:{printer.id}:{slot_id}:{fil_type}",
+                        ),
+                        InlineKeyboardButton(
+                            text="➕ Додати нову",
+                            callback_data=f"fil_auto_add:{printer.id}:{slot_id}:{fil_type}",
+                        ),
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="✖ Пропустити",
+                            callback_data=f"fil_auto_skip:{printer.id}:{slot_id}",
+                        ),
+                    ],
+                ]
+            )
+            await self.send_notification("start", prompt_text, reply_markup=kb, parse_mode=ParseMode.HTML)
+            logger.info(f"📥 [Auto Load] Sent assignment prompt for {printer.name} slot {slot_id} ({fil_type})")
 
     async def monitoring_loop(self) -> None:
         logger.info("⚙️ [Monitoring] Background printer monitor loop started!")
@@ -114,6 +201,7 @@ class PrinterBotApp:
                 try:
                     p_obj = BambuPrinter(p, self.storage, save_callback=self.save_printers_config)
                     p_obj._main_loop = main_loop
+                    p_obj.tray_event_callback = self.handle_tray_event
                     asyncio.create_task(asyncio.to_thread(p_obj.init_mqtt, main_loop))
                     self.printers[p_id] = p_obj
                     p = p_obj
@@ -122,6 +210,7 @@ class PrinterBotApp:
                     self.printers.pop(p_id, None)
                     continue
             p._main_loop = main_loop
+            p.tray_event_callback = self.handle_tray_event
             if not getattr(p, "storage", None):
                 p.storage = self.storage
 
@@ -183,6 +272,11 @@ class PrinterBotApp:
                     if getattr(p, "is_mqtt_connected", False) and hasattr(p, "request_pushall"):
                         if (time.time() - getattr(p, "last_mqtt_msg_time", 0.0)) > 30.0:
                             p.request_pushall()
+
+                    # Process any pending hardware tray events
+                    if hasattr(p, "pop_tray_events"):
+                        for evt in p.pop_tray_events():
+                            await self.handle_tray_event(p, evt)
 
                     if p.id not in self.printer_states:
                         self.printer_states[p.id] = {
