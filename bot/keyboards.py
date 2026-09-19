@@ -2,6 +2,8 @@
 Reply and Inline keyboard builders for Telegram Bot.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo

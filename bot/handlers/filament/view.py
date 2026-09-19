@@ -2,7 +2,10 @@
 Filament warehouse view & RFID sync handlers.
 """
 
+from __future__ import annotations
+
 import html
+from typing import Any
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
