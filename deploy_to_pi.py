@@ -2,6 +2,11 @@ import os
 import paramiko
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 def deploy():
     pi_ip = os.environ.get("PI_IP", "192.168.1.47")
     username = os.environ.get("PI_USER", "host2")
