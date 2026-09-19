@@ -263,8 +263,12 @@ async def handle_hw_unload_callback(call: CallbackQuery, app):
 
     slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
     slot_label = slot_names.get(str(slot_id), f"Слот {slot_id}")
+    try:
+        success = printer.unload_filament(slot_id=slot_id)
+    except Exception as e:
+        logger.error(f"Error executing unload_filament on [{printer.name}]: {e}")
+        success = False
 
-    success = printer.unload_filament(slot_id=slot_id)
     if success:
         await call.answer("Команду Unload надіслано!" if u_lang != "en" else "Unload command sent!")
         await call.message.edit_text(
@@ -303,7 +307,12 @@ async def handle_hw_load_callback(call: CallbackQuery, app):
     slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
     slot_label = slot_names.get(str(slot_id), f"Слот {slot_id}")
 
-    success = printer.load_filament(slot_id=slot_id)
+    try:
+        success = printer.load_filament(slot_id=slot_id)
+    except Exception as e:
+        logger.error(f"Error executing load_filament on [{printer.name}]: {e}")
+        success = False
+
     if success:
         await call.answer("Команду Load надіслано!" if u_lang != "en" else "Load command sent!")
         await call.message.edit_text(

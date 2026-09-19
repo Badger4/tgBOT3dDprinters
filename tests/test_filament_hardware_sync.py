@@ -49,6 +49,38 @@ class TestFilamentHardwareSync(unittest.IsolatedAsyncioTestCase):
         # Should publish unload commands
         self.assertGreaterEqual(self.printer._client.publish.call_count, 1)
 
+    def test_unload_filament_external_spool(self):
+        self.printer.is_printing = False
+        self.printer.gcode_state = "IDLE"
+        self.printer._client.publish.reset_mock()
+
+        result = self.printer.unload_filament("254")
+        self.assertTrue(result)
+        
+        # Verify gcode_line payload with M109 and E-80 retraction was published
+        published_payloads = [call.args[1] for call in self.printer._client.publish.call_args_list]
+        gcode_payloads = [json.loads(p)["print"] for p in published_payloads if "gcode_line" in json.loads(p)["print"].get("command", "")]
+        self.assertGreaterEqual(len(gcode_payloads), 1)
+        gcode_text = gcode_payloads[0]["param"]
+        self.assertIn("M109 S220", gcode_text)
+        self.assertIn("G1 E-80 F800", gcode_text)
+        self.assertIn("M104 S0", gcode_text)
+
+    def test_unload_filament_ams(self):
+        self.printer.is_printing = False
+        self.printer.gcode_state = "IDLE"
+        self.printer._has_ams_telemetry = True
+        self.printer._client.publish.reset_mock()
+
+        result = self.printer.unload_filament("1", target_temp=230)
+        self.assertTrue(result)
+
+        published_payloads = [call.args[1] for call in self.printer._client.publish.call_args_list]
+        ams_payloads = [json.loads(p)["print"] for p in published_payloads if json.loads(p)["print"].get("command") == "ams_change_filament"]
+        self.assertEqual(len(ams_payloads), 1)
+        self.assertEqual(ams_payloads[0]["target"], 255)
+        self.assertEqual(ams_payloads[0]["tar_temp"], 230)
+
     def test_load_filament_safety(self):
         self.printer.is_printing = True
         self.printer.gcode_state = "IDLE"
@@ -66,6 +98,37 @@ class TestFilamentHardwareSync(unittest.IsolatedAsyncioTestCase):
         result = self.printer.load_filament("0", target_temp=220)
         self.assertTrue(result)
         self.assertGreaterEqual(self.printer._client.publish.call_count, 1)
+
+    def test_load_filament_external_spool(self):
+        self.printer.is_printing = False
+        self.printer.gcode_state = "IDLE"
+        self.printer._client.publish.reset_mock()
+
+        result = self.printer.load_filament("254", target_temp=215)
+        self.assertTrue(result)
+
+        published_payloads = [call.args[1] for call in self.printer._client.publish.call_args_list]
+        gcode_payloads = [json.loads(p)["print"] for p in published_payloads if "gcode_line" in json.loads(p)["print"].get("command", "")]
+        self.assertGreaterEqual(len(gcode_payloads), 1)
+        gcode_text = gcode_payloads[0]["param"]
+        self.assertIn("M109 S215", gcode_text)
+        self.assertIn("G1 E80 F200", gcode_text)
+        self.assertIn("M104 S0", gcode_text)
+
+    def test_load_filament_ams(self):
+        self.printer.is_printing = False
+        self.printer.gcode_state = "IDLE"
+        self.printer._has_ams_telemetry = True
+        self.printer._client.publish.reset_mock()
+
+        result = self.printer.load_filament("2", target_temp=240)
+        self.assertTrue(result)
+
+        published_payloads = [call.args[1] for call in self.printer._client.publish.call_args_list]
+        ams_payloads = [json.loads(p)["print"] for p in published_payloads if json.loads(p)["print"].get("command") == "ams_change_filament"]
+        self.assertEqual(len(ams_payloads), 1)
+        self.assertEqual(ams_payloads[0]["target"], 2)
+        self.assertEqual(ams_payloads[0]["tar_temp"], 240)
 
     def test_tray_state_deltas_initialization_and_events(self):
         events = []

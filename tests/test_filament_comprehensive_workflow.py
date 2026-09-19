@@ -300,8 +300,9 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         # 6. Valid slot selection: Slot A2
         ans_good_slot = await self._send("📍 Слот A2 (Slot 2)")
         self.assertTrue(ans_good_slot.called)
-        self.assertIn("встановлено", ans_good_slot.call_args[0][0].lower())
-        self.assertIn("A2", ans_good_slot.call_args[0][0])
+        replies_good_slot = " ".join(str(call[0][0]) for call in ans_good_slot.call_args_list)
+        self.assertIn("встановлено", replies_good_slot.lower())
+        self.assertIn("A2", replies_good_slot)
 
         spools = await self.app.storage.load_spools()
         mounted_s = spools["spool_2"]
@@ -318,9 +319,9 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         # Select A1 mini 2 (which has no AMS)
         ans_p2 = await self._send("🖨️ Bambu Lab A1 mini 2")
         self.assertTrue(ans_p2.called)
-        reply_txt = ans_p2.call_args[0][0]
-        self.assertIn("встановлено", reply_txt)
-        self.assertIn("Зовнішній (VT)", reply_txt)
+        replies_p2 = " ".join(str(call[0][0]) for call in ans_p2.call_args_list)
+        self.assertIn("встановлено", replies_p2)
+        self.assertIn("Зовнішній (VT)", replies_p2)
 
         spools = await self.app.storage.load_spools()
         self.assertEqual(spools["spool_1"]["assigned_printer_id"], "p2")
@@ -352,7 +353,8 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         # Valid selection
         ans_ok = await self._send("Sunlu PETG White")
         self.assertTrue(ans_ok.called)
-        self.assertIn("знято", ans_ok.call_args[0][0].lower())
+        replies_ok = " ".join(str(call[0][0]) for call in ans_ok.call_args_list)
+        self.assertIn("знято", replies_ok.lower())
 
         spools = await self.app.storage.load_spools()
         self.assertIsNone(spools["spool_2"]["assigned_printer_id"])
@@ -793,7 +795,8 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         await self._send("🖨️ Bambu Lab P1S")
         ans_mount1 = await self._send("📍 Слот A1 (Slot 1)")
         self.assertTrue(ans_mount1.called)
-        self.assertIn("Залишок на Складі: <b>6 шт</b>", ans_mount1.call_args[0][0])
+        replies_mount1 = " ".join(str(call[0][0]) for call in ans_mount1.call_args_list)
+        self.assertIn("Залишок на Складі: <b>6 шт</b>", replies_mount1)
 
         # Verify storage: parent batch has quantity 6, mounted copy has quantity 1
         spools = await self.app.storage.load_spools()
@@ -815,7 +818,8 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ans_unm1.called)
         ans_unmount1 = await self._send("Bambu PLA Basic Jade White")
         self.assertTrue(ans_unmount1.called)
-        self.assertIn("повернуто до пачки (разом: 7 шт)", ans_unmount1.call_args[0][0])
+        replies_unmount1 = " ".join(str(call[0][0]) for call in ans_unmount1.call_args_list)
+        self.assertIn("повернуто до пачки (разом: 7 шт)", replies_unmount1)
 
         # Verify storage: batch is back to 7, temporary mounted copy is deleted
         spools = await self.app.storage.load_spools()
@@ -848,7 +852,8 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ans_unm2.called)
         ans_unmount2 = await self._send("Bambu PLA Basic Jade White")
         self.assertTrue(ans_unmount2.called)
-        self.assertIn("розпочата котушка: 850.0g (1 шт)", ans_unmount2.call_args[0][0])
+        replies_unmount2 = " ".join(str(call[0][0]) for call in ans_unmount2.call_args_list)
+        self.assertIn("розпочата котушка: 850.0g (1 шт)", replies_unmount2)
 
         # Verify storage: parent batch STILL has 6 шт (1000g), AND a separate started spool exists with 850g (1 шт)!
         spools = await self.app.storage.load_spools()

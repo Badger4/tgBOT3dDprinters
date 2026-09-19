@@ -207,15 +207,22 @@ class BambuPrinter:
         self.ams_units: list = []
         self.ams_humidity_idx: int = int(config.get("ams_humidity_idx", 0))
         self.ams_humidity_raw: int = int(config.get("ams_humidity_raw", 0))
-        self.ams_temp: float = 0.0
+        try:
+            self.ams_temp: float = float(config.get("ams_temp", 0.0) or 0.0)
+        except (ValueError, TypeError):
+            self.ams_temp = 0.0
         self.active_ams_tray: int = 255
         self.target_ams_tray: int | None = None
         self.last_active_slot: str | None = None
-        self.ams_exist_bits: str = str(config.get("ams_exist_bits", "0"))
+        self.ams_exist_bits: str = str(config.get("ams_exist_bits", ""))
         raw_ams_enabled = config.get("ams_enabled")
-        self.ams_enabled: bool | None = bool(raw_ams_enabled) if raw_ams_enabled is not None else None
+        if raw_ams_enabled is None or str(raw_ams_enabled).strip().lower() in ["auto", "none", ""]:
+            self.ams_enabled = None
+        else:
+            self.ams_enabled = bool(raw_ams_enabled)
         self.ams_trays_info: dict[str, dict] = dict(config.get("ams_trays_info", {}))
-        self._has_ams_telemetry: bool | None = config.get("has_ams")
+        raw_has_ams = config.get("has_ams")
+        self._has_ams_telemetry: bool | None = bool(raw_has_ams) if raw_has_ams is not None else None
         self._known_trays_state: dict[str, dict] = {}
         self._trays_initialized: bool = False
         self.tray_event_callback: Any | None = None
@@ -224,61 +231,59 @@ class BambuPrinter:
     @property
     def has_ams(self) -> bool:
         """
-        100% Fully Automatic AMS Hardware Detection from live Bambu MQTT telemetry.
-        Returns True if the printer has a real, active AMS unit connected.
+        Automatic AMS Hardware Detection from live Bambu MQTT telemetry
+        and persisted hardware state.
         """
         if self.ams_enabled is False:
             return False
         if self.ams_enabled is True:
             return True
 
+        if self._has_ams_telemetry is False:
+            return False
         if self._has_ams_telemetry is True:
             return True
 
-        # Check loaded trays in ams_trays_info (Slots 0..3)
-        has_physical_trays = any(
-            isinstance(self.ams_trays_info.get(k), dict)
-            and not self.ams_trays_info[k].get("empty", False)
-            and str(self.ams_trays_info[k].get("type") or "").strip().lower() not in ["", "empty"]
-            for k in ["0", "1", "2", "3"]
-        )
-        if has_physical_trays:
+        exist_bits = str(getattr(self, "ams_exist_bits", "")).strip()
+        if exist_bits in ["0", "0000"]:
+            return False
+        if exist_bits not in ["0", "0000", ""]:
             return True
 
         # Check active tray index (0..15 indicates active AMS slot feeding)
         if self.active_ams_tray is not None and 0 <= self.active_ams_tray <= 15:
             return True
 
-        exist_bits = str(getattr(self, "ams_exist_bits", "")).strip()
-        if exist_bits in ["0", "0000", ""]:
-            return False
+        if exist_bits not in ["0", "0000", ""]:
+            return True
+
+        t_bits = str(getattr(self, "tray_exist_bits", "")).strip()
+        if t_bits not in ["0", "0000", ""]:
+            return True
 
         units = getattr(self, "ams_units", [])
-        if not units or not isinstance(units, list):
-            return False
+        if isinstance(units, list) and units:
+            for unit in units:
+                if isinstance(unit, dict) and unit:
+                    if unit.get("humidity") is not None or unit.get("humidity_raw") is not None or unit.get("temp") is not None:
+                        return True
+                    trays = unit.get("tray", [])
+                    if isinstance(trays, list) and len(trays) > 0:
+                        for t in trays:
+                            if isinstance(t, dict):
+                                t_type = str(t.get("tray_type", "")).strip().lower()
+                                if t_type and t_type != "empty" and not t.get("empty", False):
+                                    return True
 
-        for unit in units:
-            if isinstance(unit, dict) and unit:
-                # 1. Environmental sensors
-                if unit.get("humidity") is not None or unit.get("humidity_raw") is not None or unit.get("temp") is not None:
-                    return True
-
-                # 2. Check non-empty tray slots
-                trays = unit.get("tray", [])
-                if isinstance(trays, list) and len(trays) > 0:
-                    for t in trays:
-                        if isinstance(t, dict):
-                            t_type = str(t.get("tray_type", "")).strip().lower()
-                            if t_type and t_type != "empty" and not t.get("empty", False):
-                                return True
-
-                # 3. Check tray_exist_bits bitmask
-                t_bits = str(getattr(self, "tray_exist_bits", "")).strip()
-                if t_bits and t_bits not in ["0", "0000"]:
-                    return True
-
-        if self._has_ams_telemetry is False:
-            return False
+        # Check loaded trays in ams_trays_info (Slots 0..3) ONLY if ams_exist_bits is not explicitly 0
+        has_physical_trays = any(
+            isinstance(self.ams_trays_info.get(k), dict)
+            and not self.ams_trays_info[k].get("empty", False)
+            and str(self.ams_trays_info[k].get("type") or "").strip().lower() not in ["", "empty"]
+            for k in ["0", "1", "2", "3"]
+        )
+        if has_physical_trays and exist_bits not in ["0", "0000"]:
+            return True
 
         return False
 
@@ -488,6 +493,18 @@ class BambuPrinter:
     @property
     def online(self) -> bool:
         return self.is_online
+
+    @property
+    def is_printing(self) -> bool:
+        """Checks if the printer is actively printing or in prepare/building/pause state."""
+        return bool(
+            getattr(self, "_is_printing", False)
+            or getattr(self, "gcode_state", "") in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]
+        )
+
+    @is_printing.setter
+    def is_printing(self, val: bool) -> None:
+        self._is_printing = bool(val)
 
     @property
     def filament_grams(self) -> float:
@@ -810,10 +827,10 @@ class BambuPrinter:
                     self.last_active_slot = str(self.active_ams_tray)
             if "ams_units" in parsed:
                 self.ams_units = parsed["ams_units"]
-            if "ams_trays_info" in parsed:
+            if parsed.get("has_ams") is False or getattr(self, "ams_exist_bits", "") in ["0", "0000"]:
+                self.ams_trays_info = {k: v for k, v in self.ams_trays_info.items() if k in ["254", "255"]}
+            elif "ams_trays_info" in parsed:
                 self.ams_trays_info.update(parsed["ams_trays_info"])
-            elif parsed.get("has_ams") is False:
-                self.ams_trays_info = {k: v for k, v in self.ams_trays_info.items() if k == "254"}
             if "ams_humidity_idx" in parsed:
                 self.ams_humidity_idx = parsed["ams_humidity_idx"]
             if "ams_humidity_raw" in parsed:
@@ -1233,11 +1250,45 @@ class BambuPrinter:
         self._client.publish(f"device/{self.serial_number}/request", payload)
         return True
 
-    def unload_filament(self, slot_id: int | str | None = None) -> bool:
+    def _get_filament_temp(self, slot_id: int | str | None = None) -> int:
+        """
+        Determines reasonable extrusion/purge temperature based on slot or filament type.
+        Default 220°C (standard PLA/PETG safe extrusion temp).
+        """
+        if getattr(self, "nozzle_target_temper", 0) and self.nozzle_target_temper >= 170:
+            return int(self.nozzle_target_temper)
+
+        slot_str = str(slot_id).strip().lower() if slot_id is not None else ""
+        fil_type = ""
+
+        # Check AMS tray info if available
+        if hasattr(self, "ams_trays_info") and isinstance(self.ams_trays_info, dict) and slot_str in self.ams_trays_info:
+            tray_val = self.ams_trays_info[slot_str]
+            if isinstance(tray_val, dict):
+                fil_type = str(tray_val.get("type") or tray_val.get("tray_type") or "").strip().upper()
+
+        # Check self.filament_type if not found
+        if not fil_type or fil_type in ["", "EMPTY", "НЕВИЗНАЧЕНО"]:
+            fil_type = str(getattr(self, "filament_type", "")).strip().upper()
+
+        if "PETG" in fil_type:
+            return 235
+        elif "ABS" in fil_type or "ASA" in fil_type:
+            return 250
+        elif "PC" in fil_type:
+            return 260
+        elif "TPU" in fil_type:
+            return 220
+        elif "PA" in fil_type or "NYLON" in fil_type:
+            return 260
+        return 220
+
+    def unload_filament(self, slot_id: int | str | None = None, target_temp: int | None = None) -> bool:
         """
         Commands printer to unload filament.
         Safety check: Refuses to execute if printer is actively printing or paused during a print.
         Sends native unload_filament, AMS unload (target 255) if applicable, and standard gcode file fallback.
+        For non-AMS / external spool, issues heating and retraction sequence via gcode_line.
         """
         if self.is_printing or self.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
             logger.warning(f"⚠️ Cannot unload filament on [{self.name}]: printer is active ({self.gcode_state})")
@@ -1247,6 +1298,9 @@ class BambuPrinter:
             return False
 
         seq = int(time.time())
+        temp = int(target_temp) if target_temp and int(target_temp) >= 170 else self._get_filament_temp(slot_id)
+        slot_str = str(slot_id).strip().lower() if slot_id is not None else ""
+
         # 1. Native Bambu unload command
         payload_unload = json.dumps({
             "print": {
@@ -1256,17 +1310,30 @@ class BambuPrinter:
         })
         self._client.publish(f"device/{self.serial_number}/request", payload_unload)
 
-        # 2. If AMS is present or slot is an AMS slot (0..3), command ams_change_filament with target 255 (unload)
-        slot_str = str(slot_id).strip() if slot_id is not None else ""
-        if slot_str in ["0", "1", "2", "3"] or self.has_ams:
+        # 2. If AMS is present and slot is an AMS slot (0..3), command ams_change_filament with target 255 (unload)
+        if (slot_str in ["0", "1", "2", "3"] and self.has_ams) or (self.has_ams and slot_str not in ["254", "255", "vt", "external"]):
             payload_ams = json.dumps({
                 "print": {
                     "sequence_id": str(seq + 1),
                     "command": "ams_change_filament",
-                    "target": 255
+                    "target": 255,
+                    "curr_temp": temp,
+                    "tar_temp": temp
                 }
             })
             self._client.publish(f"device/{self.serial_number}/request", payload_ams)
+        else:
+            # For External Spool (VT / 254) or printer without AMS:
+            # Heat nozzle to extrusion temp, advance 5mm to melt tip, retract 80mm out of extruder gears, turn off heater
+            unload_gcode = f"M109 S{temp}\nM83\nG1 E5 F150\nG1 E-80 F800\nM400\nM82\nM104 S0\n"
+            payload_gcode_line = json.dumps({
+                "print": {
+                    "sequence_id": str(seq + 1),
+                    "command": "gcode_line",
+                    "param": unload_gcode
+                }
+            })
+            self._client.publish(f"device/{self.serial_number}/request", payload_gcode_line)
 
         # 3. Standard Bambu macro G-code fallback
         payload_gcode = json.dumps({
@@ -1277,13 +1344,15 @@ class BambuPrinter:
             }
         })
         self._client.publish(f"device/{self.serial_number}/request", payload_gcode)
-        logger.info(f"📤 Sent Unload Filament commands to [{self.name}] ({self.serial_number}) for slot {slot_id}")
+        logger.info(f"📤 Sent Unload Filament commands to [{self.name}] ({self.serial_number}) for slot {slot_id} (temp: {temp}°C)")
         return True
 
     def load_filament(self, slot_id: int | str | None = None, target_temp: int | None = None) -> bool:
         """
         Commands printer to load filament into the extruder.
         Safety check: Refuses to execute if printer is actively printing or paused during print.
+        For AMS: sends ams_change_filament for the specified tray target.
+        For External spool / Non-AMS: heats nozzle and extrudes 80mm to grab, feed and purge through nozzle.
         """
         if self.is_printing or self.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
             logger.warning(f"⚠️ Cannot load filament on [{self.name}]: printer is active ({self.gcode_state})")
@@ -1293,24 +1362,35 @@ class BambuPrinter:
             return False
 
         seq = int(time.time())
-        slot_str = str(slot_id).strip() if slot_id is not None else ""
+        temp = int(target_temp) if target_temp and int(target_temp) >= 170 else self._get_filament_temp(slot_id)
+        slot_str = str(slot_id).strip().lower() if slot_id is not None else ""
         tray_target = None
         if slot_str in ["0", "1", "2", "3"]:
             tray_target = int(slot_str)
 
-        if tray_target is not None:
-            params: dict[str, Any] = {"target": tray_target}
-            if target_temp:
-                params["curr_temp"] = int(target_temp)
-                params["tar_temp"] = int(target_temp)
+        if tray_target is not None and self.has_ams:
             payload_ams = json.dumps({
                 "print": {
                     "sequence_id": str(seq),
                     "command": "ams_change_filament",
-                    **params
+                    "target": tray_target,
+                    "curr_temp": temp,
+                    "tar_temp": temp
                 }
             })
             self._client.publish(f"device/{self.serial_number}/request", payload_ams)
+        else:
+            # External spool (254 / VT) or Non-AMS printer:
+            # Heat nozzle to extrusion temp, feed 80mm through extruder gears and nozzle, turn off heater
+            load_gcode = f"M109 S{temp}\nM83\nG1 E80 F200\nM400\nM82\nM104 S0\n"
+            payload_gcode_line = json.dumps({
+                "print": {
+                    "sequence_id": str(seq),
+                    "command": "gcode_line",
+                    "param": load_gcode
+                }
+            })
+            self._client.publish(f"device/{self.serial_number}/request", payload_gcode_line)
 
         payload_gcode = json.dumps({
             "print": {
@@ -1320,7 +1400,7 @@ class BambuPrinter:
             }
         })
         self._client.publish(f"device/{self.serial_number}/request", payload_gcode)
-        logger.info(f"📥 Sent Load Filament commands to [{self.name}] ({self.serial_number}) for slot {slot_id}")
+        logger.info(f"📥 Sent Load Filament commands to [{self.name}] ({self.serial_number}) for slot {slot_id} (temp: {temp}°C)")
         return True
 
     def _is_tray_loaded(self, t_info: dict) -> bool:
@@ -1942,6 +2022,7 @@ class BambuPrinter:
             "ams_temp": self.ams_temp,
             "ams_trays_info": self.ams_trays_info,
             "has_ams": self.has_ams,
+            "ams_enabled": self.ams_enabled,
             "ams_units": self.ams_units,
             "hms_errors": self.hms_errors,
             "hms_resolved": self.hms_resolved,

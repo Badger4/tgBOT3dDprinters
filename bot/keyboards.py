@@ -373,26 +373,90 @@ def get_spools_keyboard(spools: dict[str, dict[str, Any]], lang: str = "uk") -> 
 
 def get_ams_slots_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyboardMarkup:
     is_en = lang == "en"
-    active_key = printer.get_active_slot_key()
-    active_mark_str = " [⚡ ACTIVE]" if is_en else " [⚡ АКТИВНИЙ]"
-    mark = lambda key, label: f"{label}{active_mark_str}" if (active_key == key or (key == "254" and active_key in ["254", "255"])) else label
+    from utils.filament_utils import get_color_emoji
 
-    if getattr(printer, "has_ams", False):
+    active_k = printer.get_active_slot_key() if hasattr(printer, "get_active_slot_key") else "254"
+    if callable(active_k):
+        try:
+            active_k = active_k()
+        except Exception:
+            active_k = "254"
+    active_key = str(active_k) if active_k is not None else "254"
+
+    trays = getattr(printer, "ams_trays_info", {}) or {}
+    if not isinstance(trays, dict):
+        trays = {}
+
+    def build_slot_btn(idx: int) -> KeyboardButton:
+        slot_k = str(idx)
+        slot_name = f"A{idx + 1}"
+        t_info = trays.get(slot_k, {})
+        is_empty = t_info.get("empty", True) if t_info else True
+        t_type = str(t_info.get("type") or t_info.get("tray_type") or "").strip()
+        t_color = str(t_info.get("color") or t_info.get("tray_color") or "")
+        rem_pct = t_info.get("remain", -1)
+        slot_g = printer.get_slot_grams(slot_k) if hasattr(printer, "get_slot_grams") else 0.0
+
+        is_act = (slot_k == active_key)
+        act_icon = " ⚡" if is_act else ""
+
+        if is_empty or (not t_type and slot_g <= 0):
+            empty_lbl = "Empty" if is_en else "Порожньо"
+            return KeyboardButton(text=f"⚪ {slot_name}: {empty_lbl}{act_icon}")
+
+        c_emoji = get_color_emoji(t_color)
+        mat_type = t_type if t_type else ("Filament" if is_en else "Філамент")
+
+        rem_part = ""
+        if rem_pct >= 0:
+            rem_part = f" {rem_pct}%"
+        elif slot_g > 0:
+            rem_part = f" {slot_g:.0f}g"
+
+        return KeyboardButton(text=f"{c_emoji} {slot_name}: {mat_type}{rem_part}{act_icon}")
+
+    def build_vt_btn() -> KeyboardButton:
+        vt_info = trays.get("254", {})
+        vt_empty = vt_info.get("empty", True) if vt_info else True
+        vt_type = str(vt_info.get("type") or vt_info.get("tray_type") or "").strip()
+        vt_color = str(vt_info.get("color") or vt_info.get("tray_color") or "")
+        vt_rem = vt_info.get("remain", -1)
+        vt_grams = printer.get_slot_grams("254") if hasattr(printer, "get_slot_grams") else 0.0
+        vt_is_act = (active_key in ["254", "255"])
+        vt_act = " ⚡" if vt_is_act else ""
+
+        if not vt_type:
+            f_type = getattr(printer, "filament_type", "")
+            if f_type and f_type not in ["Невизначено", "None", "", "Порожньо", "Empty"]:
+                vt_type = f_type
+
+        if vt_empty and not vt_type and vt_grams <= 0 and not vt_is_act:
+            empty_lbl = "Empty" if is_en else "Порожньо"
+            return KeyboardButton(text=f"⚪ VT: {empty_lbl}")
+
+        c_emoji = get_color_emoji(vt_color) if vt_color else "🧵"
+        mat_type = vt_type if vt_type else ("External" if is_en else "Зовнішній")
+
+        rem_part = ""
+        if vt_rem >= 0:
+            rem_part = f" {vt_rem}%"
+        elif vt_grams > 0:
+            rem_part = f" {vt_grams:.0f}g"
+
+        return KeyboardButton(text=f"{c_emoji} VT: {mat_type}{rem_part}{vt_act}")
+
+    p_has_ams = bool(getattr(printer, "has_ams", False))
+
+    if p_has_ams:
         keyboard = [
-            [
-                KeyboardButton(text=mark("0", "📍 Slot A1 (Slot 1)" if is_en else "📍 Слот A1 (Slot 1)")),
-                KeyboardButton(text=mark("1", "📍 Slot A2 (Slot 2)" if is_en else "📍 Слот A2 (Slot 2)")),
-            ],
-            [
-                KeyboardButton(text=mark("2", "📍 Slot A3 (Slot 3)" if is_en else "📍 Слот A3 (Slot 3)")),
-                KeyboardButton(text=mark("3", "📍 Slot A4 (Slot 4)" if is_en else "📍 Слот A4 (Slot 4)")),
-            ],
-            [KeyboardButton(text=mark("254", "📍 External Slot (VT)" if is_en else "📍 Зовнішній слот (VT)"))],
+            [build_slot_btn(0), build_slot_btn(1)],
+            [build_slot_btn(2), build_slot_btn(3)],
+            [build_vt_btn()],
             [KeyboardButton(text=t("btn_back", lang))],
         ]
     else:
         keyboard = [
-            [KeyboardButton(text=mark("254", "📍 External Spool (VT)" if is_en else "📍 Зовнішній котушкотримач (VT)"))],
+            [build_vt_btn()],
             [KeyboardButton(text=t("btn_back", lang))],
         ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)

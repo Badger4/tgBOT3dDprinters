@@ -279,14 +279,14 @@ class TestAMSAutoDetectionAndMapping(unittest.TestCase):
         self.assertEqual(self.printer.ams_trays_info["1"]["type"], "ABS")
         self.assertEqual(self.printer.ams_trays_info["2"]["type"], "PETG")
 
-    def test_has_ams_property_detects_hardware_even_if_telemetry_flag_was_false(self):
-        """Tests that has_ams returns True if physical AMS spools are configured, even if _has_ams_telemetry was False."""
+    def test_has_ams_property_respects_telemetry_false_even_if_trays_info_stale(self):
+        """Tests that has_ams returns False if telemetry is False even if stale ams_trays_info exists."""
         self.printer._has_ams_telemetry = False
         self.printer.ams_trays_info = {
             "0": {"id": "0", "type": "", "empty": True},
             "1": {"id": "1", "type": "ABS", "empty": False},
         }
-        self.assertTrue(self.printer.has_ams)
+        self.assertFalse(self.printer.has_ams)
 
     def test_explicit_ams_exist_bits_zero_sets_has_ams_false(self):
         """Tests that explicit ams_exist_bits: '0' correctly marks has_ams as False."""

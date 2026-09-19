@@ -146,20 +146,137 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
     except (TypeError, ValueError):
         active_grams_val = 0.0
 
+    from utils.filament_utils import get_color_emoji
+
     trays = getattr(target_printer, "ams_trays_info", {})
     if not isinstance(trays, dict):
         trays = {}
-    t_info = trays.get(str(active_k), {})
-    if not isinstance(t_info, dict):
-        t_info = {}
-    has_tray = bool(t_info.get("type") and not t_info.get("empty", False))
-    f_type = getattr(target_printer, "filament_type", "")
-    f_type_str = str(f_type) if isinstance(f_type, str) else ""
 
-    has_spool = (active_grams_val > 0.0) and (has_tray or (f_type_str and f_type_str not in ["Невизначено", "None", "", "Порожньо", "Empty"]))
+    has_ams = bool(getattr(target_printer, "has_ams", False))
+    active_k = target_printer.get_active_slot_key() if hasattr(target_printer, "get_active_slot_key") else "254"
+    if callable(active_k):
+        try:
+            active_k = active_k()
+        except Exception:
+            active_k = "254"
+    active_slot_str = str(active_k) if active_k is not None else "254"
 
-    spool_str = f"<b>{active_grams_val}g</b>" if has_spool else ("<i>Empty</i>" if is_en else "<i>Порожньо</i>")
-    type_str = f"<b>{f_type_str}</b>" if (has_spool and f_type_str and f_type_str not in ["Невизначено", "None", "", "Порожньо", "Empty"]) else "<i>—</i>"
+    if has_ams:
+        ams_lines = []
+        ams_lines.append("🌈 <b>AMS Slots:</b>" if is_en else "🌈 <b>Слоти AMS:</b>")
+
+        # 4 AMS slots: A1..A4 (keys "0", "1", "2", "3")
+        for idx in range(4):
+            slot_k = str(idx)
+            slot_name = f"A{idx + 1}"
+            t_info = trays.get(slot_k, {})
+            is_empty = t_info.get("empty", True) if t_info else True
+            t_type = str(t_info.get("type") or t_info.get("tray_type") or "").strip()
+            t_sub = str(t_info.get("sub_brands") or "").strip()
+            t_color = str(t_info.get("color") or t_info.get("tray_color") or "")
+            rem_pct = t_info.get("remain", -1)
+            slot_g = target_printer.get_slot_grams(slot_k) if hasattr(target_printer, "get_slot_grams") else 0.0
+
+            is_act = (slot_k == active_slot_str)
+            act_icon = " ⚡" if is_act else ""
+
+            if is_empty or (not t_type and slot_g <= 0):
+                empty_lbl = "<i>Empty</i>" if is_en else "<i>Порожньо</i>"
+                ams_lines.append(f"  ⚪ <b>{slot_name}:</b> {empty_lbl}{act_icon}")
+            else:
+                c_emoji = get_color_emoji(t_color)
+                mat_name = f"{t_type} {t_sub}".strip() if (t_sub and t_sub.lower() not in t_type.lower()) else t_type
+                if not mat_name:
+                    mat_name = "Filament" if is_en else "Філамент"
+
+                if rem_pct >= 0 and slot_g > 0:
+                    rem_str = f"<b>{rem_pct}%</b> ({slot_g:.0f}g)"
+                elif rem_pct >= 0:
+                    rem_str = f"<b>{rem_pct}%</b>"
+                elif slot_g > 0:
+                    rem_str = f"<b>{slot_g:.0f}g</b>"
+                else:
+                    rem_str = "<b>~</b>"
+
+                ams_lines.append(f"  {c_emoji} <b>{slot_name}:</b> {html.escape(mat_name)} — {rem_str}{act_icon}")
+
+        # External Spool VT row (if present or active)
+        vt_info = trays.get("254", {})
+        vt_empty = vt_info.get("empty", True) if vt_info else True
+        vt_type = str(vt_info.get("type") or vt_info.get("tray_type") or "").strip()
+        vt_sub = str(vt_info.get("sub_brands") or "").strip()
+        vt_color = str(vt_info.get("color") or vt_info.get("tray_color") or "")
+        vt_rem = vt_info.get("remain", -1)
+        vt_grams = target_printer.get_slot_grams("254") if hasattr(target_printer, "get_slot_grams") else 0.0
+        vt_is_act = (active_slot_str in ["254", "255"])
+        vt_act_icon = " ⚡" if vt_is_act else ""
+
+        if not vt_empty or vt_grams > 0 or vt_is_act:
+            vt_c_emoji = get_color_emoji(vt_color) if vt_color else "🧵"
+            vt_mat = f"{vt_type} {vt_sub}".strip() if (vt_sub and vt_sub.lower() not in vt_type.lower()) else vt_type
+            if not vt_mat:
+                f_type = getattr(target_printer, "filament_type", "")
+                vt_mat = f_type if f_type and f_type not in ["Невизначено", "None", "", "Порожньо", "Empty"] else ("External" if is_en else "Зовнішній")
+
+            if vt_rem >= 0 and vt_grams > 0:
+                vt_rem_str = f"<b>{vt_rem}%</b> ({vt_grams:.0f}g)"
+            elif vt_grams > 0:
+                vt_rem_str = f"<b>{vt_grams:.0f}g</b>"
+            elif vt_rem >= 0:
+                vt_rem_str = f"<b>{vt_rem}%</b>"
+            else:
+                vt_rem_str = "<b>~</b>"
+
+            ams_lines.append(f"  🧵 <b>VT:</b> {vt_c_emoji} {html.escape(vt_mat)} — {vt_rem_str}{vt_act_icon}")
+
+        # AMS humidity indicator (1..5: 5 Dry, 1 Critical)
+        ams_hum = getattr(target_printer, "ams_humidity_idx", 0)
+        ams_temp_val = getattr(target_printer, "ams_temp", 0.0)
+        if ams_hum > 0 or ams_temp_val > 0:
+            hum_map = {
+                5: "🟢 5/5 (Ідеально сухо)" if not is_en else "🟢 5/5 (Perfectly Dry)",
+                4: "🟢 4/5 (Оптимально)" if not is_en else "🟢 4/5 (Optimal)",
+                3: "🟡 3/5 (Помірно)" if not is_en else "🟡 3/5 (Moderate)",
+                2: "🟠 2/5 (Волого)" if not is_en else "🟠 2/5 (Humid)",
+                1: "🔴 1/5 (Критично волого)" if not is_en else "🔴 1/5 (Critical)",
+            }
+            hum_text = hum_map.get(ams_hum, f"{ams_hum}/5")
+            temp_str = f" | 🌡️ <code>{ams_temp_val:.1f}°C</code>" if isinstance(ams_temp_val, (int, float)) and ams_temp_val > 0 else ""
+            hum_label = "Вологість AMS" if not is_en else "AMS Humidity"
+            ams_lines.append(f"💧 <b>{hum_label}:</b> {hum_text}{temp_str}")
+
+        filament_block = "\n".join(ams_lines) + "\n"
+    else:
+        vt_info = trays.get("254", {})
+        vt_empty = vt_info.get("empty", True) if vt_info else True
+        vt_type = str(vt_info.get("type") or vt_info.get("tray_type") or "").strip()
+        vt_sub = str(vt_info.get("sub_brands") or "").strip()
+        vt_color = str(vt_info.get("color") or vt_info.get("tray_color") or "")
+        vt_grams = target_printer.get_slot_grams("254") if hasattr(target_printer, "get_slot_grams") else getattr(target_printer, "filament_grams", 0.0)
+        if vt_grams <= 0:
+            vt_grams = active_grams_val
+
+        f_type = getattr(target_printer, "filament_type", "")
+        f_type_str = str(f_type) if isinstance(f_type, str) else ""
+
+        mat_name = f"{vt_type} {vt_sub}".strip() if (vt_sub and vt_sub.lower() not in vt_type.lower()) else vt_type
+        if not mat_name:
+            mat_name = f_type_str if (f_type_str and f_type_str not in ["Невизначено", "None", "", "Порожньо", "Empty"]) else ""
+
+        c_emoji = get_color_emoji(vt_color) if vt_color else "🧵"
+        spool_str = f"<b>{vt_grams:.0f}g</b>" if vt_grams > 0 else ("<i>Empty</i>" if is_en else "<i>Порожньо</i>")
+        type_str = f"<b>{c_emoji} {html.escape(mat_name)}</b>" if mat_name else "<i>—</i>"
+
+        if is_en:
+            filament_block = (
+                f"🧵 <b>Filament (VT):</b> {type_str}\n"
+                f"📦 <b>Spool Remaining:</b> {spool_str}\n"
+            )
+        else:
+            filament_block = (
+                f"🧵 <b>Філамент (VT):</b> {type_str}\n"
+                f"📦 <b>Залишок на бабіні:</b> {spool_str}\n"
+            )
 
     print_info_str = ""
     if mapped_st in ["RUNNING", "PAUSE"]:
@@ -195,8 +312,7 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
             f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
             f"🔥 <b>Nozzle:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> | 🛏️ <b>Bed:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
-            f"🧵 <b>Filament Type:</b> {type_str}\n"
-            f"📦 <b>Spool Remaining:</b> {spool_str}\n"
+            f"{filament_block}"
             f"{hours_str}"
         )
     else:
@@ -208,8 +324,7 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
             f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
             f"🔥 <b>Сопло:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> | 🛏️ <b>Стіл:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
-            f"🧵 <b>Тип пластику:</b> {type_str}\n"
-            f"📦 <b>Залишок на бабіні:</b> {spool_str}\n"
+            f"{filament_block}"
             f"{hours_str}"
         )
 

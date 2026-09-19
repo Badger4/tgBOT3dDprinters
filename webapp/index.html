@@ -15,7 +15,7 @@
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- WebApp CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=1025">
+    <link rel="stylesheet" href="/static/css/style.css?v=1026">
 </head>
 <body>
     <div id="app" class="app-container">
@@ -637,10 +637,8 @@
                     <div class="control-section">
                         <div class="d-flex align-items-center justify-content-between mb-2 gap-2" style="flex-wrap: nowrap;">
                             <h4 style="margin:0; white-space:nowrap; font-size:14px;"><i class="fa-solid fa-boxes-packing color-purple"></i> Філамент & Слоти</h4>
-                            <label class="d-flex align-items-center gap-1 cursor-pointer" style="font-size:12px; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:6px; white-space:nowrap; flex-shrink:0;">
-                                <input type="checkbox" id="modal-ams-toggle" style="cursor:pointer;">
-                                <span style="white-space:nowrap;"><i class="fa-solid fa-layer-group color-blue"></i> Модуль AMS</span>
-                            </label>
+                            <span id="modal-ams-badge" style="font-size:12px; white-space:nowrap;"></span>
+                            <input type="checkbox" id="modal-ams-toggle" style="display:none;">
                         </div>
                         <div id="modal-ams-slots-container" class="ams-slots-grid">
                             <!-- Dynamic AMS or Single Slot -->
@@ -1281,6 +1279,6 @@
     <!-- html2pdf Library for PDF exports (deferred background load) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1069"></script>
+    <script src="/static/js/app.js?v=1077"></script>
 </body>
 </html>

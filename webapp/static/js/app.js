@@ -1192,18 +1192,28 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        // Filament & AMS Slots in Modal
-        const amsToggle = document.getElementById("modal-ams-toggle");
+        const hasAms = Boolean(p.has_ams);
+        const amsBadge = document.getElementById("modal-ams-badge");
+        if (amsBadge) {
+            amsBadge.innerHTML = `
+                <button type="button" class="btn btn-xs ${hasAms ? 'btn-outline-primary' : 'btn-outline-neutral'}" id="modal-ams-toggle-btn" style="font-size:11px; padding:3px 8px; border-radius:6px; cursor:pointer;" title="Натисніть для перемикання режиму AMS">
+                    <i class="fa-solid ${hasAms ? 'fa-layer-group color-blue' : 'fa-spool color-muted'}"></i>
+                    <span>${hasAms ? 'Модуль AMS' : 'Пряма подача (VT)'}</span>
+                </button>
+            `;
+            const toggleBtn = document.getElementById("modal-ams-toggle-btn");
+            if (toggleBtn) {
+                toggleBtn.onclick = async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const newEnabled = !hasAms;
+                    await sendPrinterAction({ action: "set_ams_enabled", enabled: newEnabled });
+                };
+            }
+        }
+
         const amsSlotsContainer = document.getElementById("modal-ams-slots-container");
-        if (amsToggle && amsSlotsContainer) {
-            amsToggle.checked = Boolean(p.has_ams);
-
-            amsToggle.onchange = () => {
-                const isChecked = amsToggle.checked;
-                sendPrinterAction({ action: "set_ams_enabled", enabled: isChecked });
-            };
-
-            const hasAms = Boolean(p.has_ams);
+        if (amsSlotsContainer) {
             const activeKey = String(p.active_slot_key || "254");
             const slots = p.ams_slots || {};
             const slotKeys = hasAms ? ["0", "1", "2", "3", "254"] : ["254"];

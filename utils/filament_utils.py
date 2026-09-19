@@ -320,6 +320,47 @@ def get_color_emoji(hex_code_or_name: str) -> str:
             if p.lower() in clean_low:
                 return emoji
 
+    # Match closest color by RGB distance for arbitrary hex codes
+    if code.startswith("#") and len(code) >= 7 and re.match(r"^#[0-9A-F]{6}", code):
+        try:
+            r = int(code[1:3], 16)
+            g = int(code[3:5], 16)
+            b = int(code[5:7], 16)
+
+            # Check base colors first
+            base_best_emoji = None
+            base_min_dist = float("inf")
+            for label, hx in COLOR_NAMES_UK:
+                if len(hx) >= 7 and hx.startswith("#"):
+                    cr = int(hx[1:3], 16)
+                    cg = int(hx[3:5], 16)
+                    cb = int(hx[5:7], 16)
+                    dist = 2 * (r - cr) ** 2 + 4 * (g - cg) ** 2 + 3 * (b - cb) ** 2
+                    if dist < base_min_dist:
+                        base_min_dist = dist
+                        base_best_emoji = label.split()[0]
+
+            if base_best_emoji and base_min_dist < 50000:
+                return base_best_emoji
+
+            # Check extended map
+            ext_best_emoji = base_best_emoji
+            ext_min_dist = base_min_dist
+            for patterns, emoji, hx, uk_name, en_name in EXTENDED_COLOR_MAP:
+                if len(hx) >= 7 and hx.startswith("#"):
+                    cr = int(hx[1:3], 16)
+                    cg = int(hx[3:5], 16)
+                    cb = int(hx[5:7], 16)
+                    dist = 2 * (r - cr) ** 2 + 4 * (g - cg) ** 2 + 3 * (b - cb) ** 2
+                    if dist < ext_min_dist:
+                        ext_min_dist = dist
+                        ext_best_emoji = emoji
+
+            if ext_best_emoji:
+                return ext_best_emoji
+        except Exception:
+            pass
+
     return "🎨"
 
 
