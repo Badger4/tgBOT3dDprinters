@@ -146,6 +146,17 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
     except (TypeError, ValueError):
         active_grams_val = 0.0
 
+    def _safe_float(val: Any, default: float = 0.0) -> float:
+        if callable(val):
+            try:
+                val = val()
+            except Exception:
+                return default
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default
+
     from utils.filament_utils import get_color_emoji
 
     trays = getattr(target_printer, "ams_trays_info", {})
@@ -175,7 +186,8 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             t_sub = str(t_info.get("sub_brands") or "").strip()
             t_color = str(t_info.get("color") or t_info.get("tray_color") or "")
             rem_pct = t_info.get("remain", -1)
-            slot_g = target_printer.get_slot_grams(slot_k) if hasattr(target_printer, "get_slot_grams") else 0.0
+            raw_slot_g = target_printer.get_slot_grams(slot_k) if hasattr(target_printer, "get_slot_grams") else 0.0
+            slot_g = _safe_float(raw_slot_g)
 
             is_act = (slot_k == active_slot_str)
             act_icon = " ⚡" if is_act else ""
@@ -207,7 +219,8 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
         vt_sub = str(vt_info.get("sub_brands") or "").strip()
         vt_color = str(vt_info.get("color") or vt_info.get("tray_color") or "")
         vt_rem = vt_info.get("remain", -1)
-        vt_grams = target_printer.get_slot_grams("254") if hasattr(target_printer, "get_slot_grams") else 0.0
+        raw_vt_g = target_printer.get_slot_grams("254") if hasattr(target_printer, "get_slot_grams") else 0.0
+        vt_grams = _safe_float(raw_vt_g)
         vt_is_act = (active_slot_str in ["254", "255"])
         vt_act_icon = " ⚡" if vt_is_act else ""
 
@@ -230,8 +243,14 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             ams_lines.append(f"  🧵 <b>VT:</b> {vt_c_emoji} {html.escape(vt_mat)} — {vt_rem_str}{vt_act_icon}")
 
         # AMS humidity indicator (1..5: 5 Dry, 1 Critical)
-        ams_hum = getattr(target_printer, "ams_humidity_idx", 0)
-        ams_temp_val = getattr(target_printer, "ams_temp", 0.0)
+        try:
+            ams_hum = int(getattr(target_printer, "ams_humidity_idx", 0))
+        except (TypeError, ValueError):
+            ams_hum = 0
+        try:
+            ams_temp_val = float(getattr(target_printer, "ams_temp", 0.0))
+        except (TypeError, ValueError):
+            ams_temp_val = 0.0
         if ams_hum > 0 or ams_temp_val > 0:
             hum_map = {
                 5: "🟢 5/5 (Ідеально сухо)" if not is_en else "🟢 5/5 (Perfectly Dry)",
@@ -252,7 +271,8 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
         vt_type = str(vt_info.get("type") or vt_info.get("tray_type") or "").strip()
         vt_sub = str(vt_info.get("sub_brands") or "").strip()
         vt_color = str(vt_info.get("color") or vt_info.get("tray_color") or "")
-        vt_grams = target_printer.get_slot_grams("254") if hasattr(target_printer, "get_slot_grams") else getattr(target_printer, "filament_grams", 0.0)
+        raw_vt_g = target_printer.get_slot_grams("254") if hasattr(target_printer, "get_slot_grams") else getattr(target_printer, "filament_grams", 0.0)
+        vt_grams = _safe_float(raw_vt_g)
         if vt_grams <= 0:
             vt_grams = active_grams_val
 

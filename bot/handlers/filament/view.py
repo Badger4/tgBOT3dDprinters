@@ -419,8 +419,25 @@ async def handle_ams_slots(message: Message, app):
 
     feed_header = f"🔥 <b>Подача в сопло:</b> {nozzle_feed_str}\n" if not is_en else f"🔥 <b>Nozzle Feed:</b> {nozzle_feed_str}\n"
 
-    ams_hum = getattr(target_printer, "ams_humidity_idx", 0)
-    ams_temp_val = getattr(target_printer, "ams_temp", 0.0)
+    def _safe_float(val: Any, default: float = 0.0) -> float:
+        if callable(val):
+            try:
+                val = val()
+            except Exception:
+                return default
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default
+
+    try:
+        ams_hum = int(getattr(target_printer, "ams_humidity_idx", 0))
+    except (TypeError, ValueError):
+        ams_hum = 0
+    try:
+        ams_temp_val = float(getattr(target_printer, "ams_temp", 0.0))
+    except (TypeError, ValueError):
+        ams_temp_val = 0.0
     hum_map = {
         5: "🟢 5/5 (Ідеально сухо)" if not is_en else "🟢 5/5 (Perfectly Dry)",
         4: "🟢 4/5 (Оптимально сухо)" if not is_en else "🟢 4/5 (Optimal Dry)",
@@ -478,7 +495,8 @@ async def handle_ams_slots(message: Message, app):
                         t_rem = int(t.get("remain", -1))
                     except (ValueError, TypeError):
                         t_rem = -1
-                    slot_g = target_printer.get_slot_grams(t_id) if hasattr(target_printer, "get_slot_grams") else 0.0
+                    raw_slot_g = target_printer.get_slot_grams(t_id) if hasattr(target_printer, "get_slot_grams") else 0.0
+                    slot_g = _safe_float(raw_slot_g)
 
                     is_act = (t_id == active_slot_str)
                     act_mark = (" ⚡ <i>[У соплі]</i>" if not is_en else " ⚡ <i>[In nozzle]</i>") if is_act else ""
@@ -523,7 +541,8 @@ async def handle_ams_slots(message: Message, app):
                     t_rem = int(t_info.get("remain", -1))
                 except (ValueError, TypeError):
                     t_rem = -1
-                slot_g = target_printer.get_slot_grams(slot_k) if hasattr(target_printer, "get_slot_grams") else 0.0
+                raw_slot_g = target_printer.get_slot_grams(slot_k) if hasattr(target_printer, "get_slot_grams") else 0.0
+                slot_g = _safe_float(raw_slot_g)
 
                 is_act = (slot_k == active_slot_str)
                 act_mark = (" ⚡ <i>[У соплі]</i>" if not is_en else " ⚡ <i>[In nozzle]</i>") if is_act else ""
@@ -544,7 +563,7 @@ async def handle_ams_slots(message: Message, app):
                         f"{c_emoji} <b>Слот {slot_label}:</b> <b>{html.escape(mat_full)}</b>{act_mark}\n"
                         f"   🎨 Колір: <b>{c_name_disp}</b>\n"
                         f"   📊 Залишок: {bar_str}\n\n"
-                    ) if not is_en else (
+                        ) if not is_en else (
                         f"{c_emoji} <b>Slot {slot_label}:</b> <b>{html.escape(mat_full)}</b>{act_mark}\n"
                         f"   🎨 Color: <b>{c_name_disp}</b>\n"
                         f"   📊 Remaining: {bar_str}\n\n"
@@ -560,7 +579,8 @@ async def handle_ams_slots(message: Message, app):
         vt_rem = int(vt_info.get("remain", -1))
     except (ValueError, TypeError):
         vt_rem = -1
-    vt_grams = target_printer.get_slot_grams("254") if hasattr(target_printer, "get_slot_grams") else 0.0
+    raw_vt_g = target_printer.get_slot_grams("254") if hasattr(target_printer, "get_slot_grams") else 0.0
+    vt_grams = _safe_float(raw_vt_g)
     vt_is_act = (active_slot_str in ["254", "255"])
     vt_act_mark = (" ⚡ <i>[У соплі]</i>" if not is_en else " ⚡ <i>[In nozzle]</i>") if vt_is_act else ""
 

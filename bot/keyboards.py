@@ -387,6 +387,17 @@ def get_ams_slots_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyb
     if not isinstance(trays, dict):
         trays = {}
 
+    def _safe_float(val: Any, default: float = 0.0) -> float:
+        if callable(val):
+            try:
+                val = val()
+            except Exception:
+                return default
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default
+
     def build_slot_btn(idx: int) -> KeyboardButton:
         slot_k = str(idx)
         slot_name = f"A{idx + 1}"
@@ -395,7 +406,8 @@ def get_ams_slots_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyb
         t_type = str(t_info.get("type") or t_info.get("tray_type") or "").strip()
         t_color = str(t_info.get("color") or t_info.get("tray_color") or "")
         rem_pct = t_info.get("remain", -1)
-        slot_g = printer.get_slot_grams(slot_k) if hasattr(printer, "get_slot_grams") else 0.0
+        raw_slot_g = printer.get_slot_grams(slot_k) if hasattr(printer, "get_slot_grams") else 0.0
+        slot_g = _safe_float(raw_slot_g)
 
         is_act = (slot_k == active_key)
         act_icon = " ⚡" if is_act else ""
@@ -421,7 +433,8 @@ def get_ams_slots_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyb
         vt_type = str(vt_info.get("type") or vt_info.get("tray_type") or "").strip()
         vt_color = str(vt_info.get("color") or vt_info.get("tray_color") or "")
         vt_rem = vt_info.get("remain", -1)
-        vt_grams = printer.get_slot_grams("254") if hasattr(printer, "get_slot_grams") else 0.0
+        raw_vt_g = printer.get_slot_grams("254") if hasattr(printer, "get_slot_grams") else 0.0
+        vt_grams = _safe_float(raw_vt_g)
         vt_is_act = (active_key in ["254", "255"])
         vt_act = " ⚡" if vt_is_act else ""
 

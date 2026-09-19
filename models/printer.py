@@ -247,14 +247,9 @@ class BambuPrinter:
         exist_bits = str(getattr(self, "ams_exist_bits", "")).strip()
         if exist_bits in ["0", "0000"]:
             return False
-        if exist_bits not in ["0", "0000", ""]:
-            return True
 
         # Check active tray index (0..15 indicates active AMS slot feeding)
         if self.active_ams_tray is not None and 0 <= self.active_ams_tray <= 15:
-            return True
-
-        if exist_bits not in ["0", "0000", ""]:
             return True
 
         t_bits = str(getattr(self, "tray_exist_bits", "")).strip()
@@ -573,7 +568,7 @@ class BambuPrinter:
             if not loop or not loop.is_running():
                 return
 
-            async def _do_deduct():
+            async def _do_deduct() -> None:
                 try:
                     spools = await self.storage.load_spools()
                     spool_to_deduct = None
@@ -671,7 +666,7 @@ class BambuPrinter:
 
     def request_pushall(self) -> None:
         """Requests a full status report from the printer over MQTT."""
-        if getattr(self, "_client", None) and getattr(self, "is_mqtt_connected", False) and getattr(self, "serial_number", None):
+        if self._client is not None and getattr(self, "is_mqtt_connected", False) and getattr(self, "serial_number", None):
             try:
                 push_req = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}})
                 self._client.publish(f"device/{self.serial_number}/request", push_req)
