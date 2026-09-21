@@ -284,3 +284,93 @@ async def handle_printer_control(request: web.Request) -> web.Response:
         return web.json_response({"error": msg}, status=400)
     else:
         return web.json_response({"error": f"Unknown action '{action}'"}, status=400)
+
+
+async def handle_fleet_lights(request: web.Request) -> web.Response:
+    """POST /api/fleet/lights - Toggle or set chamber light across all connected printers."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    mode = "toggle"
+    try:
+        if request.can_read_body:
+            data = await request.json()
+            if isinstance(data, dict):
+                mode = str(data.get("mode", "toggle")).lower()
+    except Exception:
+        mode = "toggle"
+
+    updated = []
+    skipped = []
+    for pid, p in app_obj.printers.items():
+        is_online = getattr(p, "is_online", True) and getattr(p, "mapped_state", "ONLINE") != "OFFLINE"
+        if not is_online:
+            skipped.append({"id": pid, "name": getattr(p, "name", pid), "reason": "offline"})
+            continue
+        try:
+            if hasattr(p, "toggle_chamber_light"):
+                p.toggle_chamber_light(mode)
+            elif hasattr(p, "toggle_light"):
+                p.toggle_light()
+            updated.append({
+                "id": pid,
+                "name": getattr(p, "name", pid),
+                "light_state": getattr(p, "chamber_light_state", "unknown"),
+            })
+        except Exception as e:
+            logger.error(f"Error setting light for [{pid}]: {e}")
+            skipped.append({"id": pid, "name": getattr(p, "name", pid), "reason": str(e)})
+
+    return web.json_response({
+        "status": "ok",
+        "mode": mode,
+        "updated_count": len(updated),
+        "skipped_count": len(skipped),
+        "printers": updated,
+        "skipped": skipped,
+    })
+
+
+async def handle_fleet_calibrate(request: web.Request) -> web.Response:
+    """POST /api/fleet/calibrate - Run auto-calibration (G32) on all idle online printers."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    app_obj = request.app["app_obj"]
+    calibrated = []
+    skipped = []
+
+    for pid, p in app_obj.printers.items():
+        is_online = getattr(p, "is_online", True) and getattr(p, "mapped_state", "ONLINE") != "OFFLINE"
+        p_name = getattr(p, "name", pid)
+        if not is_online:
+            skipped.append({"id": pid, "name": p_name, "reason": "offline"})
+            continue
+
+        is_printing = getattr(p, "is_printing", False)
+        gcode_st = str(getattr(p, "gcode_state", "IDLE")).upper()
+        if is_printing or gcode_st in ["RUNNING", "PAUSE", "PREPARE", "PREPARING", "PREPARATION", "BUILDING"]:
+            skipped.append({"id": pid, "name": p_name, "reason": "busy", "state": gcode_st})
+            continue
+
+        try:
+            if hasattr(p, "start_calibration"):
+                ok = p.start_calibration()
+                if ok:
+                    calibrated.append({"id": pid, "name": p_name})
+                else:
+                    skipped.append({"id": pid, "name": p_name, "reason": "command_failed"})
+            else:
+                skipped.append({"id": pid, "name": p_name, "reason": "not_supported"})
+        except Exception as e:
+            logger.error(f"Error starting calibration on [{pid}]: {e}")
+            skipped.append({"id": pid, "name": p_name, "reason": str(e)})
+
+    return web.json_response({
+        "status": "ok",
+        "calibrated_count": len(calibrated),
+        "skipped_count": len(skipped),
+        "calibrated": calibrated,
+        "skipped": skipped,
+    })

@@ -2095,6 +2095,90 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    // Fleet Batch Controls (Lights & Calibration)
+    const btnFleetLightOn = document.getElementById("fleet-light-on-btn");
+    const btnFleetLightOff = document.getElementById("fleet-light-off-btn");
+    const btnFleetCalibrate = document.getElementById("fleet-calibrate-btn");
+
+    if (btnFleetLightOn) {
+        btnFleetLightOn.addEventListener("click", async () => {
+            triggerHaptic("medium");
+            try {
+                const res = await fetch("/api/fleet/lights", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ mode: "on" })
+                });
+                const data = await res.json();
+                if (data.status === "ok") {
+                    await fetchPrinters();
+                    alert(`💡 Світло увімкнено на ${data.updated_count} принтерах!`);
+                } else {
+                    alert("Помилка: " + (data.error || "Невідомо"));
+                }
+            } catch (e) {
+                console.error("Fleet light error:", e);
+                alert("Помилка зв'язку при керуванні світлом.");
+            }
+        });
+    }
+
+    if (btnFleetLightOff) {
+        btnFleetLightOff.addEventListener("click", async () => {
+            triggerHaptic("medium");
+            try {
+                const res = await fetch("/api/fleet/lights", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ mode: "off" })
+                });
+                const data = await res.json();
+                if (data.status === "ok") {
+                    await fetchPrinters();
+                    alert(`🌑 Світло вимкнено на ${data.updated_count} принтерах!`);
+                } else {
+                    alert("Помилка: " + (data.error || "Невідомо"));
+                }
+            } catch (e) {
+                console.error("Fleet light error:", e);
+                alert("Помилка зв'язку при керуванні світлом.");
+            }
+        });
+    }
+
+    if (btnFleetCalibrate) {
+        btnFleetCalibrate.addEventListener("click", async () => {
+            triggerHaptic("heavy");
+            const conf = confirm(
+                "Запустити повне автокалібрування (G32 / вібрації та стіл) на ВСІХ вільних принтерах ферми?\n\n" +
+                "🛡️ Принтери, які зараз друкують або стоять на паузі, будуть автоматично пропущені."
+            );
+            if (!conf) return;
+
+            try {
+                const res = await fetch("/api/fleet/calibrate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+                if (data.status === "ok") {
+                    await fetchPrinters();
+                    let msg = `🎯 Калібрування запущено на ${data.calibrated_count} принтерах!`;
+                    if (data.skipped_count > 0) {
+                        msg += `\n(Пропущено зайнятих/офлайн: ${data.skipped_count})`;
+                    }
+                    alert(msg);
+                } else {
+                    alert("Помилка: " + (data.error || "Невідомо"));
+                }
+            } catch (e) {
+                console.error("Fleet calibrate error:", e);
+                alert("Помилка зв'язку при запуску калібрування.");
+            }
+        });
+    }
+
     if (addPrinterBtn) {
         addPrinterBtn.addEventListener("click", () => {
             triggerHaptic("medium");
@@ -3638,6 +3722,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 filter_pause: "Пауза ⏸️",
                 filter_idle: "Онлайн ⚪",
                 filter_offline: "Офлайн 🔴",
+                fleet_lights_on: "Все світло УВІМК",
+                fleet_lights_off: "Все світло ВИМК",
+                fleet_calibrate_all: "Калібрувати всі",
                 loading_printers: "Завантаження принтерів...",
                 commercial_title: "Комерція & Калькулятор",
                 new_preset_btn: "Новий пресет",
@@ -3715,6 +3802,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 filter_pause: "Pause ⏸️",
                 filter_idle: "Online ⚪",
                 filter_offline: "Offline 🔴",
+                fleet_lights_on: "All Lights ON",
+                fleet_lights_off: "All Lights OFF",
+                fleet_calibrate_all: "Calibrate All",
                 loading_printers: "Loading printers...",
                 commercial_title: "Commercial & Pricing",
                 new_preset_btn: "New Preset",

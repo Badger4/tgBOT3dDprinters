@@ -10,7 +10,11 @@ from aiohttp import web
 from config import HTTP_PORT, logger
 from services.http.auth import check_auth, verify_telegram_init_data
 from services.http.middleware import security_and_ratelimit_middleware
-from services.http.routes_control import handle_printer_control
+from services.http.routes_control import (
+    handle_fleet_calibrate,
+    handle_fleet_lights,
+    handle_printer_control,
+)
 from services.http.routes_files import handle_file_upload, handle_image_upload, handle_start_print_job
 from services.http.routes_printers import (
     build_printer_telemetry,
@@ -132,6 +136,8 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_post("/api/printers/{id}/access_code", handle_update_access_code)
     web_app.router.add_get("/api/printers/{id}/settings", handle_get_printer_settings)
     web_app.router.add_post("/api/printers/{id}/settings", handle_update_printer_settings)
+    web_app.router.add_post("/api/fleet/lights", handle_fleet_lights)
+    web_app.router.add_post("/api/fleet/calibrate", handle_fleet_calibrate)
 
     # File Upload & Print Job API
     web_app.router.add_post("/api/files/upload", handle_file_upload)

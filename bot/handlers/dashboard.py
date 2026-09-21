@@ -90,7 +90,257 @@ async def handle_dashboard(message: Message, app, state: FSMContext | None = Non
             dash_txt += f"   📦 {rem_lbl} {p.filament_grams}g | 🧵 {html.escape(p.filament_type)}\n"
         dash_txt += "\n"
 
-    await message.answer(dash_txt, parse_mode=ParseMode.HTML)
+    from bot.keyboards import get_farm_batch_actions_keyboard
+    await message.answer(dash_txt, parse_mode=ParseMode.HTML, reply_markup=get_farm_batch_actions_keyboard(u_lang))
+
+
+# ==============================================================================
+# BATCH FLEET ACTIONS (LIGHTS & CALIBRATION)
+# ==============================================================================
+
+@router.callback_query(F.data == "batch_light_on")
+async def handle_callback_batch_light_on(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        await callback.answer("⚠️ Немає доступу.", show_alert=True)
+        return
+
+    user = await app.storage.load_user(chat_id)
+    is_en = user.get("language", "uk") == "en"
+
+    updated = 0
+    for p in app.printers.values():
+        is_online = getattr(p, "is_online", True) and getattr(p, "mapped_state", "ONLINE") != "OFFLINE"
+        if is_online:
+            if hasattr(p, "toggle_chamber_light"):
+                p.toggle_chamber_light("on")
+            elif hasattr(p, "toggle_light"):
+                p.toggle_light()
+            updated += 1
+
+    alert_msg = f"💡 Turned on lights on {updated} printers!" if is_en else f"💡 Увімкнено світло на {updated} принтерах!"
+    await callback.answer(alert_msg, show_alert=True)
+
+
+@router.callback_query(F.data == "batch_light_off")
+async def handle_callback_batch_light_off(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        await callback.answer("⚠️ Немає доступу.", show_alert=True)
+        return
+
+    user = await app.storage.load_user(chat_id)
+    is_en = user.get("language", "uk") == "en"
+
+    updated = 0
+    for p in app.printers.values():
+        is_online = getattr(p, "is_online", True) and getattr(p, "mapped_state", "ONLINE") != "OFFLINE"
+        if is_online:
+            if hasattr(p, "toggle_chamber_light"):
+                p.toggle_chamber_light("off")
+            elif hasattr(p, "toggle_light"):
+                p.toggle_light()
+            updated += 1
+
+    alert_msg = f"🌑 Turned off lights on {updated} printers!" if is_en else f"🌑 Вимкнено світло на {updated} принтерах!"
+    await callback.answer(alert_msg, show_alert=True)
+
+
+@router.callback_query(F.data == "batch_calibrate_prompt")
+async def handle_callback_batch_calibrate_prompt(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        await callback.answer("⚠️ Немає доступу.", show_alert=True)
+        return
+
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+
+    warn_txt = (
+        "⚠️ <b>Fleet Calibration Confirmation</b>\n\n"
+        "Are you sure you want to trigger full auto-calibration (G32 / Vibration & Bed Leveling) on all idle printers?\n\n"
+        "🛡️ <i>Printers currently printing or paused will be skipped automatically.</i>"
+        if is_en
+        else "⚠️ <b>Підтвердження масового автокалібрування</b>\n\n"
+        "Ви дійсно бажаєте запустити повне калібрування (G32 / частоти вібрацій та рівень столу) на всіх вільних принтерах ферми?\n\n"
+        "🛡️ <i>Принтери, які зараз друкують або стоять на паузі, будуть автоматично пропущені.</i>"
+    )
+    from bot.keyboards import get_fleet_calibrate_confirm_keyboard
+
+    await callback.message.reply(
+        warn_txt, parse_mode=ParseMode.HTML, reply_markup=get_fleet_calibrate_confirm_keyboard(u_lang)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "batch_calibrate_cancel")
+async def handle_callback_batch_calibrate_cancel(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    is_en = user.get("language", "uk") == "en"
+    await callback.answer("Cancelled" if is_en else "Скасовано")
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "batch_calibrate_confirm")
+async def handle_callback_batch_calibrate_confirm(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        await callback.answer("⚠️ Немає доступу.", show_alert=True)
+        return
+
+    user = await app.storage.load_user(chat_id)
+    is_en = user.get("language", "uk") == "en"
+
+    calibrated = []
+    skipped_busy = []
+    skipped_offline = []
+
+    for pid, p in app.printers.items():
+        is_online = getattr(p, "is_online", True) and getattr(p, "mapped_state", "ONLINE") != "OFFLINE"
+        p_name = getattr(p, "name", pid)
+        if not is_online:
+            skipped_offline.append(p_name)
+            continue
+
+        is_printing = getattr(p, "is_printing", False)
+        gcode_st = str(getattr(p, "gcode_state", "IDLE")).upper()
+        if is_printing or gcode_st in ["RUNNING", "PAUSE", "PREPARE", "PREPARING", "PREPARATION", "BUILDING"]:
+            skipped_busy.append(p_name)
+            continue
+
+        if hasattr(p, "start_calibration"):
+            try:
+                ok = p.start_calibration()
+                if ok:
+                    calibrated.append(p_name)
+                else:
+                    skipped_offline.append(p_name)
+            except Exception:
+                skipped_offline.append(p_name)
+        else:
+            skipped_offline.append(p_name)
+
+    if is_en:
+        res_txt = "🎯 <b>Fleet Auto-Calibration Results:</b>\n\n"
+        if calibrated:
+            res_txt += f"✅ Started on ({len(calibrated)}): <b>{', '.join(html.escape(n) for n in calibrated)}</b>\n"
+        else:
+            res_txt += "⚠️ No idle printers ready for calibration.\n"
+        if skipped_busy:
+            res_txt += f"⏸️ Skipped busy ({len(skipped_busy)}): <b>{', '.join(html.escape(n) for n in skipped_busy)}</b>\n"
+        if skipped_offline:
+            res_txt += f"🔌 Skipped offline ({len(skipped_offline)}): <b>{', '.join(html.escape(n) for n in skipped_offline)}</b>\n"
+    else:
+        res_txt = "🎯 <b>Результат масового автокалібрування:</b>\n\n"
+        if calibrated:
+            res_txt += f"✅ Запущено на ({len(calibrated)}): <b>{', '.join(html.escape(n) for n in calibrated)}</b>\n"
+        else:
+            res_txt += "⚠️ Жоден принтер не готовий до калібрування.\n"
+        if skipped_busy:
+            res_txt += f"⏸️ Пропущено зайнятих друком ({len(skipped_busy)}): <b>{', '.join(html.escape(n) for n in skipped_busy)}</b>\n"
+        if skipped_offline:
+            res_txt += f"🔌 Пропущено офлайн ({len(skipped_offline)}): <b>{', '.join(html.escape(n) for n in skipped_offline)}</b>\n"
+
+    try:
+        await callback.message.edit_text(res_txt, parse_mode=ParseMode.HTML)
+    except Exception:
+        await callback.message.reply(res_txt, parse_mode=ParseMode.HTML)
+
+    ans_msg = (
+        f"🎯 Calibration started on {len(calibrated)} printers!"
+        if is_en
+        else f"🎯 Калібрування запущено на {len(calibrated)} принтерах!"
+    )
+    await callback.answer(ans_msg, show_alert=True)
+
+
+@router.message(F.text.lower().in_([
+    "💡 увімкнути все світло", "увімкнути все світло", "💡 все світло", "все світло",
+    "вкл світло всі", "💡 turn all lights on", "turn all lights on"
+]))
+async def handle_text_batch_light_on(message: Message, app):
+    chat_id = str(message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        return
+    user = await app.storage.load_user(chat_id)
+    is_en = user.get("language", "uk") == "en"
+
+    updated = 0
+    for p in app.printers.values():
+        is_online = getattr(p, "is_online", True) and getattr(p, "mapped_state", "ONLINE") != "OFFLINE"
+        if is_online:
+            if hasattr(p, "toggle_chamber_light"):
+                p.toggle_chamber_light("on")
+            elif hasattr(p, "toggle_light"):
+                p.toggle_light()
+            updated += 1
+
+    msg_txt = (
+        f"💡 Turned on lights on {updated} online printers!"
+        if is_en
+        else f"💡 <b>Увімкнено підсвітку на всіх принтерах</b> ({updated} шт.)!"
+    )
+    await message.answer(msg_txt, parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.lower().in_([
+    "🌑 вимкнути все світло", "вимкнути все світло", "вимк світло всі",
+    "🌑 turn all lights off", "turn all lights off"
+]))
+async def handle_text_batch_light_off(message: Message, app):
+    chat_id = str(message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        return
+    user = await app.storage.load_user(chat_id)
+    is_en = user.get("language", "uk") == "en"
+
+    updated = 0
+    for p in app.printers.values():
+        is_online = getattr(p, "is_online", True) and getattr(p, "mapped_state", "ONLINE") != "OFFLINE"
+        if is_online:
+            if hasattr(p, "toggle_chamber_light"):
+                p.toggle_chamber_light("off")
+            elif hasattr(p, "toggle_light"):
+                p.toggle_light()
+            updated += 1
+
+    msg_txt = (
+        f"🌑 Turned off lights on {updated} online printers!"
+        if is_en
+        else f"🌑 <b>Вимкнено підсвітку на всіх принтерах</b> ({updated} шт.)!"
+    )
+    await message.answer(msg_txt, parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.lower().in_([
+    "🎯 калібрувати всі", "калібрувати всі", "калібрувати всі принтери",
+    "масове калібрування", "🎯 calibrate all", "calibrate all"
+]))
+async def handle_text_batch_calibrate(message: Message, app):
+    chat_id = str(message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        return
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+
+    from bot.keyboards import get_fleet_calibrate_confirm_keyboard
+
+    warn_txt = (
+        "⚠️ <b>Fleet Calibration Confirmation</b>\n\n"
+        "Are you sure you want to trigger full auto-calibration (G32 / Vibration & Bed Leveling) on all idle printers?\n\n"
+        "🛡️ <i>Printers currently printing or paused will be skipped automatically.</i>"
+        if is_en
+        else "⚠️ <b>Підтвердження масового автокалібрування</b>\n\n"
+        "Ви дійсно бажаєте запустити повне калібрування (G32 / частоти вібрацій та рівень столу) на всіх вільних принтерах ферми?\n\n"
+        "🛡️ <i>Принтери, які зараз друкують або стоять на паузі, будуть автоматично пропущені.</i>"
+    )
+    await message.answer(warn_txt, parse_mode=ParseMode.HTML, reply_markup=get_fleet_calibrate_confirm_keyboard(u_lang))
 
 
 from aiogram.exceptions import TelegramBadRequest

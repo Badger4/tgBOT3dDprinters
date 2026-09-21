@@ -1110,6 +1110,50 @@ def get_warehouse_pdf_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_farm_batch_actions_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:
+    """Inline keyboard for batch fleet actions on farm dashboard."""
+    is_en = lang == "en"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💡 Увімкнути все світло" if not is_en else "💡 Turn All Lights On",
+                    callback_data="batch_light_on",
+                ),
+                InlineKeyboardButton(
+                    text="🌑 Вимкнути все світло" if not is_en else "🌑 Turn All Lights Off",
+                    callback_data="batch_light_off",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎯 Калібрувати всі вільні" if not is_en else "🎯 Calibrate All Idle",
+                    callback_data="batch_calibrate_prompt",
+                )
+            ],
+        ]
+    )
+
+
+def get_fleet_calibrate_confirm_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:
+    """Confirmation inline keyboard before starting batch calibration."""
+    is_en = lang == "en"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Підтвердити калібрування" if not is_en else "✅ Confirm Calibration",
+                    callback_data="batch_calibrate_confirm",
+                ),
+                InlineKeyboardButton(
+                    text="❌ Скасувати" if not is_en else "❌ Cancel",
+                    callback_data="batch_calibrate_cancel",
+                ),
+            ]
+        ]
+    )
+
+
 
 
 

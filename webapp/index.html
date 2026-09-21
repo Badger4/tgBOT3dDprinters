@@ -69,6 +69,17 @@
                         <button class="pill-btn" data-filter="PAUSE"><span data-i18n="filter_pause">Пауза ⏸️</span> <span id="count-filter-pause" class="pill-badge">0</span></button>
                         <button class="pill-btn" data-filter="OFFLINE"><span data-i18n="filter_offline">Офлайн 🔴</span> <span id="count-filter-offline" class="pill-badge">0</span></button>
                     </div>
+                    <div class="fleet-batch-actions mt-2 d-flex gap-2 flex-wrap align-items-center">
+                        <button id="fleet-light-on-btn" class="btn btn-secondary btn-sm fleet-batch-btn" title="Увімкнути світло на всіх принтерах">
+                            <i class="fa-regular fa-lightbulb"></i> <span data-i18n="fleet_lights_on">Все світло УВІМК</span>
+                        </button>
+                        <button id="fleet-light-off-btn" class="btn btn-secondary btn-sm fleet-batch-btn" title="Вимкнути світло на всіх принтерах">
+                            <i class="fa-solid fa-lightbulb"></i> <span data-i18n="fleet_lights_off">Все світло ВИМК</span>
+                        </button>
+                        <button id="fleet-calibrate-btn" class="btn btn-secondary btn-sm fleet-batch-btn" title="Калібрувати всі вільні принтери">
+                            <i class="fa-solid fa-crosshairs"></i> <span data-i18n="fleet_calibrate_all">Калібрувати всі</span>
+                        </button>
+                    </div>
                 </div>
                 <div id="printers-grid" class="printers-grid">
                     <!-- Dynamic Printer Cards inserted here -->

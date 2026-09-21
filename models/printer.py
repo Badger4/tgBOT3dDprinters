@@ -1524,7 +1524,10 @@ class BambuPrinter:
         """Toggles or sets chamber LED light ('on', 'off', 'toggle')."""
         if not self._client or not self._client.is_connected():
             return False
-        new_mode = "off" if self.chamber_light_state == "on" else "on" if mode == "toggle" else mode
+        if mode == "toggle":
+            new_mode = "off" if self.chamber_light_state == "on" else "on"
+        else:
+            new_mode = "on" if str(mode).lower() in ["on", "1", "true"] else "off"
         payload = json.dumps(
             {
                 "system": {

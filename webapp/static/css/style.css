@@ -1401,6 +1401,34 @@ body {
     border-radius: 10px;
 }
 
+.fleet-batch-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.fleet-batch-btn {
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid var(--border-glass);
+    color: var(--text-main);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.fleet-batch-btn:hover {
+    background: rgba(51, 65, 85, 0.9);
+    border-color: var(--primary);
+    transform: translateY(-1px);
+}
+
 /* ==========================================================================
    Mobile Smartphone Screen Optimization (< 600px)
    ========================================================================== */
