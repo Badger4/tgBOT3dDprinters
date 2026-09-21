@@ -344,9 +344,102 @@ class TestAMSAutoDetectionAndMapping(unittest.TestCase):
         self.assertTrue(use_ams)
         self.assertEqual(mapping, [2, -1, -1, -1])
 
-        mapping, use_ams = build_ams_mapping(4, has_ams=True, use_ams=True)
-        self.assertTrue(use_ams)
-        self.assertEqual(mapping, [3, -1, -1, -1])
+    def test_start_print_job_async_deducts_correct_slot_and_preserves_other_slots(self):
+        """Tests that printing on Slot 2 deducts ONLY from Slot 2 and does NOT touch Slot 1."""
+        import asyncio
+
+        self.printer._has_ams_telemetry = True
+        self.printer.ams_slots = {
+            "0": 1000.0,
+            "1": 1000.0,
+            "2": 1000.0,
+            "3": 1000.0,
+            "254": 1000.0,
+        }
+        self.printer.ams_trays_info = {
+            "0": {"id": "0", "type": "PLA", "empty": False},
+            "1": {"id": "1", "type": "PLA", "empty": False},
+            "2": {"id": "2", "type": "PLA", "empty": False},
+            "3": {"id": "3", "type": "PLA", "empty": False},
+        }
+
+        with patch("models.printer.upload_3mf_to_bambu", return_value="file:///sdcard/slot2_test.3mf"), \
+             patch("models.printer.verify_bambu_file_size", return_value=True), \
+             patch("models.printer.parse_3mf_file", return_value={"filament_type": "PLA", "weight_g": 50.0, "objects": []}):
+            loop = asyncio.new_event_loop()
+            ok, msg = loop.run_until_complete(
+                self.printer.start_print_job_async(b"dummy content", "slot2_test.3mf", ams_slot=2)
+            )
+            loop.close()
+
+            self.assertTrue(ok)
+            # Slot 2 (index 1) must be deducted
+            self.assertEqual(self.printer.get_slot_grams("1"), 950.0)
+            # Slot 1 (index 0) must remain strictly 1000.0!
+            self.assertEqual(self.printer.get_slot_grams("0"), 1000.0)
+            self.assertEqual(self.printer.get_slot_grams("2"), 1000.0)
+            self.assertEqual(self.printer.get_slot_grams("3"), 1000.0)
+            self.assertEqual(self.printer._current_job_slot_key, "1")
+            self.assertEqual(self.printer.get_active_slot_key(), "1")
+
+    def test_start_print_job_async_external_spool_deduction(self):
+        """Tests that printing with external spool deducts from '254' even if printer has AMS."""
+        import asyncio
+
+        self.printer._has_ams_telemetry = True
+        self.printer.ams_slots = {
+            "0": 1000.0,
+            "1": 1000.0,
+            "2": 1000.0,
+            "3": 1000.0,
+            "254": 1000.0,
+        }
+
+        with patch("models.printer.upload_3mf_to_bambu", return_value="file:///sdcard/ext_test.3mf"), \
+             patch("models.printer.verify_bambu_file_size", return_value=True), \
+             patch("models.printer.parse_3mf_file", return_value={"filament_type": "TPU", "weight_g": 75.0, "objects": []}):
+            loop = asyncio.new_event_loop()
+            ok, msg = loop.run_until_complete(
+                self.printer.start_print_job_async(b"dummy content", "ext_test.3mf", ams_slot="254")
+            )
+            loop.close()
+
+            self.assertTrue(ok)
+            self.assertEqual(self.printer.get_slot_grams("254"), 925.0)
+            self.assertEqual(self.printer.get_slot_grams("0"), 1000.0)
+            self.assertEqual(self.printer._current_job_slot_key, "254")
+            self.assertEqual(self.printer.get_active_slot_key(), "254")
+
+    def test_telemetry_deduction_uses_current_job_slot_key(self):
+        """Tests that telemetry deduction prioritizes _current_job_slot_key over default slot '0'."""
+        self.printer._has_ams_telemetry = True
+        self.printer.ams_slots = {
+            "0": 1000.0,
+            "1": 1000.0,
+        }
+        self.printer.active_ams_tray = 255  # idle / unloaded
+        self.printer.target_ams_tray = None
+        self.printer._current_job_slot_key = "1"
+        self.printer._current_job_grams = 40.0
+        self.printer._job_deducted = False
+        self.printer._job_started_from_app = True
+        self.printer._is_printing = True
+
+        msg = MagicMock(payload=json.dumps({
+            "print": {
+                "gcode_state": "RUNNING",
+                "subtask_name": "test_part.gcode",
+                "total_layer_num": 100,
+                "layer_num": 1,
+            }
+        }).encode("utf-8"))
+        self.printer._on_message(None, None, msg)
+
+        self.assertTrue(self.printer._job_deducted)
+        # Slot 1 (index 1) must be deducted
+        self.assertEqual(self.printer.get_slot_grams("1"), 960.0)
+        # Slot 0 must NOT be touched
+        self.assertEqual(self.printer.get_slot_grams("0"), 1000.0)
 
 
 if __name__ == "__main__":

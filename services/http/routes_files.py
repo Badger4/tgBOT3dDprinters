@@ -229,13 +229,14 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
             return web.json_response({"error": f"🛑 Друк заблоковано: {reason}"}, status=400)
 
         chosen_slot = data.get("ams_slot") or comp.get("matched_ams_slot")
-        ok, msg = await p.start_print_job_async(file_bytes, filename, plate_name=plate_name, ams_slot=chosen_slot)
+        ok, msg = await p.start_print_job_async(
+            file_bytes, filename, plate_name=plate_name, ams_slot=chosen_slot, weight_g=job_w
+        )
         if ok:
             p._is_printing = True
             p._was_running = True
             p._job_started_from_app = True
             p._history_recorded = False
-            p._job_deducted = False
             if job_w > 0:
                 p._current_job_grams = job_w
                 try:

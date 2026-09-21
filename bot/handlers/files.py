@@ -619,25 +619,30 @@ async def handle_confirm_start_print_job(message: Message, app):
         )
 
         chosen_slot = ctx_data.get("selected_ams_slot")
+        w_req = float(pending_file.get("weight_g", 0.0) or 0.0)
         success, print_msg = await target_p.start_print_job_async(
-            file_bytes, fname, plate_name=plate_name, ams_slot=chosen_slot
+            file_bytes, fname, plate_name=plate_name, ams_slot=chosen_slot, weight_g=w_req
         )
 
         if success:
-            w_req = pending_file.get("weight_g", 0.0)
-            if w_req > 0:
-                target_p.filament_grams = round(target_p.filament_grams - w_req, 1)
-                target_p._job_deducted = True
-                target_p.last_job_grams = w_req
-                await app.save_printers_config()
+            await app.save_printers_config()
 
             user["state"] = "printer_menu"
             user["context_data"]["selected_printer_id"] = target_p.id
             await app.storage.save_user(user)
 
+            used_slot_key = getattr(target_p, "_current_job_slot_key", None) or target_p.get_active_slot_key()
+            rem_g = target_p.get_slot_grams(used_slot_key)
+            if used_slot_key == "254":
+                slot_label = "Зовнішній тримач (External)"
+            elif str(used_slot_key).isdigit() and int(used_slot_key) < 4:
+                slot_label = f"AMS Слот {int(used_slot_key) + 1}"
+            else:
+                slot_label = f"Слот {used_slot_key}"
+
             await message.answer(
                 f"{print_msg}\n"
-                f"📦 Новий залишок нитки: <b>{target_p.filament_grams}g</b>\n\n"
+                f"📦 Новий залишок нитки ({slot_label}): <b>{rem_g}g</b>\n\n"
                 f"Х-хмпф! Друк відправлено! І тільки спробуй за ним не стежити, Бака! 😤💅",
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_printer_menu_keyboard(target_p),

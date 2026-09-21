@@ -4201,7 +4201,8 @@ document.addEventListener("DOMContentLoaded", () => {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
                                 file_token: uploadedFileData.file_token,
-                                filename: uploadedFileData.filename
+                                filename: uploadedFileData.filename,
+                                ams_slot: (targetP && targetP.matched_ams_slot) ? targetP.matched_ams_slot : null
                             })
                         });
                         const result = await res.json();

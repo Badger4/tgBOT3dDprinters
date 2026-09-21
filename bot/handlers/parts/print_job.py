@@ -220,9 +220,10 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
 
         filename = part.get("three_mf_name") or f"{part.get('name', 'model')}.3mf"
         part_title = part.get("name") or filename
+        part_w = float(part.get("weight_g", 0.0) or 0.0)
 
         ok, msg = await printer.start_print_job_async(
-            file_bytes, filename, part_name=part_title, ams_slot=comp.get("matched_ams_slot")
+            file_bytes, filename, part_name=part_title, ams_slot=comp.get("matched_ams_slot"), weight_g=part_w
         )
         if ok:
             printer._is_printing = True

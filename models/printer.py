@@ -214,6 +214,7 @@ class BambuPrinter:
         self.active_ams_tray: int = 255
         self.target_ams_tray: int | None = None
         self.last_active_slot: str | None = None
+        self._current_job_slot_key: str | None = None
         self.ams_exist_bits: str = str(config.get("ams_exist_bits", ""))
         raw_ams_enabled = config.get("ams_enabled")
         if raw_ams_enabled is None or str(raw_ams_enabled).strip().lower() in ["auto", "none", ""]:
@@ -513,10 +514,13 @@ class BambuPrinter:
         self.ams_slots[s_key] = self._filament_grams
 
     def get_active_slot_key(self) -> str:
-        """Returns active slot key or falls back to last_active_slot, '0' (AMS) if printer has AMS, else '254' (External)."""
+        """Returns active slot key or falls back to _current_job_slot_key, last_active_slot, '0' (AMS) if printer has AMS, else '254' (External)."""
         key = self.get_active_spool_key()
         if key is not None:
             return key
+        curr_job = getattr(self, "_current_job_slot_key", None)
+        if curr_job is not None and str(curr_job) in self.ams_slots:
+            return str(curr_job)
         last = getattr(self, "last_active_slot", None)
         if last is not None and str(last) in self.ams_slots:
             return str(last)
@@ -1020,7 +1024,7 @@ class BambuPrinter:
                     and self._current_job_grams > 0
                     and not self._job_deducted
                 ):
-                    active_key = self.get_active_spool_key()
+                    active_key = getattr(self, "_current_job_slot_key", None) or self.get_active_spool_key()
                     if active_key is None and not getattr(self, "has_ams", False):
                         active_key = AMSSlot.EXTERNAL.value
                     if active_key is None:
@@ -1123,7 +1127,7 @@ class BambuPrinter:
                                     pass
 
                         if self._current_job_grams > 0:
-                            active_key = self.get_active_slot_key()
+                            active_key = getattr(self, "_current_job_slot_key", None) or self.get_active_slot_key()
                             old_w = self.get_slot_grams(active_key)
                             final_weight = self._current_job_grams
                             new_w = max(0.0, round(old_w - final_weight, 2))
@@ -1214,6 +1218,7 @@ class BambuPrinter:
                     self._history_recorded = False if self.gcode_state in ["IDLE", "FAILED"] else self._history_recorded
                     if self.gcode_state in ["IDLE", "FAILED"]:
                         self._is_calibrating = False
+                        self._current_job_slot_key = None
 
         except Exception as e:
             logger.error(f"Error processing MQTT message for [{self.name}]: {e}")
@@ -1676,6 +1681,7 @@ class BambuPrinter:
         part_name: str | None = None,
         ams_slot: int | str | None = None,
         ams_mapping: list[int] | None = None,
+        weight_g: float | None = None,
     ) -> tuple[bool, str]:
         """
         Uploads 3MF file via FTPS to printer SD card and publishes MQTT project_file command to start printing.
@@ -1683,6 +1689,8 @@ class BambuPrinter:
         Returns (success: bool, user_message: str).
         """
         import re
+
+        self._current_job_slot_key = None
 
         if not self._client or not self._client.is_connected():
             return False, "⚠️ MQTT з'єднання з принтером відсутнє."
@@ -1772,12 +1780,18 @@ class BambuPrinter:
             except Exception as e_cache:
                 logger.warning(f"Failed writing weight/objects cache: {e_cache}")
 
+            if w_g <= 0 and weight_g is not None and float(weight_g) > 0:
+                w_g = float(weight_g)
+
             if w_g > 0:
                 self._current_job_grams = w_g
                 self._job_deducted = False
                 logger.info(f"⚖️ Parsed 3MF weight {w_g}g for [{self.name}]")
         except Exception as e_w:
             logger.warning(f"Could not parse 3MF weight in start_print_job_async: {e_w}")
+            if weight_g is not None and float(weight_g) > 0:
+                self._current_job_grams = float(weight_g)
+                self._job_deducted = False
 
         has_ams_hardware = bool(getattr(self, "has_ams", False))
         req_fil = str(m_info.get("filament_type") or "PLA").strip() if m_info else "PLA"
@@ -1812,39 +1826,48 @@ class BambuPrinter:
                 target_slot = None
                 use_ams = False
 
+        # Resolve deduction slot key for accurate spool tracking
+        deduct_key = None
+        if target_slot is not None and str(target_slot).strip().upper() in ["254", "255", "VT", "EXTERNAL"]:
+            deduct_key = AMSSlot.EXTERNAL.value
+        elif target_slot is not None:
+            ams_map, is_ams = build_ams_mapping(target_slot, has_ams=has_ams_hardware, use_ams=use_ams)
+            if is_ams and ams_map and ams_map[0] >= 0:
+                deduct_key = str(ams_map[0])
+            else:
+                try:
+                    v = int(target_slot)
+                    if 1 <= v <= 4:
+                        deduct_key = str(v - 1)
+                    elif v == 0:
+                        deduct_key = "0"
+                except (ValueError, TypeError):
+                    pass
+        elif ams_mapping is not None and ams_mapping and ams_mapping[0] >= 0:
+            deduct_key = str(ams_mapping[0])
+
+        if deduct_key is None:
+            deduct_key = self.get_active_spool_key()
+            if deduct_key is None and not has_ams_hardware:
+                deduct_key = AMSSlot.EXTERNAL.value
+
+        if deduct_key is not None:
+            self._current_job_slot_key = deduct_key
+            self.last_active_slot = deduct_key
+
         # Deduct weight from selected slot or active slot
         w_g = getattr(self, "_current_job_grams", 0.0)
-        if w_g > 0 and not getattr(self, "_job_deducted", False):
-            deduct_key = None
-            if target_slot is not None and str(target_slot) not in ["254", "255", "VT", "EXTERNAL"]:
-                ams_map, is_ams = build_ams_mapping(target_slot, has_ams=has_ams_hardware, use_ams=use_ams)
-                if is_ams and ams_map and ams_map[0] >= 0:
-                    deduct_key = str(ams_map[0])
-                else:
-                    try:
-                        v = int(target_slot)
-                        if 1 <= v <= 4:
-                            deduct_key = str(v - 1)
-                        elif v == 0:
-                            deduct_key = "0"
-                    except (ValueError, TypeError):
-                        pass
-            if deduct_key is None:
-                deduct_key = self.get_active_spool_key()
-                if deduct_key is None and not has_ams_hardware:
-                    deduct_key = AMSSlot.EXTERNAL.value
-
-            if deduct_key is not None:
-                old_w = self.get_slot_grams(deduct_key)
-                new_w = max(0.0, round(old_w - w_g, 2))
-                self.set_slot_grams(new_w, deduct_key)
-                self._job_deducted = True
-                self.last_job_grams = w_g
-                self._deduct_spool_warehouse(deduct_key, w_g)
-                logger.info(
-                    f"💾 Auto-deducted {w_g}g from Slot {deduct_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
-                )
-                self._trigger_save()
+        if w_g > 0 and not getattr(self, "_job_deducted", False) and deduct_key is not None:
+            old_w = self.get_slot_grams(deduct_key)
+            new_w = max(0.0, round(old_w - w_g, 2))
+            self.set_slot_grams(new_w, deduct_key)
+            self._job_deducted = True
+            self.last_job_grams = w_g
+            self._deduct_spool_warehouse(deduct_key, w_g)
+            logger.info(
+                f"💾 Auto-deducted {w_g}g from Slot {deduct_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
+            )
+            self._trigger_save()
 
         timestamp_id = str(int(time.time()))
 
