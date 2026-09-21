@@ -15,11 +15,58 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 from bot.handlers import setup_routers
-from bot.keyboards import get_notification_inline_keyboard
+from bot.keyboards import get_error_notification_inline_keyboard, get_notification_inline_keyboard
 from config import ADMIN_CHAT_ID, STORAGE_DIR, TELEGRAM_BOT_TOKEN, logger
 from models.printer import BambuPrinter
 from services.mqtt_message_parser import extract_subtask_weight
 from storage.manager import StorageManager
+
+
+def get_printer_active_errors(p: Any) -> list[str]:
+    """
+    Returns a list of human-readable active error descriptions for printer p.
+    Checks:
+    - HMS errors (p.hms_resolved or p.hms_errors)
+    - mc_print_error_code
+    - print_error
+    - fail_reason
+    """
+    if hasattr(p, "get_active_errors"):
+        return p.get_active_errors()
+
+    errors: list[str] = []
+    resolved = getattr(p, "hms_resolved", []) or []
+    hms_raw = getattr(p, "hms_errors", []) or []
+    if resolved:
+        for r in resolved:
+            s = str(r).strip()
+            if s and s not in errors:
+                errors.append(s)
+    elif hms_raw:
+        for e in hms_raw:
+            s = str(e).strip()
+            if s and s not in errors:
+                errors.append(s)
+
+    mc_err = getattr(p, "mc_print_error_code", None)
+    if mc_err is not None and str(mc_err).strip() not in ["0", "None", "null", ""] and mc_err != 0:
+        desc = f"Код помилки MC: {mc_err}"
+        if desc not in errors:
+            errors.append(desc)
+
+    p_err = getattr(p, "print_error", None)
+    if p_err is not None and str(p_err).strip() not in ["0", "None", "null", ""] and p_err != 0:
+        desc = f"Код помилки друку: {p_err}"
+        if desc not in errors:
+            errors.append(desc)
+
+    fail_r = getattr(p, "fail_reason", None)
+    if fail_r is not None and str(fail_r).strip() not in ["0", "None", "null", ""] and fail_r != 0:
+        desc = f"Причина збою: {fail_r}"
+        if desc not in errors:
+            errors.append(desc)
+
+    return errors
 
 
 class PrinterBotApp:
@@ -238,6 +285,9 @@ class PrinterBotApp:
                 "notifiedPause": (p.gcode_state == "PAUSE"),
                 "notifiedClearReminder": (p.gcode_state == "FINISH"),
                 "notifiedHMS": bool(getattr(p, "hms_errors", None)),
+                "pauseErrorStartTime": None,
+                "notifiedPauseErrorRepeat": False,
+                "lastErrorCodes": set(),
             }
 
         while True:
@@ -287,6 +337,9 @@ class PrinterBotApp:
                             "notifiedPause": (p.gcode_state == "PAUSE"),
                             "notifiedClearReminder": (p.gcode_state == "FINISH"),
                             "notifiedHMS": bool(getattr(p, "hms_errors", None)),
+                            "pauseErrorStartTime": None,
+                            "notifiedPauseErrorRepeat": False,
+                            "lastErrorCodes": set(),
                         }
 
                     st = self.printer_states[p.id]
@@ -324,6 +377,9 @@ class PrinterBotApp:
                             )
                             st["notifiedStart"] = True
                             st["notifiedFinish"] = False
+                            st["notifiedPause"] = False
+                            st["pauseErrorStartTime"] = None
+                            st["notifiedPauseErrorRepeat"] = False
 
                         elif is_insufficient and not st.get("notifiedInsufficentWarning"):
                             deficit = round(used_w - spool_before, 2)
@@ -412,8 +468,12 @@ class PrinterBotApp:
                             await self.send_notification(
                                 "pause",
                                 f"⏸️ *Гей! Принтер {p.name} поставлено на паузу!* Іди перевір, що там сталося, Бака! 😤",
+                                reply_markup=get_error_notification_inline_keyboard(p.id),
+                                printer=p,
                             )
                             st["notifiedPause"] = True
+                    elif curr_state != "PAUSE":
+                        st["notifiedPause"] = False
 
                     # 3. Finish Notification & History Recording
                     if curr_state == "FINISH" and st["lastState"] != "FINISH":
@@ -432,6 +492,8 @@ class PrinterBotApp:
                             st["notifiedPause"] = False
                             st["notifiedInsufficentWarning"] = False
                             st["notifiedClearReminder"] = False
+                            st["pauseErrorStartTime"] = None
+                            st["notifiedPauseErrorRepeat"] = False
                             p.finish_timestamp = time.time()
 
                             # Record completed print hours
@@ -494,22 +556,68 @@ class PrinterBotApp:
                     elif curr_state != "FINISH":
                         st["notifiedClearReminder"] = False
 
-                    # 5. HMS Error Alert
-                    if getattr(p, "hms_errors", None) and not st.get("notifiedHMS"):
-                        resolved = getattr(p, "hms_resolved", []) or []
-                        if resolved:
-                            hms_lines = "\n".join([f"• <code>{html.escape(str(h))}</code>" for h in resolved])
-                        else:
-                            hms_lines = ", ".join([str(e) for e in p.hms_errors])
-                        hms_txt = (
-                            f"⚡ <b>HMS Помилка на принтері {html.escape(p.name)}!</b>\n\n"
-                            f"⚠️ <b>Виявлено збої:</b>\n{hms_lines}\n\n"
+                    # 5. Printer Error Alert & 5-Minute Pause Reminder
+                    active_errors = get_printer_active_errors(p)
+                    has_error = bool(active_errors)
+                    curr_err_set = set(active_errors)
+                    last_err_set = st.get("lastErrorCodes", set())
+
+                    # Track change in errors: if new errors appeared, re-arm alerts
+                    if has_error:
+                        if not curr_err_set.issubset(last_err_set):
+                            st["notifiedHMS"] = False
+                            st["notifiedPauseErrorRepeat"] = False
+                            if curr_state == "PAUSE":
+                                st["pauseErrorStartTime"] = time.time()
+                        st["lastErrorCodes"] = curr_err_set
+                    else:
+                        st["lastErrorCodes"] = set()
+                        st["notifiedHMS"] = False
+                        st["pauseErrorStartTime"] = None
+                        st["notifiedPauseErrorRepeat"] = False
+
+                    # 5a. Initial Error Alert
+                    if has_error and not st.get("notifiedHMS"):
+                        err_lines = "\n".join([f"• <code>{html.escape(str(h))}</code>" for h in active_errors])
+                        err_title = "⚡ <b>HMS Помилка на принтері" if getattr(p, "hms_errors", None) else "⚡ <b>Помилка на принтері"
+                        err_txt = (
+                            f"{err_title} {html.escape(p.name)}!</b>\n\n"
+                            f"⚠️ <b>Виявлено збої:</b>\n{err_lines}\n\n"
                             f"Біжи перевіряй принтер, Бака! 😤"
                         )
-                        await self.send_notification("pause", hms_txt)
+                        await self.send_notification(
+                            "pause",
+                            err_txt,
+                            reply_markup=get_error_notification_inline_keyboard(p.id),
+                            printer=p,
+                        )
                         st["notifiedHMS"] = True
-                    elif not getattr(p, "hms_errors", None):
-                        st["notifiedHMS"] = False
+
+                    # 5b. 5-Minute Pause with Error Repeat Reminder
+                    if curr_state == "PAUSE" and has_error:
+                        if st.get("pauseErrorStartTime") is None:
+                            st["pauseErrorStartTime"] = time.time()
+                            st["notifiedPauseErrorRepeat"] = False
+                        elif not st.get("notifiedPauseErrorRepeat"):
+                            elapsed_pause_error = time.time() - st["pauseErrorStartTime"]
+                            if elapsed_pause_error >= 300.0:
+                                err_lines = "\n".join([f"• <code>{html.escape(str(h))}</code>" for h in active_errors])
+                                rem_err_txt = (
+                                    f"🚨 <b>Повторне сповіщення про помилку!</b>\n\n"
+                                    f"Принтер <b>{html.escape(p.name)}</b> досі стоїть на паузі вже понад <b>5 хвилин</b> через помилку!\n\n"
+                                    f"⚠️ <b>Активні помилки:</b>\n{err_lines}\n\n"
+                                    f"Принтер потребує вашої уваги, Бака! Швидше перевір його! 😤🔧"
+                                )
+                                await self.send_notification(
+                                    "pause",
+                                    rem_err_txt,
+                                    reply_markup=get_error_notification_inline_keyboard(p.id),
+                                    printer=p,
+                                )
+                                st["notifiedPauseErrorRepeat"] = True
+                    elif curr_state != "PAUSE":
+                        st["pauseErrorStartTime"] = None
+                        st["notifiedPauseErrorRepeat"] = False
 
                     # 6. Maintenance & Lubing Alerts (Per-item thresholds)
                     for item_k, item in p.maintenance_items.items():

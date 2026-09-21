@@ -22,6 +22,7 @@ from bot.keyboards import (
     construct_part_info_keyboard,
     get_confirm_delete_spool_keyboard,
     get_edit_printer_keyboard,
+    get_error_notification_inline_keyboard,
     get_filament_menu_keyboard,
     get_main_keyboard,
     get_notification_inline_keyboard,
@@ -253,14 +254,15 @@ class TestExhaustiveButtonCoverage(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(cb_ans.called, f"Notification toggle {cb_data} failed")
 
     async def test_notification_alert_inline_buttons(self):
-        """Test clicking interactive inline buttons on live notification alerts (photo, pause, light)."""
-        kb = get_notification_inline_keyboard("p1")
-        for row in kb.inline_keyboard:
-            for btn in row:
-                cb_data = btn.callback_data
-                with patch("services.camera_stream.capture_real_camera_photo", AsyncMock(return_value=b"fake_jpeg")):
-                    ans, cb_ans = await self._send_cb(cb_data)
-                    self.assertTrue(cb_ans.called, f"Notification alert button {cb_data} failed")
+        """Test clicking interactive inline buttons on live notification alerts (photo, pause, light, resume)."""
+        for kb_func in [get_notification_inline_keyboard, get_error_notification_inline_keyboard]:
+            kb = kb_func("p1")
+            for row in kb.inline_keyboard:
+                for btn in row:
+                    cb_data = btn.callback_data
+                    with patch("services.camera_stream.capture_real_camera_photo", AsyncMock(return_value=b"fake_jpeg")):
+                        ans, cb_ans = await self._send_cb(cb_data)
+                        self.assertTrue(cb_ans.called, f"Notification alert button {cb_data} failed")
 
     async def test_printer_select_notification_inline_buttons(self):
         """Test clicking buttons on printer select notification keyboard."""

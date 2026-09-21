@@ -2053,3 +2053,46 @@ class BambuPrinter:
     def to_storage_dict(self) -> dict[str, Any]:
         """Returns unmasked dictionary representation for internal SQLite / JSON storage persistence."""
         return self.to_dict(for_storage=True)
+
+    def get_active_errors(self) -> list[str]:
+        """
+        Returns a list of human-readable active error descriptions for this printer.
+        Includes resolved HMS errors, MC error codes, print error codes, and fail reason.
+        """
+        errors: list[str] = []
+        if getattr(self, "hms_resolved", None):
+            for h in self.hms_resolved:
+                s = str(h).strip()
+                if s and s not in errors:
+                    errors.append(s)
+        elif getattr(self, "hms_errors", None):
+            for e in self.hms_errors:
+                s = str(e).strip()
+                if s and s not in errors:
+                    errors.append(s)
+
+        mc_err = getattr(self, "mc_print_error_code", None)
+        if mc_err is not None:
+            mc_str = str(mc_err).strip()
+            if mc_str and mc_str not in ["0", "None", "null", ""] and mc_err != 0:
+                desc = f"Код помилки MC: {mc_str}"
+                if desc not in errors:
+                    errors.append(desc)
+
+        p_err = getattr(self, "print_error", None)
+        if p_err is not None:
+            p_str = str(p_err).strip()
+            if p_str and p_str not in ["0", "None", "null", ""] and p_err != 0:
+                desc = f"Код помилки друку: {p_str}"
+                if desc not in errors:
+                    errors.append(desc)
+
+        fail_r = getattr(self, "fail_reason", None)
+        if fail_r is not None:
+            fail_str = str(fail_r).strip()
+            if fail_str and fail_str not in ["0", "None", "null", ""] and fail_r != 0:
+                desc = f"Причина збою: {fail_str}"
+                if desc not in errors:
+                    errors.append(desc)
+
+        return errors

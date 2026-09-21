@@ -117,6 +117,18 @@ def get_notification_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_error_notification_inline_keyboard(printer_id: str) -> InlineKeyboardMarkup:
+    """Builds interactive inline buttons attached to error and pause notifications."""
+    buttons = [
+        [
+            InlineKeyboardButton(text="📷 Фото", callback_data=f"notify_photo_{printer_id}"),
+            InlineKeyboardButton(text="▶️ Відновити", callback_data=f"notify_resume_{printer_id}"),
+            InlineKeyboardButton(text="💡 Світло", callback_data=f"notify_light_{printer_id}"),
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_maintenance_inline_keyboard(
     printer_id: str, item_key: str = "rails", item_name: str = "ТО"
 ) -> InlineKeyboardMarkup:

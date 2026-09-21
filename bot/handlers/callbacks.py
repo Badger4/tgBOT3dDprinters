@@ -68,6 +68,17 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             await callback.answer(f"⏸️ Надіслано команду Пауза на {printer.name}!", show_alert=True)
             return
 
+    elif data.startswith("notify_resume_"):
+        p_id = data.replace("notify_resume_", "")
+        printer = app.printers.get(p_id)
+        if printer:
+            res = printer.resume()
+            if res:
+                await callback.answer(f"▶️ Надіслано команду Відновити на {printer.name}!", show_alert=True)
+            else:
+                await callback.answer("⚠️ Не вдалося відновити (MQTT не підключено).", show_alert=True)
+            return
+
     elif data.startswith("notify_light_"):
         p_id = data.replace("notify_light_", "")
         printer = app.printers.get(p_id)
