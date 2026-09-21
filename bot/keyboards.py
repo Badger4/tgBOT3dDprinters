@@ -51,6 +51,16 @@ def get_printers_keyboard(printers: dict[str, Any], lang: str = "uk") -> ReplyKe
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+def get_printers_mount_keyboard(printers: dict[str, Any], lang: str = "uk") -> ReplyKeyboardMarkup:
+    keyboard = []
+    for p in printers.values():
+        p_name = p.name if hasattr(p, "name") else (p.get("name", "Printer") if isinstance(p, dict) else "Printer")
+        keyboard.append([KeyboardButton(text=f"🖨️ {p_name}")])
+    keyboard.append([KeyboardButton(text=t("btn_back", lang))])
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+
 def get_printer_menu_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text=t("btn_status", lang)), KeyboardButton(text=t("btn_camera", lang))],
@@ -64,10 +74,20 @@ def get_printer_menu_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyK
 def get_edit_printer_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     is_en = lang == "en"
     notify_str = "🔔 Сповіщення" if not is_en else "🔔 Notifications"
+    nozzle_str = "🎯 Діаметр сопла" if not is_en else "🎯 Nozzle Diameter"
     keyboard = [
         [KeyboardButton(text=t("btn_edit_p_name", lang)), KeyboardButton(text=t("btn_edit_p_ip", lang))],
         [KeyboardButton(text=t("btn_edit_p_sn", lang)), KeyboardButton(text=t("btn_edit_p_code", lang))],
-        [KeyboardButton(text=notify_str)],
+        [KeyboardButton(text=nozzle_str), KeyboardButton(text=notify_str)],
+        [KeyboardButton(text=t("btn_back", lang))],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_nozzle_diameters_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton(text="🎯 0.2 мм"), KeyboardButton(text="🎯 0.4 мм")],
+        [KeyboardButton(text="🎯 0.6 мм"), KeyboardButton(text="🎯 0.8 мм")],
         [KeyboardButton(text=t("btn_back", lang))],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -151,6 +171,11 @@ def get_printer_control_keyboard(printer: BambuPrinter, lang: str = "uk") -> Rep
 
     if is_printing:
         keyboard.append([KeyboardButton(text="🚫 Пропустити об'єкт")])
+
+    is_en = lang == "en"
+    load_btn_text = "⬇️ Load Filament" if is_en else "⬇️ Завантажити філамент"
+    unload_btn_text = "⬆️ Unload Filament" if is_en else "⬆️ Зняти філамент"
+    keyboard.append([KeyboardButton(text=load_btn_text), KeyboardButton(text=unload_btn_text)])
 
     keyboard.append([KeyboardButton(text=t("btn_back", lang))])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -366,7 +391,8 @@ def get_spools_keyboard(spools: dict[str, dict[str, Any]], lang: str = "uk") -> 
         color_emoji = get_color_emoji(s.get("color_name") or s.get("color", ""))
         c_prefix = f"{color_emoji} " if color_emoji else ""
         type_str = f"{stype}, " if (stype and stype.lower() not in name.lower()) else ""
-        qty_str = f" [📦 {qty} шт]" if qty > 1 else ""
+        qty_unit = "pcs" if lang == "en" else "шт"
+        qty_str = f" [📦 {qty} {qty_unit}]" if qty > 1 else ""
         title = f"🧵 {c_prefix}{name} ({type_str}{grams}g){qty_str}"
         keyboard.append([KeyboardButton(text=title)])
     keyboard.append([KeyboardButton(text=t("btn_back", lang))])
@@ -584,6 +610,21 @@ def get_parts_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+def get_search_reply_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
+    is_en = lang == "en"
+    keyboard = [
+        [
+            KeyboardButton(text="❌ Закінчити пошук" if not is_en else "❌ Finish Search"),
+            KeyboardButton(text="⬅️ До списку деталей" if not is_en else "⬅️ Back to Parts"),
+        ],
+        [
+            KeyboardButton(text=t("btn_main_menu", lang)),
+        ],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+
 def get_parts_inline_keyboard(parts: dict[str, dict[str, Any]] | list) -> InlineKeyboardMarkup:
     if isinstance(parts, list):
         parts = {p["id"]: p for p in parts if isinstance(p, dict) and "id" in p}
@@ -624,6 +665,7 @@ def get_printer_select_inline_keyboard(
     buttons = []
     printer_model = part.get("printer_model", "") if isinstance(part, dict) else ""
     filament_type = part.get("filament_type", "") if isinstance(part, dict) else ""
+    nozzle_diameter = part.get("nozzle_diameter", "") if isinstance(part, dict) else ""
 
     for p_id, p in printers.items():
         mapped = getattr(p, "mapped_state", "ONLINE")
@@ -635,8 +677,8 @@ def get_printer_select_inline_keyboard(
         }
         state_str = f" ({st_labels.get(mapped, mapped)})"
         active_fil = get_printer_active_filament(p, spools_map)
-        comp = check_compatibility(printer_model, filament_type, p.name, active_fil) if printer_model else {"compatible": True}
-        icon = "✅" if comp.get("compatible", True) else ("🛑" if comp.get("reason_type") == "FILAMENT" else "⚠️")
+        comp = check_compatibility(printer_model, filament_type, p.name, active_fil, printer=p, nozzle_diameter=nozzle_diameter) if printer_model else {"compatible": True}
+        icon = "✅" if comp.get("compatible", True) else ("🛑" if comp.get("reason_type") in ["FILAMENT", "NOZZLE"] else "⚠️")
         buttons.append([InlineKeyboardButton(text=f"{icon} 🖨️ {p.name}{state_str}", callback_data=f"part_exec_print:{part_id}:{p_id}")])
     buttons.append([InlineKeyboardButton(text="⬅️ Скасувати" if lang != "en" else "⬅️ Cancel", callback_data=f"part_view_{part_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

@@ -12,12 +12,14 @@ Comprehensive automated tests for Parts Warehouse Telegram Bot workflows:
 10. PDF reports triggers.
 """
 
+import io
 from datetime import datetime
 import html
 from pathlib import Path
 import shutil
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -156,27 +158,32 @@ class TestPartsComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
     async def _send_msg(self, text: str = "", doc_name: str = None, is_photo: bool = False) -> MsgResult:
         tg_user = TgUser(id=888, is_bot=False, first_name="Tester", username="tester")
         chat = Chat(id=888, type="private")
+        doc_obj = None
+        if doc_name:
+            doc_obj = Document(
+                file_id=f"file_id_{doc_name}",
+                file_unique_id=f"uniq_{doc_name}",
+                file_name=doc_name,
+                mime_type="application/octet-stream" if not doc_name.endswith((".jpg", ".png")) else "image/jpeg",
+            )
+        photo_obj = None
+        if is_photo:
+            photo_obj = [PhotoSize(file_id="photo_file_id_999", file_unique_id="uniq_photo", width=100, height=100)]
+
         msg = Message(
             message_id=int(time.time() * 1000) % 100000,
             date=datetime.now(),
             chat=chat,
             from_user=tg_user,
             text=text if not is_photo and not doc_name else (text or None),
+            document=doc_obj,
+            photo=photo_obj,
         )
-
-        if doc_name:
-            msg.document = Document(
-                file_id=f"file_id_{doc_name}",
-                file_unique_id=f"uniq_{doc_name}",
-                file_name=doc_name,
-                mime_type="application/octet-stream" if not doc_name.endswith((".jpg", ".png")) else "image/jpeg",
-            )
-        if is_photo:
-            msg.photo = [PhotoSize(file_id="photo_file_id_999", file_unique_id="uniq_photo", width=100, height=100)]
 
         mock_answer = AsyncMock()
         mock_answer_photo = AsyncMock()
         mock_answer_doc = AsyncMock()
+        object.__setattr__(msg, "_bot", self.bot)
         object.__setattr__(msg, "answer", mock_answer)
         object.__setattr__(msg, "reply", mock_answer)
         object.__setattr__(msg, "answer_photo", mock_answer_photo)
@@ -449,23 +456,47 @@ class TestPartsComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
             self.assertIn("БЛОКОВАНО", str(cb_incomp.call_args[0][0]))
 
     async def test_search_parts(self):
-        """Test search query matching and no-results fallback."""
+        """Test search query matching, no-results fallback, and exit buttons."""
         await self.state.set_state(PartEditingStates.in_parts_list)
         ans_s = await self._send_msg("🔍 Пошук")
         self.assertTrue(ans_s.called)
         self.assertEqual(await self.state.get_state(), PartEditingStates.search_query)
 
-        # Matching query
+        # 1. Matching query
         ans_found = await self._send_msg("Шестерня")
         self.assertTrue(ans_found.called)
         self.assertIn("Знайдено деталей: 1", ans_found.all_text())
+        self.assertEqual(await self.state.get_state(), PartEditingStates.in_parts_list)
 
-        # No results query
-        await self.state.set_state(PartEditingStates.in_parts_list)
+        # 2. No results query
         await self._send_msg("🔍 Пошук")
+        self.assertEqual(await self.state.get_state(), PartEditingStates.search_query)
         ans_notfound = await self._send_msg("НеіснуючаДеталь12345")
         self.assertTrue(ans_notfound.called)
         self.assertIn("нічого не знайдено", ans_notfound.all_text().lower())
+        self.assertEqual(await self.state.get_state(), PartEditingStates.search_query)
+
+        # 3. Exit search via '❌ Закінчити пошук'
+        ans_finish = await self._send_msg("❌ Закінчити пошук")
+        self.assertTrue(ans_finish.called)
+        self.assertEqual(await self.state.get_state(), PartEditingStates.in_parts_list)
+
+        # 4. Exit search via '🏠 Головне меню' (ensure it does NOT treat 'Головне меню' as a model name!)
+        await self._send_msg("🔍 Пошук")
+        self.assertEqual(await self.state.get_state(), PartEditingStates.search_query)
+        ans_menu = await self._send_msg("🏠 Головне меню")
+        self.assertTrue(ans_menu.called)
+        self.assertNotIn("нічого не знайдено", ans_menu.all_text().lower())
+        self.assertIsNone(await self.state.get_state())
+
+        # 5. Exit search via '⬅️ До списку деталей'
+        await self.state.set_state(PartEditingStates.in_parts_list)
+        await self._send_msg("🔍 Пошук")
+        self.assertEqual(await self.state.get_state(), PartEditingStates.search_query)
+        ans_back_parts = await self._send_msg("⬅️ До списку деталей")
+        self.assertTrue(ans_back_parts.called)
+        self.assertEqual(await self.state.get_state(), PartEditingStates.in_parts_list)
+
 
     async def test_navigation_and_reports(self):
         """Test back buttons and PDF report generators."""
@@ -518,4 +549,93 @@ class TestPartsComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         parts = await self.app.storage.load_parts()
         self.assertNotIn("➕ Додати", [p.get("name") for p in parts.values()])
         self.assertIsNone(await self.state.get_state())
+
+    async def test_part_3mf_weight_and_report_generation(self):
+        """Test full cycle of 3MF weight/time parsing, storage, display and PDF reporting."""
+        # 1. Add part through wizard with 3MF document
+        await self._send_msg("🧩 Склад деталей")
+        await self._send_msg("➕ Добавити")
+        await self._send_msg("Тестовий Куб")
+        await self._send_msg("-")  # skip photo
+        await self._send_msg("5")  # count
+
+        mock_meta = {
+            "printer_model": "Bambu Lab P1S",
+            "filament_type": "PETG",
+            "weight_g": 6.49,
+            "time_mins": 29,
+            "valid": True,
+            "error": "",
+        }
+
+        doc = Document(
+            file_id="BQAC_TEST_3MF_DOC_ID_12345",
+            file_unique_id="unique_123",
+            file_name="Куб_PETG_29m55s.gcode.3mf",
+            mime_type="application/zip",
+            file_size=1234,
+        )
+
+        with patch("services.gcode_parser.parse_3mf_file", return_value=mock_meta):
+            with patch.object(self.bot, "get_file", return_value=SimpleNamespace(file_path="mock/path/file.3mf")):
+                with patch.object(self.bot, "download_file", return_value=io.BytesIO(b"PK\x03\x04mock_bytes")):
+                    ans = await self._send_msg(doc_name="Куб_PETG_29m55s.gcode.3mf")
+                    self.assertTrue(ans.called)
+                    self.assertIn("Деталь успішно додано", ans.all_text())
+                    self.assertIn("6.5 г", ans.all_text())
+
+        parts = await self.app.storage.load_parts()
+        created = [p for p in parts.values() if p.get("name") == "Тестовий Куб"]
+        self.assertEqual(len(created), 1)
+        part = created[0]
+        self.assertEqual(part["weight_g"], 6.49)
+        self.assertEqual(part["weight"], 6.49)
+        self.assertEqual(part["time_mins"], 29)
+        self.assertEqual(part["printer_model"], "Bambu Lab P1S")
+        self.assertEqual(part["filament_type"], "PETG")
+
+        # 2. View the part and verify weight and total weight display
+        ans_view, _ = await self._send_cb(f"part_view_{part['id']}")
+        self.assertTrue(ans_view.called)
+        self.assertIn("Вага 1 шт:", ans_view.all_text())
+        self.assertIn("6.5 г", ans_view.all_text())
+        self.assertIn("загалом: 32.5 г", ans_view.all_text())
+        self.assertIn("Час друку:", ans_view.all_text())
+
+        # 3. PDF report generation includes this part with weight
+        from services.report_generator import generate_parts_pdf_report
+        pdf_bytes = generate_parts_pdf_report(parts)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+        self.assertTrue(len(pdf_bytes) > 1000)
+
+        # 4. Edit 3MF file to a new weight
+        ans_prop, _ = await self._send_cb("part_prop_three_mf")
+        self.assertEqual(await self.state.get_state(), PartEditingStates.property_edit)
+
+        new_mock_meta = {
+            "printer_model": "Bambu Lab X1 Carbon",
+            "filament_type": "PLA",
+            "weight_g": 15.2,
+            "time_mins": 50,
+            "valid": True,
+            "error": "",
+        }
+
+        with patch("services.gcode_parser.parse_3mf_file", return_value=new_mock_meta):
+            with patch.object(self.bot, "get_file", return_value=SimpleNamespace(file_path="mock/path/file2.3mf")):
+                with patch.object(self.bot, "download_file", return_value=io.BytesIO(b"PK\x03\x04mock_bytes2")):
+                    ans_edit = await self._send_msg(doc_name="Нова_Модель.gcode.3mf")
+                    self.assertTrue(ans_edit.called)
+
+        # Confirm save
+        ans_save = await self._send_msg("💾 Зберегти")
+        self.assertTrue(ans_save.called)
+
+        parts_updated = await self.app.storage.load_parts()
+        updated_part = parts_updated[part["id"]]
+        self.assertEqual(updated_part["weight_g"], 15.2)
+        self.assertEqual(updated_part["time_mins"], 50)
+        self.assertEqual(updated_part["printer_model"], "Bambu Lab X1 Carbon")
+        self.assertEqual(updated_part["filament_type"], "PLA")
+
 

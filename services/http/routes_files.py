@@ -94,6 +94,7 @@ async def handle_file_upload(request: web.Request) -> web.Response:
                 tray_info_idx=meta.get("tray_info_idx", ""),
                 color=meta.get("filament_color", ""),
                 filament_name=meta.get("filament_name", ""),
+                nozzle_diameter=meta.get("nozzle_diameter"),
             )
             printers_info.append(
                 {
@@ -105,6 +106,7 @@ async def handle_file_upload(request: web.Request) -> web.Response:
                     "reason": comp.get("reason", ""),
                     "matched_ams_slot": comp.get("matched_ams_slot"),
                     "candidate_ams_slots": comp.get("candidate_ams_slots", []),
+                    "nozzle_diameter": getattr(p, "nozzle_diameter", "0.4"),
                 }
             )
 
@@ -114,6 +116,7 @@ async def handle_file_upload(request: web.Request) -> web.Response:
                 "file_token": file_token,
                 "filename": safe_filename,
                 "printer_model": meta["printer_model"],
+                "nozzle_diameter": meta.get("nozzle_diameter", "0.4"),
                 "filament_type": meta["filament_type"],
                 "weight_g": meta["weight_g"],
                 "time_mins": meta["time_mins"],
@@ -218,6 +221,7 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
             tray_info_idx=meta.get("tray_info_idx", ""),
             color=meta.get("filament_color", ""),
             filament_name=meta.get("filament_name", ""),
+            nozzle_diameter=meta.get("nozzle_diameter"),
         )
         if not comp.get("compatible"):
             reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")

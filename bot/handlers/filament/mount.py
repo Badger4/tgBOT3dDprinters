@@ -143,6 +143,16 @@ async def handle_mount_spool_start(message: Message, app):
         await message.answer("⚠️ На Складі немає вільних котушок для установки." if u_lang != "en" else "⚠️ No free spools available in warehouse.")
         return
 
+    text_lower = message.text.strip().lower() if message.text else ""
+    printer_btn_keywords = {"🔗 поставити котушку", "поставити котушку", "🔗 mount spool", "mount spool"}
+    has_target_printer = bool(user.get("context_data", {}).get("selected_printer_id"))
+
+    if text_lower in printer_btn_keywords or has_target_printer:
+        user.setdefault("context_data", {})["mount_source"] = "printer"
+    else:
+        user.setdefault("context_data", {})["mount_source"] = "warehouse"
+        user.get("context_data", {}).pop("selected_printer_id", None)
+
     user["state"] = "select_spool_to_mount"
     await app.storage.save_user(user)
     await message.answer(
@@ -159,6 +169,16 @@ async def handle_unmount_spool_start(message: Message, app):
     u_lang = user.get("language", "uk")
     spools = await app.storage.load_spools()
     
+    text_lower = message.text.strip().lower() if message.text else ""
+    printer_btn_keywords = {"🔓 зняти котушку", "зняти котушку", "🔓 unmount spool", "unmount spool"}
+    has_target_printer = bool(user.get("context_data", {}).get("selected_printer_id"))
+
+    if text_lower in printer_btn_keywords or has_target_printer:
+        user.setdefault("context_data", {})["unmount_source"] = "printer"
+    else:
+        user.setdefault("context_data", {})["unmount_source"] = "warehouse"
+        user.get("context_data", {}).pop("selected_printer_id", None)
+
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 

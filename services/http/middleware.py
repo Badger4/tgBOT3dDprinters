@@ -57,9 +57,9 @@ def _apply_cors_and_security_headers(request: web.Request, response: web.StreamR
 
     response.headers.update(STATIC_SECURITY_HEADERS)
 
-    # Smart Caching: Static assets (versioned) are cached; dynamic API/HTML are fresh
+    # Smart Caching: Static assets (versioned) are cached; dynamic API/HTML/app.js/style.css are fresh
     path = request.path
-    if path.startswith("/static/") or path.startswith("/uploads/"):
+    if (path.startswith("/static/") or path.startswith("/uploads/")) and not path.endswith("app.js") and not path.endswith("style.css"):
         response.headers["Cache-Control"] = "public, max-age=604800, immutable"
         response.headers.pop("Pragma", None)
         response.headers.pop("Expires", None)

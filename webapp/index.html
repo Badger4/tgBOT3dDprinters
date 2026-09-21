@@ -15,7 +15,7 @@
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- WebApp CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=1026">
+    <link rel="stylesheet" href="/static/css/style.css?v=1028">
 </head>
 <body>
     <div id="app" class="app-container">
@@ -167,7 +167,7 @@
                         <button type="button" id="btn-view-spool-movements" class="btn btn-outline btn-sm" onclick="window.openSpoolMovementsModal()">
                             <i class="fa-solid fa-clock-rotate-left"></i> 📜 Аудит руху
                         </button>
-                        <a href="/api/spools/export_pdf" id="btn-export-spools-pdf" class="btn btn-primary btn-sm" target="_blank">
+                        <a href="/api/spools/export_pdf?format=pdf" id="btn-export-spools-pdf" class="btn btn-primary btn-sm" target="_blank">
                             <i class="fa-solid fa-file-pdf"></i> PDF
                         </a>
                         <button type="button" id="add-spool-btn" class="btn btn-primary btn-sm" onclick="window.openAddSpoolModal()">
@@ -190,7 +190,7 @@
                 <div class="section-header">
                     <h2><i class="fa-solid fa-puzzle-piece"></i> <span data-i18n="parts_stock_title">Склад готових деталей</span></h2>
                     <div class="d-flex gap-2 flex-wrap">
-                        <a href="/api/parts/export_pdf" id="btn-export-parts-pdf" class="btn btn-primary btn-sm" target="_blank">
+                        <a href="/api/parts/export_pdf?format=pdf" id="btn-export-parts-pdf" class="btn btn-primary btn-sm" target="_blank">
                             <i class="fa-solid fa-file-pdf"></i> PDF
                         </a>
                         <button id="add-part-btn" class="btn btn-primary btn-sm" onclick="window.openAddPartModal()">
@@ -229,7 +229,7 @@
                         <button id="btn-clear-history" class="btn btn-outline-danger btn-sm">
                             <i class="fa-solid fa-trash"></i> <span data-i18n="clear_btn">Очистити</span>
                         </button>
-                        <a href="/api/history/export_pdf" id="btn-export-history-pdf" class="btn btn-primary btn-sm" target="_blank">
+                        <a href="/api/history/export_pdf?format=pdf" id="btn-export-history-pdf" class="btn btn-primary btn-sm" target="_blank">
                             <i class="fa-solid fa-file-pdf"></i> PDF
                         </a>
                     </div>
@@ -348,7 +348,7 @@
                         </div>
 
                         <div class="form-row mb-3">
-                            <div class="form-group col-md-4 mb-3">
+                            <div class="form-group col-md-3 mb-3">
                                 <label><i class="fa-solid fa-cube"></i> Модель принтера</label>
                                 <select id="p-setting-model" class="form-control">
                                     <option value="A1 mini">A1 mini</option>
@@ -367,7 +367,16 @@
                                     <option value="H2C">H2C</option>
                                 </select>
                             </div>
-                            <div class="form-group col-md-4 mb-3">
+                            <div class="form-group col-md-3 mb-3">
+                                <label><i class="fa-solid fa-circle-dot"></i> Діаметр сопла</label>
+                                <select id="p-setting-nozzle-diameter" class="form-control">
+                                    <option value="0.2">0.2 мм</option>
+                                    <option value="0.4">0.4 мм (Стандарт)</option>
+                                    <option value="0.6">0.6 мм</option>
+                                    <option value="0.8">0.8 мм</option>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-3 mb-3">
                                 <label><i class="fa-solid fa-gears"></i> Модуль AMS</label>
                                 <select id="p-setting-ams" class="form-control">
                                     <option value="auto">🤖 Авто (Автовизначення)</option>
@@ -375,8 +384,8 @@
                                     <option value="false">❌ Вимкнути (Без AMS)</option>
                                 </select>
                             </div>
-                            <div class="form-group col-md-4 mb-3">
-                                <label><i class="fa-solid fa-wrench"></i> Інтервал обслуговування (год)</label>
+                            <div class="form-group col-md-3 mb-3">
+                                <label><i class="fa-solid fa-wrench"></i> Інтервал (год)</label>
                                 <input type="number" id="p-setting-maint-interval" class="form-control" value="100" min="10" max="1000">
                             </div>
                         </div>
@@ -516,6 +525,13 @@
                                 <div class="telem-info">
                                     <small>Пластик</small>
                                     <strong id="file-modal-type">-</strong>
+                                </div>
+                            </div>
+                            <div class="telem-box">
+                                <i class="fa-solid fa-bullseye color-yellow"></i>
+                                <div class="telem-info">
+                                    <small>Сопло</small>
+                                    <strong id="file-modal-nozzle">0.4 мм</strong>
                                 </div>
                             </div>
                             <div class="telem-box">
@@ -745,7 +761,16 @@
                     </div>
 
                     <div class="form-row">
-                        <div class="form-group col-md-6 mb-3">
+                        <div class="form-group col-md-4 mb-3">
+                            <label><i class="fa-solid fa-circle-dot"></i> Діаметр сопла</label>
+                            <select id="ps-modal-nozzle-diameter" class="form-control">
+                                <option value="0.2">0.2 мм</option>
+                                <option value="0.4">0.4 мм (Стандарт)</option>
+                                <option value="0.6">0.6 мм</option>
+                                <option value="0.8">0.8 мм</option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-4 mb-3">
                             <label><i class="fa-solid fa-gears"></i> Модуль AMS</label>
                             <select id="ps-modal-ams" class="form-control">
                                 <option value="auto">🤖 Авто (Визначати автоматично)</option>
@@ -753,8 +778,8 @@
                                 <option value="false">❌ Вимкнути (Без AMS)</option>
                             </select>
                         </div>
-                        <div class="form-group col-md-6 mb-3">
-                            <label><i class="fa-solid fa-wrench"></i> Інтервал обслуговування (год)</label>
+                        <div class="form-group col-md-4 mb-3">
+                            <label><i class="fa-solid fa-wrench"></i> Інтервал (год)</label>
                             <input type="number" id="ps-modal-maint-interval" class="form-control" value="100" min="10" max="1000">
                         </div>
                     </div>
@@ -1005,33 +1030,33 @@
                 <div class="modal-header">
                     <h3 title="Журнал аудиту руху котушок"><i class="fa-solid fa-clock-rotate-left color-amber"></i> Аудит руху пластику</h3>
                     <div class="d-flex gap-2 align-items-center flex-shrink-0">
-                        <a href="/api/spools/movements/export_pdf" id="btn-export-movements-pdf" class="btn btn-xs btn-outline" target="_blank"><i class="fa-solid fa-file-pdf"></i> PDF</a>
+                        <a href="/api/spools/movements/export_pdf?format=pdf" id="btn-export-movements-pdf" class="btn btn-xs btn-outline" target="_blank"><i class="fa-solid fa-file-pdf"></i> PDF</a>
                         <button type="button" id="close-spool-movements-modal-btn" class="icon-btn-close" onclick="window.closeSpoolMovementsModal(event)" aria-label="Закрити"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 </div>
                 <div class="modal-body">
                     <!-- Filters Toolbar -->
-                    <div class="card p-2 mb-3 movements-filter-toolbar" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
-                        <div class="row g-2 align-items-center">
-                            <div class="col-12 col-sm-6 col-md-3">
-                                <label class="text-muted small d-block mb-1" style="font-size: 11px;">🧵 Котушка:</label>
-                                <select id="mov-filter-spool" class="form-control form-control-sm" style="font-size: 12px; height: 32px;">
-                                    <option value="all">Всі котушки</option>
+                    <div class="movements-filter-toolbar">
+                        <div class="movements-filters-row-top">
+                            <div class="movements-filter-item spool-field">
+                                <label for="mov-filter-spool"><i class="fa-solid fa-scroll color-amber"></i> Котушка:</label>
+                                <select id="mov-filter-spool" class="form-control">
+                                    <option value="all">🧵 Всі котушки</option>
                                 </select>
                             </div>
-                            <div class="col-6 col-sm-6 col-md-2">
-                                <label class="text-muted small d-block mb-1" style="font-size: 11px;">⚡ Операція:</label>
-                                <select id="mov-filter-action" class="form-control form-control-sm" style="font-size: 12px; height: 32px;">
+                            <div class="movements-filter-item">
+                                <label for="mov-filter-action"><i class="fa-solid fa-bolt color-blue"></i> Операція:</label>
+                                <select id="mov-filter-action" class="form-control">
                                     <option value="all">Всі дії</option>
                                     <option value="print">🖨️ Друк</option>
                                     <option value="manual_edit">✏️ Коригування</option>
-                                    <option value="stock">📦 Внесення/Поповнення</option>
+                                    <option value="stock">📦 Поповнення</option>
                                     <option value="write_off">🗑️ Списання</option>
                                 </select>
                             </div>
-                            <div class="col-6 col-sm-6 col-md-2">
-                                <label class="text-muted small d-block mb-1" style="font-size: 11px;">📅 Період:</label>
-                                <select id="mov-filter-date" class="form-control form-control-sm" style="font-size: 12px; height: 32px;">
+                            <div class="movements-filter-item">
+                                <label for="mov-filter-date"><i class="fa-solid fa-calendar-days color-green"></i> Період:</label>
+                                <select id="mov-filter-date" class="form-control">
                                     <option value="all">Весь час</option>
                                     <option value="today">Сьогодні</option>
                                     <option value="yesterday">Вчора</option>
@@ -1039,15 +1064,15 @@
                                     <option value="month">Останні 30 днів</option>
                                 </select>
                             </div>
-                            <div class="col-9 col-sm-4 col-md-4">
-                                <label class="text-muted small d-block mb-1" style="font-size: 11px;">🔍 Пошук:</label>
-                                <input type="text" id="mov-filter-search" class="form-control form-control-sm" placeholder="Модель, деталь, юзер..." style="font-size: 12px; height: 32px;">
+                        </div>
+                        <div class="movements-filters-row-bottom">
+                            <div class="movements-search-wrap">
+                                <label for="mov-filter-search"><i class="fa-solid fa-magnifying-glass color-purple"></i> Пошук:</label>
+                                <input type="text" id="mov-filter-search" class="form-control" placeholder="Модель, деталь, користувач..." autocomplete="off">
                             </div>
-                            <div class="col-3 col-sm-2 col-md-1 d-flex align-items-end">
-                                <button type="button" id="mov-filter-reset-btn" class="btn btn-xs btn-outline w-100" title="Скинути всі фільтри" style="height: 32px; padding: 0;">
-                                    <i class="fa-solid fa-rotate-left"></i>
-                                </button>
-                            </div>
+                            <button type="button" id="mov-filter-reset-btn" class="movements-reset-btn" title="Скинути всі фільтри">
+                                <i class="fa-solid fa-rotate-left"></i> <span>Скинути</span>
+                            </button>
                         </div>
                     </div>
 
@@ -1279,6 +1304,6 @@
     <!-- html2pdf Library for PDF exports (deferred background load) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1077"></script>
+    <script src="/static/js/app.js?v=1086"></script>
 </body>
 </html>

@@ -30,6 +30,48 @@ def parse_val_or_percent(val_str: str, base_amount: float, hours: float = 1.0) -
             return 0.0, False
 
 
+def validate_val_or_percent(raw_text: str) -> tuple[bool, str]:
+    """
+    Validates that raw_text is a valid non-negative number or percentage.
+    Accepts: '10', '10.5', '10,5', '15%', '15.5%', '+100%', '10 грн', '10 грн/год', '0'.
+    Rejects text containing random letters, multiple signs, negative numbers, etc.
+    Returns (is_valid, cleaned_string_or_error_msg).
+    """
+    s = str(raw_text or "").strip()
+    if not s:
+        return False, "⚠️ Поле не може бути порожнім."
+
+    is_pct = False
+    clean_s = s
+    if clean_s.startswith("+"):
+        clean_s = clean_s[1:].strip()
+
+    if clean_s.endswith("%"):
+        num_part = clean_s[:-1].strip()
+        is_pct = True
+    else:
+        for suffix in ["грн/год", "грн/г", "грн", "uah/h", "uah", "₴/год", "₴"]:
+            if clean_s.lower().endswith(suffix):
+                clean_s = clean_s[: -len(suffix)].strip()
+                break
+        num_part = clean_s.strip()
+
+    num_part = num_part.replace(",", ".")
+    try:
+        val = float(num_part)
+        if math.isnan(val) or math.isinf(val):
+            return False, "⚠️ Введіть коректне числове значення."
+        if val < 0:
+            return False, "⚠️ Значення не може бути від'ємним."
+
+        val_str = f"{val:g}"
+        if is_pct:
+            return True, f"{val_str}%"
+        return True, val_str
+    except ValueError:
+        return False, "⚠️ Введіть тільки число (наприклад <code>10</code>) або відсоток (наприклад <code>15%</code>) без зайвих букв."
+
+
 def calculate_commercial_price(preset: dict[str, Any], weight_g: float, time_mins: int) -> dict[str, Any]:
     """
     Calculates detailed commercial price breakdown for a print job based on a preset.
@@ -64,15 +106,22 @@ def calculate_commercial_price(preset: dict[str, Any], weight_g: float, time_min
         "weight_g": weight_g,
         "time_mins": time_mins,
         "time_hours": round(hours, 2),
+        "price_per_g": price_per_g,
+        "electricity_rate_uah": elec_rate,
+        "power_watts": power_w,
         "filament_cost": filament_cost,
         "electricity_cost": electricity_cost,
         "direct_cost": direct_cost,
         "depreciation_cost": depr_cost,
         "depreciation_str": depr_str,
+        "depr_is_pct": depr_is_pct,
         "consumables_cost": cons_cost,
         "consumables_str": cons_str,
+        "cons_is_pct": cons_is_pct,
         "cost_before_profit": cost_before_profit,
         "profit_cost": profit_cost,
         "profit_str": profit_str,
+        "profit_is_pct": profit_is_pct,
+        "profit_amount": profit_cost,
         "total_price": total_price,
     }

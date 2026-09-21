@@ -83,6 +83,7 @@ async def handle_document_upload(message: Message, app):
             "local_filepath": str(save_path),
             "plate_name": meta.get("plate_name", "plate_1.gcode"),
             "printer_model": meta["printer_model"],
+            "nozzle_diameter": meta.get("nozzle_diameter", "0.4"),
             "filament_type": meta["filament_type"],
             "tray_info_idx": meta.get("tray_info_idx", ""),
             "filament_color": meta.get("filament_color", ""),
@@ -94,9 +95,11 @@ async def handle_document_upload(message: Message, app):
         user["state"] = "select_printer_for_file"
         await app.storage.save_user(user)
 
+        noz_str = str(meta.get("nozzle_diameter", "0.4"))
         comp_txt = (
             f"📄 <b>Файл прийнято: {html.escape(fname)}</b>\n"
             f"🖨️ <b>Модель у 3MF файлі:</b> <code>{html.escape(meta['printer_model'])}</code>\n"
+            f"🎯 <b>Діаметр сопла:</b> <code>{html.escape(noz_str)} мм</code>\n"
             f"🧵 <b>Тип пластику у файлі:</b> <code>{html.escape(meta['filament_type'])}</code>\n"
             f"⚖️ <b>Необхідно пластику:</b> <b>{meta['weight_g']}g</b>\n"
             f"⏱️ <b>Орієнтовний час друку:</b> <b>{format_print_time_human(meta['time_mins'])}</b>\n"
@@ -117,14 +120,26 @@ async def handle_document_upload(message: Message, app):
                 tray_info_idx=meta.get("tray_info_idx", ""),
                 color=meta.get("filament_color", ""),
                 filament_name=meta.get("filament_name", ""),
+                nozzle_diameter=meta.get("nozzle_diameter"),
             )
             if c_info["compatible"]:
-                if c_info.get("matched_ams_slot"):
+                if c_info.get("level") in ["WARNING", "WARN"]:
+                    ams_extra = f" [AMS Слот {c_info['matched_ams_slot']}]" if c_info.get("matched_ams_slot") else ""
+                    status_str = f"⚠️ Умовно сумісний (Різна модель: {c_info.get('sliced_model', '')} ➔ {c_info.get('target_model', '')}){ams_extra}"
+                elif c_info.get("matched_ams_slot"):
                     status_str = f"✅ Сумісний (AMS Слот {c_info['matched_ams_slot']})"
                 else:
                     status_str = "✅ Сумісний"
             else:
-                status_str = "🛑 НЕСУМІСНИЙ (Пластик)" if c_info.get("reason_type") == "FILAMENT" else "🛑 НЕСУМІСНИЙ (Різна модель)"
+                if c_info.get("reason_type") == "NOZZLE":
+                    status_str = f"🛑 НЕСУМІСНИЙ (Сопло {c_info.get('target_nozzle', '?')}мм vs {c_info.get('sliced_nozzle', '?')}мм)"
+                elif c_info.get("reason_type") == "FILAMENT":
+                    if c_info.get("target_filament") in ["Не встановлено", "AMS (пластик відсутній)", ""]:
+                        status_str = "🛑 НЕСУМІСНИЙ (Пластик не встановлено)"
+                    else:
+                        status_str = "🛑 НЕСУМІСНИЙ (Пластик)"
+                else:
+                    status_str = "🛑 НЕСУМІСНИЙ (Різна модель)"
 
             comp_txt += f"• <b>{html.escape(p.name)}</b>: {status_str}\n"
             if c_info["compatible"]:
@@ -143,14 +158,17 @@ async def handle_document_upload(message: Message, app):
 
 
 def format_commercial_card(res: dict, filename: str) -> str:
+    pr_g = float(res.get("price_per_g", 0.85))
+    p_watt = float(res.get("power_watts", 120.0))
+    e_rate = float(res.get("electricity_rate_uah", 4.32))
     return (
         f"<b>💼 Комерційний розрахунок для 3MF</b>\n"
         f"📄 <b>Файл:</b> <code>{html.escape(filename)}</code>\n"
         f"⚖️ <b>Вага:</b> <code>{res['weight_g']}g</code> | ⏱️ <b>Час друку:</b> <code>~{res['time_mins']} хв</code>\n"
         f"📋 <b>Пресет:</b> <b>{html.escape(res['preset_name'])}</b>\n"
         f"-----------------------------------\n"
-        f"🧵 <b>Пластик:</b> <code>{res['filament_cost']:.2f} грн</code>\n"
-        f"⚡ <b>Електроенергія:</b> <code>{res['electricity_cost']:.2f} грн</code>\n"
+        f"🧵 <b>Пластик:</b> <code>{res['filament_cost']:.2f} грн</code> <i>({pr_g:.2f} грн/г)</i>\n"
+        f"⚡ <b>Електроенергія:</b> <code>{res['electricity_cost']:.2f} грн</code> <i>({p_watt:.0f} Вт, {e_rate:.2f} грн/кВт·год)</i>\n"
         f"🔧 <b>Амортизація:</b> <code>{res['depreciation_cost']:.2f} грн</code> <i>({res['depreciation_str']})</i>\n"
         f"🧼 <b>Витратні матеріали:</b> <code>{res['consumables_cost']:.2f} грн</code> <i>({res['consumables_str']})</i>\n"
         f"-----------------------------------\n"
@@ -230,13 +248,24 @@ async def handle_3mf_preset_choice(message: Message, app):
     fname = pending_file.get("filename", "3MF")
     file_p_model = pending_file.get("printer_model", "Unknown")
     file_f_type = pending_file.get("filament_type", "PLA")
+    file_nozzle = pending_file.get("nozzle_diameter", "0.4")
 
     # Build keyboard to return back to file options
     spools_map = await app.storage.load_spools()
     kb_buttons = []
     for p_id, p in app.printers.items():
         active_fil = get_printer_active_filament(p, spools_map)
-        c_info = check_compatibility(file_p_model, file_f_type, p.name, active_fil)
+        c_info = check_compatibility(
+            file_p_model,
+            file_f_type,
+            p.name,
+            active_fil,
+            printer=p,
+            tray_info_idx=pending_file.get("tray_info_idx", ""),
+            color=pending_file.get("filament_color", ""),
+            filament_name=pending_file.get("filament_name", ""),
+            nozzle_diameter=file_nozzle,
+        )
         if c_info["compatible"]:
             kb_buttons.append([KeyboardButton(text=f"🚀 Запустити на {p.name}")])
     kb_buttons.append([KeyboardButton(text="💰 Розрахувати комерційну вартість 3MF")])
@@ -315,6 +344,7 @@ async def handle_select_printer_for_file(message: Message, app):
 
     sliced_model = pending_file.get("printer_model", "Unknown")
     fil_type = pending_file.get("filament_type", "PLA")
+    file_nozzle = pending_file.get("nozzle_diameter", "0.4")
     spools_map = await app.storage.load_spools()
     active_fil = get_printer_active_filament(target_p, spools_map)
     c_info = check_compatibility(
@@ -326,9 +356,21 @@ async def handle_select_printer_for_file(message: Message, app):
         tray_info_idx=pending_file.get("tray_info_idx", ""),
         color=pending_file.get("filament_color", ""),
         filament_name=pending_file.get("filament_name", ""),
+        nozzle_diameter=file_nozzle,
     )
     if not c_info["compatible"]:
-        if c_info.get("reason_type") == "PRINTER":
+        if c_info.get("reason_type") == "NOZZLE":
+            s_noz = c_info.get("sliced_nozzle", file_nozzle)
+            t_noz = c_info.get("target_nozzle", getattr(target_p, "nozzle_diameter", "0.4"))
+            await message.answer(
+                f"🚨 <b>ПОМИЛКА СУМІСНОСТІ СОПЛА! ДРУК БЛОКОВАНО!</b>\n\n"
+                f"🛑 <b>Невідповідність діаметра сопла!</b>\n"
+                f"• <b>Діаметр у файлі (G-code):</b> <code>{html.escape(str(s_noz))} мм</code>\n"
+                f"• <b>Сопло на принтері:</b> <code>{html.escape(str(t_noz))} мм</code>\n\n"
+                f"<i>Будь ласка, замініть сопло на принтері на {html.escape(str(s_noz))} мм або перенаріжте модель для сопла {html.escape(str(t_noz))} мм.</i>",
+                parse_mode=ParseMode.HTML,
+            )
+        elif c_info.get("reason_type") == "PRINTER":
             await message.answer(
                 f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n"
                 f"🛑 <b>Принтер несумісний з файлом!</b>\n"

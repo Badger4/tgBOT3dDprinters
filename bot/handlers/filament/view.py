@@ -147,6 +147,7 @@ async def handle_filament_menu(message: Message, app, state: FSMContext | None =
         return
 
     user["state"] = "idle"
+    user.get("context_data", {}).pop("mount_source", None)
     await app.storage.save_user(user)
 
     txt = (
@@ -218,10 +219,19 @@ async def handle_filament_menu(message: Message, app, state: FSMContext | None =
 
     sp_stock_lbl = "📦 <b>Склад Котушок:</b>" if u_lang != "en" else "📦 <b>Spool Stock:</b>"
     unassigned_spools = [s for s in spool_list if not s.get("assigned_printer_id")]
+    total_qty = sum(max(1, int(s.get("quantity", 1) or 1)) for s in unassigned_spools)
+    pos_count = len(unassigned_spools)
     stock_unit = "pcs." if u_lang == "en" else "шт."
+
+    if total_qty != pos_count and pos_count > 0:
+        pos_unit = "items" if u_lang == "en" else "поз."
+        qty_summary = f"{total_qty} {stock_unit} ({pos_count} {pos_unit})"
+    else:
+        qty_summary = f"{total_qty} {stock_unit}"
+
     txt += (
         f"-----------------------------------\n"
-        f"{sp_stock_lbl} {len(unassigned_spools)} {stock_unit}\n"
+        f"{sp_stock_lbl} {qty_summary}\n"
     )
 
     if unassigned_spools:
@@ -231,10 +241,12 @@ async def handle_filament_menu(message: Message, app, state: FSMContext | None =
             s_t = html.escape(s.get("type", "PLA"))
             s_g = s.get("remaining_grams", 1000.0)
             s_pr = s.get("price_per_kg") or s.get("price_uah", 0.0)
+            s_qty = max(1, int(s.get("quantity", 1) or 1))
+            qty_tag = f" [<b>{s_qty} {stock_unit}</b>]" if s_qty > 1 else ""
             c_ico = get_color_emoji(s.get("color_name") or s.get("color", ""))
             c_pfx = f"{c_ico} " if c_ico else ""
             cur_str = "грн/кг" if u_lang != "en" else "UAH/kg"
-            txt += f"• {c_pfx}<b>{s_n}</b> ({s_t}) — <b>{s_g}g</b> | {s_pr} {cur_str}\n"
+            txt += f"• {c_pfx}<b>{s_n}</b> ({s_t}) — <b>{s_g}g</b>{qty_tag} | {s_pr} {cur_str}\n"
     else:
         txt += (
             "<i>На складі немає вільних котушок (усі встановлені на принтери або склад порожній).</i>\n"

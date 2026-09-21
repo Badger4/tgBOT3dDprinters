@@ -69,7 +69,19 @@ async def handle_edit_printer_code_start(message: Message, app):
     await message.answer("Введіть новий Access Code:")
 
 
-EDIT_PRINTER_STATES = {"edit_p_name", "edit_p_ip", "edit_p_sn", "edit_p_code"}
+@router.message(F.text.lower().in_(["🎯 діаметр сопла", "діаметр сопла", "🎯 nozzle diameter", "nozzle diameter"]))
+async def handle_edit_printer_nozzle_start(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    user["state"] = "edit_p_nozzle"
+    await app.storage.save_user(user)
+    u_lang = user.get("language", "uk")
+    from bot.keyboards import get_nozzle_diameters_keyboard
+    prompt_txt = "Оберіть або введіть новий діаметр сопла (наприклад: 0.4):" if u_lang != "en" else "Select or enter new nozzle diameter (e.g.: 0.4):"
+    await message.answer(prompt_txt, reply_markup=get_nozzle_diameters_keyboard(lang=u_lang))
+
+
+EDIT_PRINTER_STATES = {"edit_p_name", "edit_p_ip", "edit_p_sn", "edit_p_code", "edit_p_nozzle"}
 
 
 async def edit_printer_state_filter(message: Message, app) -> bool:
@@ -80,12 +92,32 @@ async def edit_printer_state_filter(message: Message, app) -> bool:
     return user.get("state") in EDIT_PRINTER_STATES
 
 
+BACK_TEXTS = {"⬅️ назад", "назад", "⬅️ back", "back", "⬅️ назад до принтерів", "назад до принтерів"}
+
+
 @router.message(edit_printer_state_filter)
 async def handle_edit_printer_states(message: Message, app) -> bool:
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     state = user.get("state", "idle")
     text = message.text.strip() if message.text else ""
+
+    # --- Cancel edit if user pressed any Back button ---
+    if text.lower() in BACK_TEXTS:
+        selected_pid = user.get("context_data", {}).get("selected_printer_id")
+        target_printer = app.printers.get(selected_pid) if selected_pid else None
+        user["state"] = "edit_printer_menu"
+        await app.storage.save_user(user)
+        u_lang = user.get("language", "uk")
+        if target_printer:
+            await message.answer(
+                f"⚙️ <b>Налаштування принтера: {target_printer.name}</b>\n\nОберіть параметр для редагування:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_edit_printer_keyboard(lang=u_lang),
+            )
+        else:
+            await message.answer("⚠️ Принтер не обрано.")
+        return True
 
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
@@ -103,11 +135,18 @@ async def handle_edit_printer_states(message: Message, app) -> bool:
         target_printer.serial_number = text
     elif state == "edit_p_code":
         target_printer.access_code = text
+    elif state == "edit_p_nozzle":
+        clean_text = text.replace("🎯", "").replace("мм", "").replace("mm", "").strip()
+        try:
+            val_f = float(clean_text.replace(",", "."))
+            target_printer.nozzle_diameter = f"{val_f:g}"
+        except ValueError:
+            target_printer.nozzle_diameter = clean_text or "0.4"
 
     await app.save_printers_config()
 
     user["state"] = "printer_menu"
     await app.storage.save_user(user)
-    await message.answer(f"✅ Оновлено параметр принтера {target_printer.name}!")
+    await message.answer(f"✅ Оновлено параметр принтера {target_printer.name} (Сопло: {getattr(target_printer, 'nozzle_diameter', '0.4')} мм)!")
     return True
 

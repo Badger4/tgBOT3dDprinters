@@ -285,6 +285,7 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
     try:
         app_obj = request.app["app_obj"]
         spools = await app_obj.storage.load_spools()
+
         date_str = time.strftime("%Y-%m-%d %H:%M")
 
         total_spools = 0
@@ -330,12 +331,64 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
                     </tr>
                     """
 
+        if request.query.get("send_telegram") == "1":
+            from services.report_generator import generate_spools_pdf_report
+            from services.http.routes_settings import get_authenticated_user_id
+            from aiogram.types import BufferedInputFile
+            from aiogram.enums import ParseMode
+            import config
+
+            bot = getattr(app_obj, "bot", None)
+            if not bot:
+                return web.json_response({"error": "Бот зараз не активний"}, status=503)
+
+            u_id = get_authenticated_user_id(request) or getattr(config, "ADMIN_CHAT_ID", None)
+            if not u_id:
+                return web.json_response({"error": "Користувача не ідентифіковано"}, status=400)
+
+            pdf_bytes = generate_spools_pdf_report(spools, printers=getattr(app_obj, "printers", None))
+            fname = f"spools_inventory_{int(time.time())}.pdf"
+            doc_file = BufferedInputFile(pdf_bytes, filename=fname)
+            cap = (
+                f"📦 <b>Звіт складу пластику</b>\n"
+                f"Котушок усього: <b>{total_spools} шт</b>\n"
+                f"Загальний залишок: <b>{(total_weight_g/1000.0):.2f} кг</b>\n"
+                f"Загальна вартість: <b>{total_val_uah:.2f} ₴</b>"
+            )
+            try:
+                await bot.send_document(chat_id=int(u_id), document=doc_file, caption=cap, parse_mode=ParseMode.HTML)
+                return web.json_response({"status": "ok", "message": "PDF успішно надіслано в чат!"})
+            except Exception as ex:
+                from config import logger
+                logger.error(f"Failed to send spools PDF to user {u_id}: {ex}")
+                return web.json_response({"error": f"Помилка відправки в Telegram: {ex}"}, status=500)
+
+        req_format = request.query.get("format", "").lower()
+        if req_format != "html":
+            from services.report_generator import generate_spools_pdf_report
+            pdf_bytes = generate_spools_pdf_report(spools, printers=getattr(app_obj, "printers", None))
+            fname = f"spools_inventory_{int(time.time())}.pdf"
+            disp_type = "inline" if request.query.get("inline") == "1" else "attachment"
+            return web.Response(
+                body=pdf_bytes,
+                headers={
+                    "Content-Type": "application/pdf",
+                    "Content-Disposition": f'{disp_type}; filename="{fname}"; filename*=UTF-8\'\'{fname}',
+                },
+            )
+
+        import urllib.parse
+        q_dict = dict(request.query)
+        q_dict["format"] = "pdf"
+        pdf_download_url = f"/api/spools/export_pdf?{urllib.parse.urlencode(q_dict)}"
+
         html_content = f"""<!DOCTYPE html>
 <html lang="uk">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Звіт складу пластику</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
     @page {{ size: A4 portrait; margin: 8mm; }}
     * {{ box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
@@ -346,22 +399,44 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
     .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 12px; text-align: center; }}
     .summary-item {{ font-size: 11px; color: #475569; }}
     .summary-item strong {{ display: block; font-size: 14px; color: #1e293b; margin-top: 2px; }}
-    table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10.5px; table-layout: fixed; }}
-    th, td {{ padding: 5px 6px; border: 1px solid #cbd5e1; word-wrap: break-word; overflow-wrap: break-word; }}
+    table {{ width: 100%; border-collapse: collapse; margin: 0; font-size: 10.5px; min-width: 660px; }}
+    th, td {{ padding: 6px 8px; border: 1px solid #e2e8f0; }}
     th {{ background: #4f46e5 !important; color: #fff !important; font-weight: 600; text-align: left; }}
     tr:nth-child(even) {{ background: #f8fafc; }}
-    .btn-print {{ display: block; width: 100%; max-width: 240px; margin: 0 auto 12px; padding: 8px 16px; background: #4f46e5; color: #fff; text-align: center; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; }}
+    .table-responsive {{ width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 12px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; }}
+    .btn-row {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 auto 14px; max-width: 540px; width: 100%; }}
+    @media (max-width: 520px) {{
+        .btn-row {{ grid-template-columns: 1fr; }}
+    }}
+    .btn-action {{ width: 100%; padding: 10px 12px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: center; transition: all 0.15s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.1); box-sizing: border-box; }}
+    .btn-action:active {{ transform: scale(0.98); }}
+    .btn-tg {{ background: #0284c7; color: #fff !important; }}
+    .btn-pdf {{ background: #4f46e5; color: #fff !important; }}
+    .btn-print {{ background: #64748b; color: #fff !important; }}
+    .toast-msg {{ display: none; margin: 0 auto 12px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #10b981; color: #065f46; border-radius: 6px; font-weight: 600; text-align: center; max-width: 540px; font-size: 12px; }}
     @media print {{
         body {{ background: #fff; padding: 0; }}
         .container {{ box-shadow: none; border: none; padding: 0; max-width: 100%; }}
         .no-print {{ display: none !important; }}
+        .table-responsive {{ border: none; overflow: visible; }}
     }}
 </style>
 </head>
 <body>
 <div class="container">
     <div class="no-print">
-        <button onclick="window.print()" class="btn-print">🖨️ Зберегти як PDF / Друк</button>
+        <div id="toast" class="toast-msg"></div>
+        <div class="btn-row">
+            <button type="button" id="btn-send-tg" onclick="sendToTelegram(this)" class="btn-action btn-tg">
+                💬 Надіслати в Telegram
+            </button>
+            <a id="btn-direct-download" href="{pdf_download_url}" target="_blank" download="spools_inventory_{int(time.time())}.pdf" class="btn-action btn-pdf" onclick="handleDirectDownload(event, this)">
+                📥 Зберегти як PDF
+            </a>
+            <button type="button" onclick="handlePrint()" class="btn-action btn-print">
+                🖨️ Друк
+            </button>
+        </div>
     </div>
     <div class="header">
         <div>
@@ -375,26 +450,120 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
         <div class="summary-item">Загальний залишок: <strong>{(total_weight_g/1000.0):.2f} кг</strong></div>
         <div class="summary-item">Загальна вартість: <strong>{total_val_uah:.2f} ₴</strong></div>
     </div>
-    <table>
-        <thead>
-            <tr>
-                <th style="width: 26%;">Назва</th>
-                <th style="width: 10%; text-align:center;">Тип</th>
-                <th style="width: 10%; text-align:center;">Колір</th>
-                <th style="width: 15%; text-align:right;">Залишок</th>
-                <th style="width: 7%; text-align:center;">К-сть</th>
-                <th style="width: 11%; text-align:right;">Ціна/кг</th>
-                <th style="width: 9%; text-align:center;">Статус</th>
-                <th style="width: 12%; text-align:right;">Сума</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows_html if rows_html else '<tr><td colspan="8" style="text-align:center; padding:15px; color:#64748b;">Склад порожній</td></tr>'}
-        </tbody>
-    </table>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 26%;">Назва</th>
+                    <th style="width: 10%; text-align:center;">Тип</th>
+                    <th style="width: 10%; text-align:center;">Колір</th>
+                    <th style="width: 15%; text-align:right;">Залишок</th>
+                    <th style="width: 7%; text-align:center;">К-сть</th>
+                    <th style="width: 11%; text-align:right;">Ціна/кг</th>
+                    <th style="width: 9%; text-align:center;">Статус</th>
+                    <th style="width: 12%; text-align:right;">Сума</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html if rows_html else '<tr><td colspan="8" style="text-align:center; padding:15px; color:#64748b;">Склад порожній</td></tr>'}
+            </tbody>
+        </table>
+    </div>
 </div>
 <script>
-    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 400); }};
+function showToast(text, isError) {{
+    var t = document.getElementById('toast');
+    if (!t) return;
+    t.innerHTML = text;
+    t.style.display = 'block';
+    t.style.background = isError ? '#fef2f2' : '#ecfdf5';
+    t.style.borderColor = isError ? '#ef4444' : '#10b981';
+    t.style.color = isError ? '#991b1b' : '#065f46';
+    setTimeout(function() {{
+        t.style.display = 'none';
+    }}, 6000);
+}}
+
+function sendToTelegram(btn) {{
+    var origText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Надсилаємо...';
+
+    var targetUrl = new URL(window.location.href);
+    targetUrl.searchParams.set('send_telegram', '1');
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {{
+        targetUrl.searchParams.set('initData', window.Telegram.WebApp.initData);
+    }}
+    try {{
+        var st = localStorage.getItem('web_session_token');
+        if (st && !targetUrl.searchParams.has('token')) targetUrl.searchParams.set('token', st);
+    }} catch(e) {{}}
+
+    fetch(targetUrl.toString(), {{
+        credentials: 'include',
+        headers: {{ 'ngrok-skip-browser-warning': 'true' }}
+    }})
+    .then(function(res) {{
+        if (!res.ok) {{
+            return res.json().then(function(j) {{ throw new Error(j.error || ('HTTP ' + res.status)); }});
+        }}
+        return res.json();
+    }})
+    .then(function(data) {{
+        if (data.status === 'ok') {{
+            btn.innerHTML = '✅ Надіслано в чат!';
+            showToast('✅ PDF успішно надіслано вам у чат Telegram! Перевірте повідомлення від бота.', false);
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {{
+                window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+            }}
+            setTimeout(function() {{
+                btn.innerHTML = origText;
+                btn.disabled = false;
+            }}, 4000);
+        }} else {{
+            throw new Error(data.error || 'Помилка надсилання');
+        }}
+    }})
+    .catch(function(err) {{
+        btn.disabled = false;
+        btn.innerHTML = origText;
+        showToast('⚠️ ' + err.message, true);
+    }});
+}}
+
+function handleDirectDownload(e, link) {{
+    if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.downloadFile === 'function') {{
+        try {{
+            window.Telegram.WebApp.downloadFile({{
+                url: link.href,
+                filename: link.getAttribute('download') || 'spools_inventory.pdf'
+            }});
+            showToast('⏳ Завантаження розпочато...', false);
+        }} catch (err) {{
+            console.warn("downloadFile failed:", err);
+        }}
+    }}
+}}
+
+function handlePrint() {{
+    var isTgMobile = window.Telegram && window.Telegram.WebApp && 
+                     (window.Telegram.WebApp.platform === 'android' || 
+                      window.Telegram.WebApp.platform === 'ios' || 
+                      /android|iphone|ipad|ipod/i.test(navigator.userAgent));
+    if (isTgMobile) {{
+        showToast("ℹ️ У мобільному Telegram прямий друк недоступний усередині застосунку. Скористайтеся 'Надіслати в Telegram' або 'Зберегти як PDF'.", false);
+        try {{
+            window.print();
+        }} catch(e) {{}}
+        return;
+    }}
+    try {{
+        window.print();
+    }} catch(err) {{
+        console.warn("Print error:", err);
+        showToast("⚠️ Друк не підтримується цим переглядачем. Скористайтеся 'Зберегти як PDF'.", true);
+    }}
+}}
 </script>
 </body>
 </html>"""
@@ -444,8 +613,34 @@ async def handle_export_movements_pdf(request: web.Request) -> web.Response:
         from services.report_generator import generate_movements_pdf_report
         pdf_bytes = generate_movements_pdf_report(movements, filter_subtitle=filter_subtitle)
 
+        if request.query.get("send_telegram") == "1":
+            from services.http.routes_settings import get_authenticated_user_id
+            from aiogram.types import BufferedInputFile
+            from aiogram.enums import ParseMode
+            import config
+
+            bot = getattr(app_obj, "bot", None)
+            if not bot:
+                return web.json_response({"error": "Бот зараз не активний"}, status=503)
+
+            u_id = get_authenticated_user_id(request) or getattr(config, "ADMIN_CHAT_ID", None)
+            if not u_id:
+                return web.json_response({"error": "Користувача не ідентифіковано"}, status=400)
+
+            fname = f"spool_movements_{int(time.time())}.pdf"
+            doc_file = BufferedInputFile(pdf_bytes, filename=fname)
+            cap = f"📋 <b>Журнал руху котушок (Аудит)</b>\nЗаписів: <b>{len(movements)}</b>"
+            try:
+                await bot.send_document(chat_id=int(u_id), document=doc_file, caption=cap, parse_mode=ParseMode.HTML)
+                return web.json_response({"status": "ok", "message": "PDF успішно надіслано в чат!"})
+            except Exception as ex:
+                from config import logger
+                logger.error(f"Failed to send movements PDF to user {u_id}: {ex}")
+                return web.json_response({"error": f"Помилка відправки в Telegram: {ex}"}, status=500)
+
+        disp_type = "inline" if request.query.get("inline") == "1" else "attachment"
         headers = {
-            "Content-Disposition": 'attachment; filename="spool_movements_audit.pdf"; filename*=UTF-8\'\'spool_movements_audit.pdf',
+            "Content-Disposition": f'{disp_type}; filename="spool_movements_audit.pdf"; filename*=UTF-8\'\'spool_movements_audit.pdf',
             "Content-Type": "application/pdf",
         }
         return web.Response(body=pdf_bytes, headers=headers)

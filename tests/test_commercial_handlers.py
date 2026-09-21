@@ -14,16 +14,26 @@ from bot.handlers import setup_routers
 from storage.manager import StorageManager
 
 
+import tempfile
+
+
 class TestCommercialHandlers(unittest.TestCase):
     def setUp(self):
         self.router = setup_routers()
-        self.sm = StorageManager(Path("./printers_storage"))
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.sm = StorageManager(Path(self.temp_dir.name))
         self.app = MagicMock()
         self.app.storage = self.sm
         self.app.is_user_approved = AsyncMock(return_value=True)
         self.app.is_user_admin = AsyncMock(return_value=True)
         self.chat = Chat(id=123456, type="private")
         self.user_obj = User(id=123456, is_bot=False, first_name="Tester")
+
+    def tearDown(self):
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
 
     async def _send_msg(self, text: str) -> AsyncMock:
         msg = Message(message_id=99, date=datetime.now(), chat=self.chat, from_user=self.user_obj, text=text)
@@ -104,7 +114,21 @@ class TestCommercialHandlers(unittest.TestCase):
             self.assertIn("ПІДСУМКОВА ВАРТІСТЬ ДЛЯ КЛІЄНТА", calc_txt)
             self.assertIn("PLA Premium Custom", calc_txt)
 
-            # 4. User clicks "⬅️ Головне меню"
+            # 4. User clicks another preset (e.g. default preset) without re-entering parameters
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "calc_select_preset")
+            ans_calc2 = await self._send_msg("Стандарт PLA (850 грн/кг, +100%)")
+            self.assertTrue(ans_calc2.called)
+            self.assertIn("Стандарт PLA", ans_calc2.call_args[0][0])
+
+            # 5. User clicks "⬅️ Назад" to return to commercial menu
+            ans_back = await self._send_msg("⬅️ Назад")
+            self.assertTrue(ans_back.called)
+            self.assertIn("Комерційний калькулятор ціни", ans_back.call_args[0][0])
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "idle")
+
+            # 6. User clicks "⬅️ Головне меню"
             ans_home = await self._send_msg("⬅️ Головне меню")
             self.assertTrue(ans_home.called)
             self.assertIn("Головне меню", ans_home.call_args[0][0])
@@ -115,9 +139,7 @@ class TestCommercialHandlers(unittest.TestCase):
 
     def test_edit_preset_name_and_fields(self):
         async def run_test():
-            from config import STORAGE_DIR
-
-            presets_path = STORAGE_DIR / "commercial_presets.json"
+            presets_path = self.sm.base_dir / "commercial_presets.json"
             await self.sm.save_json(
                 presets_path,
                 {"p_edit": {"id": "p_edit", "name": "Old Name", "price_per_g": 0.85}},
@@ -190,6 +212,101 @@ class TestCommercialHandlers(unittest.TestCase):
             # 3. Non-existent preset returns error gracefully without crashing
             cb_msg3 = await self._send_cb("comm_quote_pdf_nonexistent_100_60")
             self.assertFalse(cb_msg3.answer_document.called)
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_commercial_wizard_validation_rejects_letters(self):
+        async def run_test():
+            await self.sm.save_user({"user_id": "123456", "chat_id": "123456", "state": "idle", "context_data": {}})
+            await self._send_msg("➕ Створити пресет")
+
+            # 1. Preset Name: empty should be rejected
+            await self._send_msg("   ")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_name")
+            await self._send_msg("Valid Preset")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_price")
+
+            # 2. Plastic Price: letters or negative should be rejected
+            ans = await self._send_msg("вісімсот")
+            self.assertIn("⚠️", ans.call_args[0][0])
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_price")
+
+            await self._send_msg("-50")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_price")
+
+            await self._send_msg("0.85")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_elec")
+
+            # 3. Electricity Rate: letters should be rejected
+            ans = await self._send_msg("чотири")
+            self.assertIn("⚠️", ans.call_args[0][0])
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_elec")
+
+            await self._send_msg("4.32")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_depr")
+
+            # 4. Depreciation: letters should be rejected
+            ans = await self._send_msg("десять")
+            self.assertIn("⚠️", ans.call_args[0][0])
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_depr")
+
+            await self._send_msg("15%")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_cons")
+
+            # 5. Consumables: letters should be rejected
+            ans = await self._send_msg("п'ять грн")
+            self.assertIn("⚠️", ans.call_args[0][0])
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_cons")
+
+            await self._send_msg("5 грн/год")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_profit")
+
+            # 6. Profit: letters should be rejected
+            ans = await self._send_msg("сто відсотків")
+            self.assertIn("⚠️", ans.call_args[0][0])
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "add_preset_profit")
+
+            ans_ok = await self._send_msg("100%")
+            self.assertTrue(any("успішно збережено" in call[0][0] for call in ans_ok.call_args_list))
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "idle")
+
+            # 7. Quick calc: letters in weight and time
+            await self._send_msg("🧮 Швидкий розрахунок ціни")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "calc_enter_weight")
+
+            ans_w = await self._send_msg("сто грам")
+            self.assertIn("⚠️", ans_w.call_args[0][0])
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "calc_enter_weight")
+
+            await self._send_msg("120.5")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "calc_enter_time")
+
+            ans_t = await self._send_msg("дві години")
+            self.assertIn("⚠️", ans_t.call_args[0][0])
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "calc_enter_time")
+
+            await self._send_msg("90")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "calc_select_preset")
 
         import asyncio
 

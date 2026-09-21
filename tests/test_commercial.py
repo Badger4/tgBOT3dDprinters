@@ -34,6 +34,74 @@ class TestCommercialCalculator(unittest.TestCase):
         self.assertEqual(res["profit_cost"], 117.0)  # 100% of 117 = 117 грн
         self.assertEqual(res["total_price"], 234.0)  # 117 + 117 = 234 грн
 
+    def test_validate_val_or_percent(self):
+        from models.commercial import validate_val_or_percent
+
+        # Valid numeric
+        ok, res = validate_val_or_percent("10")
+        self.assertTrue(ok)
+        self.assertEqual(res, "10")
+
+        ok, res = validate_val_or_percent("15.5")
+        self.assertTrue(ok)
+        self.assertEqual(res, "15.5")
+
+        ok, res = validate_val_or_percent("10,5")
+        self.assertTrue(ok)
+        self.assertEqual(res, "10.5")
+
+        # Valid with units
+        ok, res = validate_val_or_percent("10 грн/год")
+        self.assertTrue(ok)
+        self.assertEqual(res, "10")
+
+        ok, res = validate_val_or_percent("15 грн")
+        self.assertTrue(ok)
+        self.assertEqual(res, "15")
+
+        ok, res = validate_val_or_percent("20 uah")
+        self.assertTrue(ok)
+        self.assertEqual(res, "20")
+
+        # Valid percentage
+        ok, res = validate_val_or_percent("15%")
+        self.assertTrue(ok)
+        self.assertEqual(res, "15%")
+
+        ok, res = validate_val_or_percent("+100%")
+        self.assertTrue(ok)
+        self.assertEqual(res, "100%")
+
+        # Zero
+        ok, res = validate_val_or_percent("0")
+        self.assertTrue(ok)
+        self.assertEqual(res, "0")
+
+        # Invalid strings
+        ok, res = validate_val_or_percent("abc")
+        self.assertFalse(ok)
+        self.assertIn("⚠️", res)
+
+        ok, res = validate_val_or_percent("десять")
+        self.assertFalse(ok)
+        self.assertIn("⚠️", res)
+
+        ok, res = validate_val_or_percent("")
+        self.assertFalse(ok)
+
+        ok, res = validate_val_or_percent("-10")
+        self.assertFalse(ok)
+        self.assertIn("від'ємним", res)
+
+        ok, res = validate_val_or_percent("-15%")
+        self.assertFalse(ok)
+
+        ok, res = validate_val_or_percent("nan")
+        self.assertFalse(ok)
+
+        ok, res = validate_val_or_percent("inf")
+        self.assertFalse(ok)
+
 
 if __name__ == "__main__":
     unittest.main()

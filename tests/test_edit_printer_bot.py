@@ -122,6 +122,21 @@ class TestEditPrinterBot(unittest.IsolatedAsyncioTestCase):
         u_data = await self.sm.load_user("999")
         self.assertEqual(u_data.get("state"), "printer_menu")
 
+    async def test_edit_printer_nozzle(self):
+        await self._send_msg("✏️ Редагувати принтер")
+        await self._send_msg("🎯 Діаметр сопла")
+        u_data = await self.sm.load_user("999")
+        self.assertEqual(u_data.get("state"), "edit_p_nozzle")
+
+        # Select 0.6 mm
+        ans = await self._send_msg("0.6 мм")
+        self.assertTrue(ans.called)
+        self.assertEqual(self.printer.nozzle_diameter, "0.6")
+        self.app.save_printers_config.assert_called()
+        u_data = await self.sm.load_user("999")
+        self.assertEqual(u_data.get("state"), "printer_menu")
+
 
 if __name__ == "__main__":
     unittest.main()
+

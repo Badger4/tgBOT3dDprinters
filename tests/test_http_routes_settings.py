@@ -206,6 +206,51 @@ class TestHttpRoutesSettings(AioHTTPTestCase):
         pdf_bytes = await resp.read()
         assert pdf_bytes.startswith(b"%PDF")
 
+    async def test_commercial_export_pdf_and_html(self):
+        # 1. HTML view (explicitly with format=html)
+        resp_html = await self.client.get("/api/commercial/export_pdf?weight_g=120&time_mins=90&format=html")
+        assert resp_html.status == 200
+        assert "text/html" in resp_html.headers["Content-Type"]
+        html_text = await resp_html.text()
+        assert "Зберегти як PDF" in html_text
+        assert "handleDirectDownload" in html_text or "downloadCurrentPdf" in html_text
+        assert "onclick=\"window.print()\"" not in html_text
+
+        # 2. PDF default (no format parameter)
+        resp_def = await self.client.get("/api/commercial/export_pdf?weight_g=120&time_mins=90")
+        assert resp_def.status == 200
+        assert "application/pdf" in resp_def.headers["Content-Type"]
+        assert "attachment" in resp_def.headers["Content-Disposition"]
+        pdf_content = await resp_def.read()
+        assert pdf_content.startswith(b"%PDF")
+
+        # 3. PDF explicit (format=pdf)
+        resp_pdf = await self.client.get("/api/commercial/export_pdf?weight_g=120&time_mins=90&format=pdf")
+        assert resp_pdf.status == 200
+        assert "application/pdf" in resp_pdf.headers["Content-Type"]
+        assert "attachment" in resp_pdf.headers["Content-Disposition"]
+
+    async def test_history_export_pdf_and_html(self):
+        # 1. HTML view (explicit format=html)
+        resp_html = await self.client.get("/api/history/export_pdf?format=html")
+        assert resp_html.status == 200
+        assert "text/html" in resp_html.headers["Content-Type"]
+        html_text = await resp_html.text()
+        assert "Зберегти як PDF" in html_text
+        assert "handleDirectDownload" in html_text or "downloadCurrentPdf" in html_text
+
+        # 2. PDF default (no format parameter)
+        resp_def = await self.client.get("/api/history/export_pdf")
+        assert resp_def.status == 200
+        assert "application/pdf" in resp_def.headers["Content-Type"]
+        pdf_content = await resp_def.read()
+        assert pdf_content.startswith(b"%PDF")
+
+        # 3. PDF direct download (format=pdf)
+        resp_pdf = await self.client.get("/api/history/export_pdf?format=pdf")
+        assert resp_pdf.status == 200
+        assert "application/pdf" in resp_pdf.headers["Content-Type"]
+
     async def test_get_settings(self):
         resp = await self.client.get("/api/settings")
         assert resp.status == 200

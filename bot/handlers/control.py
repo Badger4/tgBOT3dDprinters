@@ -369,3 +369,144 @@ async def handle_reset_maintenance(message: Message, app):
         reply_markup=get_printer_control_keyboard(target_printer, lang=u_lang),
     )
 
+
+# ==========================================
+# Load / Unload Filament (from Printer Control menu)
+# ==========================================
+
+@router.message(F.text.lower().in_(["⬇️ завантажити філамент", "завантажити філамент", "⬇️ load filament", "load filament"]))
+async def handle_load_filament_menu(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+    if not target_printer:
+        return
+
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+
+    if getattr(target_printer, "is_printing", False) or target_printer.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
+        await message.answer(
+            "⚠️ <b>Неможливо завантажити: принтер зараз виконує друк!</b>" if not is_en
+            else "⚠️ <b>Cannot load: printer is currently printing!</b>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    has_ams = bool(getattr(target_printer, "has_ams", False))
+    pid = target_printer.id
+
+    if has_ams:
+        slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
+        buttons = []
+        row = []
+        for slot_k, slot_label in slot_names.items():
+            row.append(InlineKeyboardButton(text=f"⬇️ {slot_label}", callback_data=f"hw_load:{pid}:{slot_k}"))
+            if len(row) == 3:
+                buttons.append(row)
+                row = []
+        if row:
+            buttons.append(row)
+        buttons.append([InlineKeyboardButton(text="✖️ Скасувати" if not is_en else "✖️ Cancel", callback_data="hw_skip")])
+        await message.answer(
+            f"⬇️ <b>{'Завантажити філамент' if not is_en else 'Load Filament'} — {html.escape(target_printer.name)}</b>\n"
+            f"{'Оберіть слот AMS для завантаження:' if not is_en else 'Select AMS slot to load:'}",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        )
+    else:
+        # No AMS — load directly on VT slot 254
+        try:
+            success = target_printer.load_filament(slot_id="254")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error executing load_filament on [{target_printer.name}]: {e}")
+            success = False
+
+        if success:
+            await message.answer(
+                f"🔄 <b>Принтер {html.escape(target_printer.name)}: команду Load Filament надіслано!</b>\n"
+                f"Принтер нагріє сопло та розпочне подачу нитки." if not is_en
+                else f"🔄 <b>Printer {html.escape(target_printer.name)}: Load Filament command sent!</b>\n"
+                f"The printer will heat the nozzle and start feeding filament.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_printer_control_keyboard(target_printer, lang=u_lang),
+            )
+        else:
+            await message.answer(
+                "❌ Помилка відправки команди (перевірте зв'язок з принтером)!" if not is_en
+                else "❌ Failed to send command (check printer connection)!"
+            )
+
+
+@router.message(F.text.lower().in_(["⬆️ зняти філамент", "зняти філамент", "⬆️ unload filament", "unload filament"]))
+async def handle_unload_filament_menu(message: Message, app):
+    chat_id = str(message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+    if not target_printer:
+        return
+
+    u_lang = user.get("language", "uk")
+    is_en = u_lang == "en"
+
+    if getattr(target_printer, "is_printing", False) or target_printer.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
+        await message.answer(
+            "⚠️ <b>Неможливо зняти: принтер зараз виконує друк!</b>" if not is_en
+            else "⚠️ <b>Cannot unload: printer is currently printing!</b>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    has_ams = bool(getattr(target_printer, "has_ams", False))
+    pid = target_printer.id
+
+    if has_ams:
+        slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
+        buttons = []
+        row = []
+        for slot_k, slot_label in slot_names.items():
+            row.append(InlineKeyboardButton(text=f"⬆️ {slot_label}", callback_data=f"hw_unload:{pid}:{slot_k}"))
+            if len(row) == 3:
+                buttons.append(row)
+                row = []
+        if row:
+            buttons.append(row)
+        buttons.append([InlineKeyboardButton(text="✖️ Скасувати" if not is_en else "✖️ Cancel", callback_data="hw_skip")])
+        await message.answer(
+            f"⬆️ <b>{'Зняти філамент' if not is_en else 'Unload Filament'} — {html.escape(target_printer.name)}</b>\n"
+            f"{'Оберіть слот AMS для вивантаження:' if not is_en else 'Select AMS slot to unload:'}",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        )
+    else:
+        # No AMS — unload directly on VT slot 254
+        try:
+            success = target_printer.unload_filament(slot_id="254")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error executing unload_filament on [{target_printer.name}]: {e}")
+            success = False
+
+        if success:
+            await message.answer(
+                f"🔄 <b>Принтер {html.escape(target_printer.name)}: команду Unload Filament надіслано!</b>\n"
+                f"Принтер обріже нитку та почне вивантаження." if not is_en
+                else f"🔄 <b>Printer {html.escape(target_printer.name)}: Unload Filament command sent!</b>\n"
+                f"The printer will cut and retract the filament.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_printer_control_keyboard(target_printer, lang=u_lang),
+            )
+        else:
+            await message.answer(
+                "❌ Помилка відправки команди (перевірте зв'язок з принтером)!" if not is_en
+                else "❌ Failed to send command (check printer connection)!"
+            )
+
+

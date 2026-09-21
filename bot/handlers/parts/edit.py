@@ -183,26 +183,52 @@ async def process_confirm_property_edit(message: Message, state: FSMContext, app
             draft["three_mf_name"] = doc_name_clean
 
             try:
-                file_info = await message.bot.get_file(doc_id)
-                file_bytes_io = await message.bot.download_file(file_info.file_path)
-                file_bytes = file_bytes_io.read()
+                bot_instance = message.bot or getattr(app, "bot", None)
+                if bot_instance:
+                    file_info = await bot_instance.get_file(doc_id)
+                    file_bytes_io = await bot_instance.download_file(file_info.file_path)
+                    file_bytes = file_bytes_io.read()
 
                 import config
                 from services.gcode_parser import parse_3mf_file
                 save_dir = config.STORAGE_DIR / "uploads"
                 save_dir.mkdir(parents=True, exist_ok=True)
                 (save_dir / doc_id).write_bytes(file_bytes)
+                if doc_name_clean:
+                    clean_doc_name = doc_name_clean.replace("\\", "/").split("/")[-1]
+                    (save_dir / clean_doc_name).write_bytes(file_bytes)
 
-                meta = parse_3mf_file(file_bytes, doc_name)
+                meta = parse_3mf_file(file_bytes, doc_name_clean)
                 if meta.get("printer_model") and meta.get("printer_model") != "Unknown":
                     draft["printer_model"] = meta["printer_model"]
                 if meta.get("filament_type"):
                     draft["filament_type"] = meta["filament_type"]
+                if meta.get("nozzle_diameter"):
+                    draft["nozzle_diameter"] = str(meta["nozzle_diameter"])
+                if meta.get("weight_g"):
+                    try:
+                        w_val = float(meta["weight_g"])
+                        draft["weight_g"] = w_val
+                        draft["weight"] = w_val
+                    except (ValueError, TypeError):
+                        pass
+                if meta.get("time_mins"):
+                    try:
+                        t_mins = int(meta["time_mins"])
+                        draft["time_mins"] = t_mins
+                        draft["print_time"] = t_mins
+                    except (ValueError, TypeError):
+                        pass
             except Exception as e:
                 logger.warning(f"Error parsing 3mf in property edit: {e}")
         elif text in ["-", "/skip", "видалити", "видалити файл"]:
             draft["three_mf"] = ""
             draft["three_mf_name"] = ""
+            draft["nozzle_diameter"] = "0.4"
+            draft["weight_g"] = 0.0
+            draft["weight"] = 0.0
+            draft["time_mins"] = 0
+            draft["print_time"] = 0
         else:
             await message.answer("⚠️ <b>Помилка! Надішліть .3mf файл або '-' для видалення файлу.</b>", parse_mode=ParseMode.HTML)
             return

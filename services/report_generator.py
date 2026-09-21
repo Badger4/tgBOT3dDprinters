@@ -388,10 +388,14 @@ def generate_spools_pdf_report(
 
     story: list[Any] = []
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    total_registered_qty = sum(max(1, int(s.get("quantity", 1) or 1)) for s in spools.values() if isinstance(s, dict)) if spools else 0
+    total_pos = len(spools) if spools else 0
+    reg_summary = f"{total_registered_qty} шт. ({total_pos} поз.)" if total_registered_qty != total_pos else f"{total_registered_qty} шт."
+
     story.append(Paragraph("🧵 Інвентаризаційний звіт пластику 3D ферми", title_style))
     story.append(
         Paragraph(
-            f"Згенеровано: <b>{now_str}</b> | Загальна кількість зареєстрованих котушок: <b>{len(spools) if spools else 0}</b>",
+            f"Згенеровано: <b>{now_str}</b> | Загальна кількість зареєстрованих котушок: <b>{reg_summary}</b>",
             subtitle_style,
         )
     )
@@ -412,10 +416,12 @@ def generate_spools_pdf_report(
     # ==========================================
     # SECTION 1: 📦 На складі (вільні залишки)
     # ==========================================
+    wh_total_qty_pre = sum(max(1, int(s.get("quantity", 1) or 1)) for _, s in warehouse_spools)
+    wh_summary_pre = f"<b>{wh_total_qty_pre}</b> шт. ({len(warehouse_spools)} поз.)" if wh_total_qty_pre != len(warehouse_spools) else f"<b>{len(warehouse_spools)}</b> поз."
     story.append(Paragraph("📦 1. Залишки на складі (вільні котушки)", section_style))
     story.append(
         Paragraph(
-            f"Котушки на полицях складу (готові до використання): <b>{len(warehouse_spools)}</b> поз.",
+            f"Котушки на полицях складу (готові до використання): {wh_summary_pre}",
             subtitle_style,
         )
     )
@@ -718,6 +724,49 @@ def generate_spools_pdf_report(
     return buf.getvalue()
 
 
+def _resolve_part_report_fields(p: dict[str, Any]) -> tuple[float, str, str]:
+    """Resolves (weight_g, printer_model, filament_type) for a part with fallback to 3MF on disk."""
+    p_weight = 0.0
+    for k in ["weight_g", "weight", "filament_weight", "part_weight"]:
+        try:
+            val = float(p.get(k, 0.0) or 0.0)
+            if val > 0.0:
+                p_weight = val
+                break
+        except (ValueError, TypeError):
+            pass
+
+    p_model = str(p.get("printer_model", "-") or "-")
+    p_fil = str(p.get("filament_type", "PLA") or "PLA")
+
+    if p_weight <= 0.0 or p_model in ["-", "Unknown", ""]:
+        three_mf = p.get("three_mf")
+        three_mf_name = p.get("three_mf_name")
+        for fname in [three_mf, three_mf_name]:
+            if not fname:
+                continue
+            import config
+            for d in [config.STORAGE_DIR / "uploads", config.STORAGE_DIR / "parts_files"]:
+                p_path = d / fname
+                if p_path.exists() and p_path.is_file():
+                    try:
+                        from services.gcode_parser import parse_3mf_file
+                        meta = parse_3mf_file(p_path.read_bytes(), three_mf_name or p_path.name)
+                        if p_weight <= 0.0 and meta.get("weight_g"):
+                            p_weight = float(meta["weight_g"])
+                        if p_model in ["-", "Unknown", ""] and meta.get("printer_model") and meta.get("printer_model") != "Unknown":
+                            p_model = str(meta["printer_model"])
+                        if (not p_fil or p_fil == "PLA") and meta.get("filament_type"):
+                            p_fil = str(meta["filament_type"])
+                        break
+                    except Exception:
+                        pass
+            if p_weight > 0.0:
+                break
+
+    return p_weight, p_model, p_fil
+
+
 def generate_parts_pdf_report(parts: dict[str, Any]) -> bytes:
     """Generates Landscape A4 PDF export for Printed 3D Parts warehouse."""
     font_reg, font_bold = _setup_reportlab_fonts()
@@ -781,7 +830,7 @@ def generate_parts_pdf_report(parts: dict[str, Any]) -> bytes:
     )
     story.append(Spacer(1, 10))
 
-    col_widths = [70, 270, 180, 110, 90, 80]
+    col_widths = [65, 230, 155, 95, 80, 75, 100]
     table_data = [
         [
             Paragraph("ID", header_cell_style),
@@ -790,10 +839,12 @@ def generate_parts_pdf_report(parts: dict[str, Any]) -> bytes:
             Paragraph("Тип пластику", header_cell_style),
             Paragraph("Вага 1 шт (г)", header_cell_style),
             Paragraph("К-сть (шт)", header_cell_style),
+            Paragraph("Загальна вага", header_cell_style),
         ]
     ]
 
     total_qty = 0
+    total_single_weight_g = 0.0
     total_weight_g = 0.0
 
     if parts and isinstance(parts, dict):
@@ -801,12 +852,21 @@ def generate_parts_pdf_report(parts: dict[str, Any]) -> bytes:
             if isinstance(p, dict):
                 part_id = html.escape(str(p.get("id", p_id)))
                 p_name = html.escape(str(p.get("name", "Деталь")))
-                p_model = html.escape(str(p.get("printer_model", "-")))
-                p_fil = html.escape(str(p.get("filament_type", "PLA")))
-                p_weight = float(p.get("weight_g", 0.0) or p.get("weight", 0.0) or 0.0)
+                p_weight, p_model_val, p_fil_val = _resolve_part_report_fields(p)
+                p_model = html.escape(p_model_val)
+                p_fil = html.escape(p_fil_val)
                 p_qty = max(1, int(p.get("count", 1) or p.get("quantity", 1) or 1))
+                item_tot_w = p_weight * p_qty
                 total_qty += p_qty
-                total_weight_g += p_weight * p_qty
+                total_single_weight_g += p_weight
+                total_weight_g += item_tot_w
+
+                if item_tot_w >= 1000.0:
+                    item_tot_str = f"{item_tot_w/1000.0:.2f} кг"
+                elif item_tot_w > 0:
+                    item_tot_str = f"{item_tot_w:.1f} г ({item_tot_w/1000.0:.2f} кг)" if p_qty > 1 else f"{item_tot_w:.1f} г"
+                else:
+                    item_tot_str = "-"
 
                 table_data.append(
                     [
@@ -814,20 +874,30 @@ def generate_parts_pdf_report(parts: dict[str, Any]) -> bytes:
                         Paragraph(p_name, cell_style),
                         Paragraph(p_model, cell_style),
                         Paragraph(p_fil, cell_style),
-                        Paragraph(f"{p_weight:.1f} г", cell_style),
+                        Paragraph(f"{p_weight:.1f} г" if p_weight > 0 else "-", cell_style),
                         Paragraph(f"{p_qty} шт", bold_cell_style),
+                        Paragraph(item_tot_str, bold_cell_style),
                     ]
                 )
 
-    # Summary Row
+    # Summary Row: under 'Вага 1 шт (г)' show sum of 1 pc; under 'Загальна вага' show total weight
+    single_w_str = f"{total_single_weight_g/1000.0:.2f} кг" if total_single_weight_g >= 1000.0 else f"{total_single_weight_g:.1f} г"
+    if total_weight_g >= 1000.0:
+        tot_w_str = f"{total_weight_g/1000.0:.2f} кг"
+    elif total_weight_g > 0:
+        tot_w_str = f"{total_weight_g:.1f} г ({total_weight_g/1000.0:.2f} кг)" if total_qty > 1 else f"{total_weight_g:.1f} г"
+    else:
+        tot_w_str = "-"
+
     table_data.append(
         [
             Paragraph("Всього", header_cell_style),
             Paragraph(f"{len(parts)} найменувань", header_cell_style),
             Paragraph("-", header_cell_style),
             Paragraph("-", header_cell_style),
-            Paragraph(f"{total_weight_g/1000.0:.2f} кг" if total_weight_g > 0 else "-", header_cell_style),
+            Paragraph(single_w_str if total_single_weight_g > 0 else "-", header_cell_style),
             Paragraph(f"{total_qty} шт", header_cell_style),
+            Paragraph(tot_w_str, header_cell_style),
         ]
     )
 
@@ -946,6 +1016,7 @@ def generate_combined_warehouse_pdf_report(
 
     total_spool_val = 0.0
     total_spool_weight_g = 0.0
+    total_spool_qty = 0
 
     if spools and isinstance(spools, dict):
         for s_id, s in spools.items():
@@ -970,6 +1041,7 @@ def generate_combined_warehouse_pdf_report(
                 val_uah = (remaining_g / 1000.0) * price_per_kg * qty
                 total_spool_val += val_uah
                 total_spool_weight_g += remaining_g * qty
+                total_spool_qty += qty
 
                 spool_table_data.append(
                     [
@@ -995,7 +1067,7 @@ def generate_combined_warehouse_pdf_report(
             Paragraph("-", header_cell_style),
             Paragraph(f"{total_spool_weight_g/1000.0:.2f} кг", header_cell_style),
             Paragraph("-", header_cell_style),
-            Paragraph("-", header_cell_style),
+            Paragraph(f"{total_spool_qty} шт", header_cell_style),
             Paragraph("Сума котушок:", header_cell_style),
             Paragraph(f"{total_spool_val:.2f} грн", header_cell_style),
         ]
@@ -1025,7 +1097,7 @@ def generate_combined_warehouse_pdf_report(
     story.append(Paragraph("🧩 2. Склад надрукованих деталей", section_style))
     story.append(Spacer(1, 4))
 
-    part_widths = [70, 270, 180, 110, 90, 80]
+    part_widths = [65, 230, 155, 95, 80, 75, 100]
     part_table_data = [
         [
             Paragraph("ID", header_cell_style),
@@ -1034,10 +1106,12 @@ def generate_combined_warehouse_pdf_report(
             Paragraph("Тип пластику", header_cell_style),
             Paragraph("Вага 1 шт (г)", header_cell_style),
             Paragraph("К-сть (шт)", header_cell_style),
+            Paragraph("Загальна вага", header_cell_style),
         ]
     ]
 
     total_part_qty = 0
+    total_part_single_weight_g = 0.0
     total_part_weight_g = 0.0
 
     if parts and isinstance(parts, dict):
@@ -1045,12 +1119,21 @@ def generate_combined_warehouse_pdf_report(
             if isinstance(p, dict):
                 part_id = html.escape(str(p.get("id", p_id)))
                 p_name = html.escape(str(p.get("name", "Деталь")))
-                p_model = html.escape(str(p.get("printer_model", "-")))
-                p_fil = html.escape(str(p.get("filament_type", "PLA")))
-                p_weight = float(p.get("weight_g", 0.0) or p.get("weight", 0.0) or 0.0)
+                p_weight, p_model_val, p_fil_val = _resolve_part_report_fields(p)
+                p_model = html.escape(p_model_val)
+                p_fil = html.escape(p_fil_val)
                 p_qty = max(1, int(p.get("count", 1) or p.get("quantity", 1) or 1))
+                item_tot_w = p_weight * p_qty
                 total_part_qty += p_qty
-                total_part_weight_g += p_weight * p_qty
+                total_part_single_weight_g += p_weight
+                total_part_weight_g += item_tot_w
+
+                if item_tot_w >= 1000.0:
+                    item_tot_str = f"{item_tot_w/1000.0:.2f} кг"
+                elif item_tot_w > 0:
+                    item_tot_str = f"{item_tot_w:.1f} г ({item_tot_w/1000.0:.2f} кг)" if p_qty > 1 else f"{item_tot_w:.1f} г"
+                else:
+                    item_tot_str = "-"
 
                 part_table_data.append(
                     [
@@ -1058,10 +1141,19 @@ def generate_combined_warehouse_pdf_report(
                         Paragraph(p_name, cell_style),
                         Paragraph(p_model, cell_style),
                         Paragraph(p_fil, cell_style),
-                        Paragraph(f"{p_weight:.1f} г", cell_style),
+                        Paragraph(f"{p_weight:.1f} г" if p_weight > 0 else "-", cell_style),
                         Paragraph(f"{str(p_qty)} шт", bold_cell_style),
+                        Paragraph(item_tot_str, bold_cell_style),
                     ]
                 )
+
+    single_part_w_str = f"{total_part_single_weight_g/1000.0:.2f} кг" if total_part_single_weight_g >= 1000.0 else f"{total_part_single_weight_g:.1f} г"
+    if total_part_weight_g >= 1000.0:
+        tot_part_w_str = f"{total_part_weight_g/1000.0:.2f} кг"
+    elif total_part_weight_g > 0:
+        tot_part_w_str = f"{total_part_weight_g:.1f} г ({total_part_weight_g/1000.0:.2f} кг)" if total_part_qty > 1 else f"{total_part_weight_g:.1f} г"
+    else:
+        tot_part_w_str = "-"
 
     part_table_data.append(
         [
@@ -1069,8 +1161,9 @@ def generate_combined_warehouse_pdf_report(
             Paragraph(f"{len(parts)} найменувань", header_cell_style),
             Paragraph("-", header_cell_style),
             Paragraph("-", header_cell_style),
-            Paragraph(f"{total_part_weight_g/1000.0:.2f} кг" if total_part_weight_g > 0 else "-", header_cell_style),
+            Paragraph(single_part_w_str if total_part_single_weight_g > 0 else "-", header_cell_style),
             Paragraph(f"{total_part_qty} шт", header_cell_style),
+            Paragraph(tot_part_w_str, header_cell_style),
         ]
     )
 
@@ -1439,11 +1532,11 @@ def generate_commercial_calc_pdf(
 
     doc = SimpleDocTemplate(
         buf,
-        pagesize=landscape(A4),
-        leftMargin=20,
-        rightMargin=20,
+        pagesize=A4,
+        leftMargin=25,
+        rightMargin=25,
         topMargin=25,
-        bottomMargin=35,
+        bottomMargin=30,
     )
 
     styles = getSampleStyleSheet()
@@ -1504,48 +1597,116 @@ def generate_commercial_calc_pdf(
     story.append(Paragraph(gen_str, subtitle_style))
     story.append(Spacer(1, 12))
 
-    col_widths = [300, 250, 250]
+    weight_g = float(calc.get("weight_g", 0.0) or 0.0)
+    time_mins = int(calc.get("time_mins", 0) or 0)
+    time_hours = float(calc.get("time_hours", 0.0) or (time_mins / 60.0))
+    filament_cost = float(calc.get("filament_cost", 0.0) or 0.0)
+    electricity_cost = float(calc.get("electricity_cost", 0.0) or 0.0)
+    direct_cost = float(calc.get("direct_cost", round(filament_cost + electricity_cost, 2)) or 0.0)
+    depr_cost = float(calc.get("depreciation_cost", 0.0) or 0.0)
+    depr_str = str(calc.get("depreciation_str", "-"))
+    cons_cost = float(calc.get("consumables_cost", 0.0) or 0.0)
+    cons_str = str(calc.get("consumables_str", "-"))
+    cost_before_profit = float(calc.get("cost_before_profit", round(direct_cost + depr_cost + cons_cost, 2)) or 0.0)
+    profit_cost = float(calc.get("profit_cost", 0.0) or 0.0)
+    profit_str = str(calc.get("profit_str", "-"))
+    total_price = float(calc.get("total_price", 0.0) or 0.0)
+
+    # Filament preset rate
+    pr_g = calc.get("price_per_g")
+    if pr_g is None and weight_g > 0:
+        pr_g = round(filament_cost / weight_g, 2)
+    elif pr_g is None:
+        pr_g = 0.85
+    pr_g = float(pr_g)
+    pr_kg = pr_g * 1000.0
+
+    # Electricity preset rates
+    elec_rate = float(calc.get("electricity_rate_uah", 4.32) or 4.32)
+    power_w = float(calc.get("power_watts", 120.0) or 120.0)
+
+    # Column 2 (Model data) and Column 3 (Preset data)
+    fil_model = f"Вага: {weight_g:.1f} г" if not is_en else f"Weight: {weight_g:.1f} g"
+    fil_preset = f"{pr_g:.2f} грн/г ({pr_kg:.0f} грн/кг)" if not is_en else f"{pr_g:.2f} UAH/g ({pr_kg:.0f} UAH/kg)"
+
+    elec_model = f"Час: ~{time_mins} хв ({time_hours:.2f} год)" if not is_en else f"Time: ~{time_mins} min ({time_hours:.2f} h)"
+    elec_preset = f"{power_w:.0f} Вт | {elec_rate:.2f} грн/кВт·год" if not is_en else f"{power_w:.0f} W | {elec_rate:.2f} UAH/kWh"
+
+    if "%" in depr_str:
+        depr_model = f"База витрат: {direct_cost:.2f} грн" if not is_en else f"Direct cost: {direct_cost:.2f} UAH"
+        depr_preset = f"Ставка: {depr_str}" if not is_en else f"Rate: {depr_str}"
+    else:
+        depr_model = f"Час друку: {time_hours:.2f} год" if not is_en else f"Print time: {time_hours:.2f} h"
+        d_val = f"{depr_str} грн/год" if not depr_str.endswith("грн/год") and not depr_str.endswith("грн") else depr_str
+        depr_preset = d_val if not is_en else d_val.replace("грн/год", "UAH/h").replace("грн", "UAH")
+
+    if "%" in cons_str:
+        cons_model = f"База витрат: {direct_cost:.2f} грн" if not is_en else f"Direct cost: {direct_cost:.2f} UAH"
+        cons_preset = f"Ставка: {cons_str}" if not is_en else f"Rate: {cons_str}"
+    else:
+        cons_model = f"Час друку: {time_hours:.2f} год" if not is_en else f"Print time: {time_hours:.2f} h"
+        c_val = f"{cons_str} грн/год" if not cons_str.endswith("грн/год") and not cons_str.endswith("грн") else cons_str
+        cons_preset = c_val if not is_en else c_val.replace("грн/год", "UAH/h").replace("грн", "UAH")
+
+    profit_is_pct = calc.get("profit_is_pct", False)
+    if profit_is_pct or "%" in profit_str:
+        formatted_profit = f"+{profit_str.lstrip('+')}" if not profit_str.startswith("+") else profit_str
+    else:
+        try:
+            val = float(profit_str)
+            formatted_profit = f"{val:.2f} грн" if not is_en else f"{val:.2f} UAH"
+        except ValueError:
+            formatted_profit = f"{profit_str} грн" if not is_en else f"{profit_str} UAH"
+
+    prof_model = f"Собівартість: {cost_before_profit:.2f} грн" if not is_en else f"Cost base: {cost_before_profit:.2f} UAH"
+    prof_preset = f"Націнка: {formatted_profit}" if not is_en else f"Markup: {formatted_profit}"
+
+    col_widths = [165, 125, 135, 120]
     table_data = [
         [
             Paragraph("Стаття витрат" if not is_en else "Cost Item", header_cell_style),
-            Paragraph("Розрахунок / Параметр" if not is_en else "Calculation / Parameter", header_cell_style),
+            Paragraph("Дані моделі" if not is_en else "Model Data", header_cell_style),
+            Paragraph("Дані пресета" if not is_en else "Preset Data", header_cell_style),
             Paragraph("Сума (грн)" if not is_en else "Amount (UAH)", header_cell_style),
         ],
         [
             Paragraph("🧵 Пластик / Філамент" if not is_en else "🧵 Filament Material", cell_style),
-            Paragraph(f"{calc.get('weight_g', 0)}g", cell_style),
-            Paragraph(f"{calc.get('filament_cost', 0.0):.2f} грн", bold_cell_style),
+            Paragraph(fil_model, cell_style),
+            Paragraph(fil_preset, cell_style),
+            Paragraph(f"{filament_cost:.2f} грн" if not is_en else f"{filament_cost:.2f} UAH", bold_cell_style),
         ],
         [
             Paragraph("⚡ Електроенергія" if not is_en else "⚡ Electricity", cell_style),
-            Paragraph(
-                f"~{calc.get('time_mins', 0)} хв ({calc.get('time_hours', 0.0):.2f} год)",
-                cell_style,
-            ),
-            Paragraph(f"{calc.get('electricity_cost', 0.0):.2f} грн", bold_cell_style),
+            Paragraph(elec_model, cell_style),
+            Paragraph(elec_preset, cell_style),
+            Paragraph(f"{electricity_cost:.2f} грн" if not is_en else f"{electricity_cost:.2f} UAH", bold_cell_style),
         ],
         [
             Paragraph("🔧 Амортизація обладнання" if not is_en else "🔧 Depreciation", cell_style),
-            Paragraph(str(calc.get("depreciation_str", "-")), cell_style),
-            Paragraph(f"{calc.get('depreciation_cost', 0.0):.2f} грн", bold_cell_style),
+            Paragraph(depr_model, cell_style),
+            Paragraph(depr_preset, cell_style),
+            Paragraph(f"{depr_cost:.2f} грн" if not is_en else f"{depr_cost:.2f} UAH", bold_cell_style),
         ],
         [
             Paragraph(
                 "🧼 Витратні матеріали та ТО" if not is_en else "🧼 Consumables & Maintenance",
                 cell_style,
             ),
-            Paragraph(str(calc.get("consumables_str", "-")), cell_style),
-            Paragraph(f"{calc.get('consumables_cost', 0.0):.2f} грн", bold_cell_style),
+            Paragraph(cons_model, cell_style),
+            Paragraph(cons_preset, cell_style),
+            Paragraph(f"{cons_cost:.2f} грн" if not is_en else f"{cons_cost:.2f} UAH", bold_cell_style),
         ],
         [
             Paragraph("💼 Маржа / Прибуток" if not is_en else "💼 Profit Margin", bold_cell_style),
-            Paragraph(str(calc.get("profit_str", "-")), cell_style),
-            Paragraph(f"{calc.get('profit_cost', 0.0):.2f} грн", bold_cell_style),
+            Paragraph(prof_model, cell_style),
+            Paragraph(prof_preset, bold_cell_style),
+            Paragraph(f"{profit_cost:.2f} грн" if not is_en else f"{profit_cost:.2f} UAH", bold_cell_style),
         ],
         [
             Paragraph("<b>🏷️ РАЗОМ ДЛЯ КЛІЄНТА</b>" if not is_en else "<b>🏷️ TOTAL FOR CLIENT</b>", header_cell_style),
-            Paragraph(f"<b>{calc.get('weight_g', 0)}g | ~{calc.get('time_mins', 0)} хв</b>", header_cell_style),
-            Paragraph(f"<b>{calc.get('total_price', 0.0):.2f} грн</b>", header_cell_style),
+            Paragraph(f"<b>{weight_g:.1f} г | ~{time_mins} хв</b>" if not is_en else f"<b>{weight_g:.1f} g | ~{time_mins} min</b>", header_cell_style),
+            Paragraph(f"<b>Пресет: {preset_n}</b>" if not is_en else f"<b>Preset: {preset_n}</b>", header_cell_style),
+            Paragraph(f"<b>{total_price:.2f} грн</b>" if not is_en else f"<b>{total_price:.2f} UAH</b>", header_cell_style),
         ],
     ]
 

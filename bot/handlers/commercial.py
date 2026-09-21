@@ -4,7 +4,9 @@ Commercial Pricing Calculator and Preset Management Handlers.
 
 import html
 import logging
+import math
 import uuid
+from pathlib import Path
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -19,7 +21,7 @@ from aiogram.types import (
 )
 
 from config import STORAGE_DIR
-from models.commercial import calculate_commercial_price
+from models.commercial import calculate_commercial_price, validate_val_or_percent
 
 logger = logging.getLogger("PrinterBot.Commercial")
 
@@ -55,28 +57,32 @@ def sanitize_commercial_presets(presets: dict) -> dict:
     if not isinstance(presets, dict):
         return {}
     clean = {}
-    test_keywords = {"test", "тест", "тестовий", "sample", "demo"}
     for pid, p in presets.items():
         if not isinstance(p, dict):
             continue
-        p_id_str = str(p.get("id") or pid).lower()
-        p_name_str = str(p.get("name") or "").lower()
-        if any(kw in p_id_str or kw in p_name_str for kw in test_keywords):
+        if not p.get("name"):
             continue
         clean[pid] = p
     return clean
 
 
+def get_presets_path(app) -> Path:
+    if hasattr(app, "storage") and hasattr(app.storage, "base_dir"):
+        return app.storage.base_dir / "commercial_presets.json"
+    return PRESETS_PATH
+
+
 async def get_user_presets(app) -> dict:
-    presets = await app.storage.load_json(PRESETS_PATH, None)
+    presets_file = get_presets_path(app)
+    presets = await app.storage.load_json(presets_file, None)
     if presets is None:
         presets = DEFAULT_PRESETS.copy()
-        await app.storage.save_json(PRESETS_PATH, presets)
+        await app.storage.save_json(presets_file, presets)
 
     sanitized = sanitize_commercial_presets(presets)
     if len(sanitized) != len(presets):
         presets = sanitized
-        await app.storage.save_json(PRESETS_PATH, presets)
+        await app.storage.save_json(presets_file, presets)
     else:
         presets = sanitized
     return presets
@@ -325,7 +331,19 @@ async def handle_commercial_wizard(message: Message, app):
     st = user.get("state", "")
 
     text = message.text.strip()
-    if text.lower() in ["⬅️ назад", "назад", "скасувати"]:
+    if text.lower() in [
+        "⬅️ головне меню",
+        "головне меню",
+        "/start",
+    ]:
+        user["state"] = "idle"
+        await app.storage.save_user(user)
+        from bot.handlers.common import handle_main_menu_nav
+
+        await handle_main_menu_nav(message, app)
+        return
+
+    if text.lower() in ["⬅️ назад", "назад", "скасувати", "⬅️ назад до комерції"]:
         user["state"] = "idle"
         await app.storage.save_user(user)
         await handle_commercial_menu(message, app)
@@ -336,7 +354,11 @@ async def handle_commercial_wizard(message: Message, app):
 
     # 1. ADD PRESET WIZARD
     if st == "add_preset_name":
-        c_data["new_preset"] = {"id": str(uuid.uuid4()), "name": text}
+        name = text.strip()
+        if not name:
+            await message.answer("⚠️ Назва пресету не може бути порожньою. Введіть назву:")
+            return True
+        c_data["new_preset"] = {"id": str(uuid.uuid4()), "name": name}
         user["state"] = "add_preset_price"
         await app.storage.save_user(user)
         await message.answer(
@@ -348,9 +370,14 @@ async def handle_commercial_wizard(message: Message, app):
     elif st == "add_preset_price":
         try:
             val = float(text.replace(",", "."))
+            if val <= 0 or math.isnan(val) or math.isinf(val):
+                raise ValueError
             price_g = val / 1000.0 if val >= 50 else val
         except ValueError:
-            await message.answer("⚠️ Введіть числову ціну (наприклад: 0.85 або 850).")
+            await message.answer(
+                "⚠️ Введіть додатню числову ціну (наприклад: <code>0.85</code> грн/г або <code>850</code> грн/кг):",
+                parse_mode=ParseMode.HTML,
+            )
             return True
         c_data["new_preset"]["price_per_g"] = price_g
         user["state"] = "add_preset_elec"
@@ -364,8 +391,13 @@ async def handle_commercial_wizard(message: Message, app):
     elif st == "add_preset_elec":
         try:
             val = float(text.replace(",", "."))
+            if val < 0 or math.isnan(val) or math.isinf(val):
+                raise ValueError
         except ValueError:
-            await message.answer("⚠️ Введіть числову тарифну ставку (наприклад: 4.32).")
+            await message.answer(
+                "⚠️ Введіть тариф на електроенергію (число від 0, наприклад: <code>4.32</code>):",
+                parse_mode=ParseMode.HTML,
+            )
             return True
         c_data["new_preset"]["electricity_rate_uah"] = val
         c_data["new_preset"]["power_watts"] = 120.0
@@ -378,7 +410,14 @@ async def handle_commercial_wizard(message: Message, app):
         return True
 
     elif st == "add_preset_depr":
-        c_data["new_preset"]["depreciation_val"] = text
+        ok, res = validate_val_or_percent(text)
+        if not ok:
+            await message.answer(
+                f"{res}\nВведіть значення амортизації ще раз (наприклад: <code>10</code> або <code>15%</code>):",
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+        c_data["new_preset"]["depreciation_val"] = res
         user["state"] = "add_preset_cons"
         await app.storage.save_user(user)
         await message.answer(
@@ -388,7 +427,14 @@ async def handle_commercial_wizard(message: Message, app):
         return True
 
     elif st == "add_preset_cons":
-        c_data["new_preset"]["consumables_val"] = text
+        ok, res = validate_val_or_percent(text)
+        if not ok:
+            await message.answer(
+                f"{res}\nВведіть значення витратників ще раз (наприклад: <code>5</code> або <code>10%</code>):",
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+        c_data["new_preset"]["consumables_val"] = res
         user["state"] = "add_preset_profit"
         await app.storage.save_user(user)
         await message.answer(
@@ -398,10 +444,17 @@ async def handle_commercial_wizard(message: Message, app):
         return True
 
     elif st == "add_preset_profit":
-        c_data["new_preset"]["profit_val"] = text
+        ok, res = validate_val_or_percent(text)
+        if not ok:
+            await message.answer(
+                f"{res}\nВведіть значення прибутку/маржі ще раз (наприклад: <code>100%</code> або <code>100</code>):",
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+        c_data["new_preset"]["profit_val"] = res
         np = c_data["new_preset"]
         presets[np["id"]] = np
-        await app.storage.save_json(PRESETS_PATH, presets)
+        await app.storage.save_json(get_presets_path(app), presets)
         user["state"] = "idle"
         await app.storage.save_user(user)
 
@@ -427,17 +480,21 @@ async def handle_commercial_wizard(message: Message, app):
         return True
 
     elif st == "copy_preset_new_name":
+        name = text.strip()
+        if not name:
+            await message.answer("⚠️ Назва не може бути порожньою. Введіть назву:")
+            return True
         src = c_data.get("copy_source_preset", {})
         new_preset = src.copy()
         new_preset["id"] = str(uuid.uuid4())
-        new_preset["name"] = text
+        new_preset["name"] = name
         presets[new_preset["id"]] = new_preset
-        await app.storage.save_json(PRESETS_PATH, presets)
+        await app.storage.save_json(get_presets_path(app), presets)
         user["state"] = "idle"
         await app.storage.save_user(user)
 
         await message.answer(
-            f"✅ <b>Пресет скопійовано під назвою «{html.escape(text)}»!</b>\n"
+            f"✅ <b>Пресет скопійовано під назвою «{html.escape(name)}»!</b>\n"
             f"<i>Ви можете відредагувати ціну нитки або інші параметри кнопкою «✏️ Редагувати пресет».</i>",
             parse_mode=ParseMode.HTML,
         )
@@ -515,7 +572,7 @@ async def handle_commercial_wizard(message: Message, app):
             await message.answer("⚠️ Пресет не знайдено.")
             return True
         presets.pop(target["id"], None)
-        await app.storage.save_json(PRESETS_PATH, presets)
+        await app.storage.save_json(get_presets_path(app), presets)
         user["state"] = "idle"
         await app.storage.save_user(user)
         await message.answer(
@@ -528,8 +585,13 @@ async def handle_commercial_wizard(message: Message, app):
     elif st == "calc_enter_weight":
         try:
             w = float(text.replace(",", "."))
+            if w <= 0 or math.isnan(w) or math.isinf(w):
+                raise ValueError
         except ValueError:
-            await message.answer("⚠️ Введіть вагу в грамах (число, наприклад: 150).")
+            await message.answer(
+                "⚠️ Введіть додатню вагу в грамах (число більше 0, наприклад: <code>150</code>):",
+                parse_mode=ParseMode.HTML,
+            )
             return True
         c_data["calc_weight_g"] = w
         user["state"] = "calc_enter_time"
@@ -542,9 +604,15 @@ async def handle_commercial_wizard(message: Message, app):
 
     elif st == "calc_enter_time":
         try:
-            t_mins = int(text)
+            val = float(text.replace(",", "."))
+            t_mins = int(val)
+            if t_mins <= 0 or math.isnan(val) or math.isinf(val):
+                raise ValueError
         except ValueError:
-            await message.answer("⚠️ Введіть час у хвилинах (ціле число, наприклад: 180).")
+            await message.answer(
+                "⚠️ Введіть час у хвилинах (ціле число більше 0, наприклад: <code>180</code>):",
+                parse_mode=ParseMode.HTML,
+            )
             return True
         c_data["calc_time_mins"] = t_mins
         user["state"] = "calc_select_preset"
@@ -562,29 +630,48 @@ async def handle_commercial_wizard(message: Message, app):
     elif st == "calc_select_preset":
         target = next((p for p in presets.values() if p["name"] == text), None)
         if not target:
-            await message.answer("⚠️ Пресет не знайдено, оберіть зі списку.")
+            await message.answer("⚠️ Пресет не знайдено, оберіть зі списку нижче або натисніть «⬅️ Назад».")
             return True
         w = c_data.get("calc_weight_g", 100.0)
         t_mins = c_data.get("calc_time_mins", 60)
 
         res = calculate_commercial_price(target, w, t_mins)
-        user["state"] = "idle"
+        # Keep user in calc_select_preset so they can easily compare with other presets or click «⬅️ Назад»
+        user["state"] = "calc_select_preset"
         await app.storage.save_user(user)
 
+        pr_g = float(res.get("price_per_g") or target.get("price_per_g", 0.85))
+        p_watt = float(res.get("power_watts") or target.get("power_watts", 120.0))
+        e_rate = float(res.get("electricity_rate_uah") or target.get("electricity_rate_uah", 4.32))
+
+        u_lang = user.get("language", "uk")
         calc_txt = (
             f"<b>💰 Комерційний розрахунок для клієнта</b>\n"
             f"📋 Пресет: <b>{html.escape(res['preset_name'])}</b>\n"
             f"⚖️ Вага: <b>{res['weight_g']}g</b> | ⏱️ Час: <b>~{res['time_mins']} хв</b>\n"
             f"-----------------------------------\n"
-            f"🧵 Пластик: <b>{res['filament_cost']:.2f} грн</b>\n"
-            f"⚡ Електроенергія: <b>{res['electricity_cost']:.2f} грн</b>\n"
-            f"🔧 Амортизація: <b>{res['depreciation_cost']:.2f} грн</b> ({res['depreciation_str']})\n"
-            f"🧼 Витратники: <b>{res['consumables_cost']:.2f} грн</b> ({res['consumables_str']})\n"
-            f"💼 Прибуток: <b>{res['profit_cost']:.2f} грн</b> ({res['profit_str']})\n"
+            f"🧵 Пластик: <b>{res['filament_cost']:.2f} грн</b> <i>({pr_g:.2f} грн/г)</i>\n"
+            f"⚡ Електроенергія: <b>{res['electricity_cost']:.2f} грн</b> <i>({p_watt:.0f} Вт, {e_rate:.2f} грн/кВт·год)</i>\n"
+            f"🔧 Амортизація: <b>{res['depreciation_cost']:.2f} грн</b> <i>({res['depreciation_str']})</i>\n"
+            f"🧼 Витратники: <b>{res['consumables_cost']:.2f} грн</b> <i>({res['consumables_str']})</i>\n"
+            f"💼 Прибуток: <b>{res['profit_cost']:.2f} грн</b> <i>({res['profit_str']})</i>\n"
             f"-----------------------------------\n"
-            f"🏷️ <b>ПІДСУМКОВА ВАРТІСТЬ ДЛЯ КЛІЄНТА:</b> <code>{res['total_price']:.2f} грн</code>"
+            f"🏷️ <b>ПІДСУМКОВА ВАРТІСТЬ ДЛЯ КЛІЄНТА:</b> <code>{res['total_price']:.2f} грн</code>\n\n"
+            f"<i>💡 Оберіть інший пресет нижче для перерахунку або натисніть «⬅️ Назад».</i>"
+            if u_lang != "en"
+            else f"<b>💰 Commercial Calculation for Client</b>\n"
+            f"📋 Preset: <b>{html.escape(res['preset_name'])}</b>\n"
+            f"⚖️ Weight: <b>{res['weight_g']}g</b> | ⏱️ Time: <b>~{res['time_mins']} min</b>\n"
+            f"-----------------------------------\n"
+            f"🧵 Filament: <b>{res['filament_cost']:.2f} UAH</b> <i>({pr_g:.2f} UAH/g)</i>\n"
+            f"⚡ Electricity: <b>{res['electricity_cost']:.2f} UAH</b> <i>({p_watt:.0f} W, {e_rate:.2f} UAH/kWh)</i>\n"
+            f"🔧 Depreciation: <b>{res['depreciation_cost']:.2f} UAH</b> <i>({res['depreciation_str']})</i>\n"
+            f"🧼 Consumables: <b>{res['consumables_cost']:.2f} UAH</b> <i>({res['consumables_str']})</i>\n"
+            f"💼 Profit: <b>{res['profit_cost']:.2f} UAH</b> <i>({res['profit_str']})</i>\n"
+            f"-----------------------------------\n"
+            f"🏷️ <b>TOTAL PRICE FOR CLIENT:</b> <code>{res['total_price']:.2f} UAH</code>\n\n"
+            f"<i>💡 Select another preset below to recalculate or press «⬅️ Back».</i>"
         )
-        u_lang = user.get("language", "uk")
         w_val = int(w) if w == int(w) else round(w, 1)
         inline_kb = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -615,25 +702,46 @@ async def handle_commercial_wizard(message: Message, app):
             return True
 
         if field == "name":
+            if not text.strip():
+                await message.answer("⚠️ Назва не може бути порожньою. Введіть назву:")
+                return True
             p["name"] = text.strip()
         elif field == "price_per_g":
             try:
                 v = float(text.replace(",", "."))
+                if v <= 0 or math.isnan(v) or math.isinf(v):
+                    raise ValueError
                 p["price_per_g"] = v / 1000.0 if v >= 50 else v
             except ValueError:
-                await message.answer("⚠️ Некоректне значення.")
+                await message.answer(
+                    "⚠️ Введіть додатню ціну нитки (наприклад: <code>0.85</code> або <code>850</code>):",
+                    parse_mode=ParseMode.HTML,
+                )
                 return True
         elif field == "electricity_rate_uah":
             try:
-                p["electricity_rate_uah"] = float(text.replace(",", "."))
+                v = float(text.replace(",", "."))
+                if v < 0 or math.isnan(v) or math.isinf(v):
+                    raise ValueError
+                p["electricity_rate_uah"] = v
             except ValueError:
-                await message.answer("⚠️ Некоректне значення.")
+                await message.answer(
+                    "⚠️ Введіть тариф на електроенергію (число від 0, наприклад: <code>4.32</code>):",
+                    parse_mode=ParseMode.HTML,
+                )
                 return True
         elif field in ["depreciation_val", "consumables_val", "profit_val"]:
-            p[field] = text
+            ok, res = validate_val_or_percent(text)
+            if not ok:
+                await message.answer(
+                    f"{res}\nВведіть число або відсоток (наприклад: <code>10</code> або <code>15%</code>):",
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            p[field] = res
 
         presets[pid] = p
-        await app.storage.save_json(PRESETS_PATH, presets)
+        await app.storage.save_json(get_presets_path(app), presets)
         user["state"] = "idle"
         await app.storage.save_user(user)
         await message.answer(

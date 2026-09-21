@@ -157,15 +157,16 @@ def resolve_model_name(raw_model: str) -> str:
         return "Bambu Lab A1 mini"
     elif "@bbl a1" in clean_lower or "n1" in clean_lower:
         return "Bambu Lab A1"
-    elif (
-        "@bbl x1c" in clean_lower
-        or "x1c" in clean_lower
-        or "c12" in clean_lower
-        or "c11" in clean_lower
-        or "p1s" in clean_lower
-        or "p1p" in clean_lower
-    ):
+    elif "@bbl a2l" in clean_lower or "a2l" in clean_lower:
+        return "Bambu Lab A2L"
+    elif "@bbl p1p" in clean_lower or "p1p" in clean_lower:
+        return "Bambu Lab P1P"
+    elif "@bbl p1s" in clean_lower or "p1s" in clean_lower or "c12" in clean_lower or "c11" in clean_lower:
         return "Bambu Lab P1S"
+    elif "@bbl x1e" in clean_lower or "x1e" in clean_lower:
+        return "Bambu Lab X1E"
+    elif "@bbl x1c" in clean_lower or "x1c" in clean_lower or "x1 carbon" in clean_lower or "c10" in clean_lower or "x1" in clean_lower:
+        return "Bambu Lab X1 Carbon"
 
     # Direct map lookup
     if clean_lower in BAMBU_MODEL_MAP:
@@ -234,6 +235,7 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
     result: dict[str, Any] = {
         "filename": filename,
         "printer_model": "Unknown",
+        "nozzle_diameter": "0.4",
         "filament_type": "PLA",
         "tray_info_idx": "",
         "filament_color": "",
@@ -247,9 +249,14 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
         "error": "",
     }
 
+    is_zip = bool(file_bytes and (file_bytes.startswith(b"PK\x03\x04") or zipfile.is_zipfile(io.BytesIO(file_bytes))))
     if filename and not filename.lower().endswith(".3mf") and not filename.lower().endswith(".gcode"):
-        result["error"] = "Дозволено завантажувати тільки файли .3mf або .gcode від Bambu Studio / OrcaSlicer."
-        return result
+        if "." in filename and not is_zip:
+            result["error"] = "Дозволено завантажувати тільки файли .3mf або .gcode від Bambu Studio / OrcaSlicer."
+            return result
+        elif not is_zip and not (b";" in file_bytes[:500]):
+            result["error"] = "Дозволено завантажувати тільки файли .3mf або .gcode від Bambu Studio / OrcaSlicer."
+            return result
 
     try:
         if zipfile.is_zipfile(io.BytesIO(file_bytes)):
@@ -303,6 +310,14 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                                     "color": f_color,
                                     "name": f_name,
                                 })
+                            elif tag_name in ["header_item", "config_item", "item"]:
+                                k = str(elem.get("key") or elem.get("name") or "").strip()
+                                if k in ["nozzle_diameter", "nozzle_diameters"]:
+                                    v = elem.get("value")
+                                    if v:
+                                        result["nozzle_diameter"] = str(v).split(",")[0].strip()
+                            elif tag_name in ["nozzle_diameter", "nozzle_diameters"] and elem.text and elem.text.strip():
+                                result["nozzle_diameter"] = elem.text.split(",")[0].strip()
                     except Exception:
                         pass
 
@@ -369,11 +384,13 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                                         result["printer_model"] = res_m
                                         break
 
-                        # Extract filament type & weight
+                        # Extract filament type & weight & nozzle
                         for elem in root.iter():
                             tag_name = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
                             if tag_name in ["type", "filament_type"] and elem.text and elem.text.strip():
                                 result["filament_type"] = elem.text.strip()
+                            elif tag_name in ["nozzle_diameter", "nozzle_diameters"] and elem.text and elem.text.strip():
+                                result["nozzle_diameter"] = elem.text.split(",")[0].strip()
                             elif tag_name in ["used_g", "filament_used_g"] and elem.text and elem.text.strip():
                                 try:
                                     w = float(elem.text.strip())
@@ -435,6 +452,12 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                             if "filament_settings_id" in p_json and isinstance(p_json["filament_settings_id"], list) and p_json["filament_settings_id"]:
                                 if not result["filament_name"]:
                                     result["filament_name"] = str(p_json["filament_settings_id"][0]).strip()
+                            if "nozzle_diameter" in p_json:
+                                nd_val = p_json["nozzle_diameter"]
+                                if isinstance(nd_val, list) and nd_val:
+                                    result["nozzle_diameter"] = str(nd_val[0]).strip()
+                                elif nd_val is not None:
+                                    result["nozzle_diameter"] = str(nd_val).strip()
                     except Exception:
                         pass
 
@@ -483,6 +506,22 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                                 result["filament_type"] = "PLA"
                             elif "TPU" in f_val.upper():
                                 result["filament_type"] = "TPU"
+
+                        # Nozzle diameter regex (; nozzle_diameter = 0.4 or ; nozzle_diameter = 0.4,0.4 or ; nozzle_size = 0.4)
+                        noz_match = re.search(
+                            r";\s*(?:nozzle_diameter|nozzle_size|nozzle_diameters|nozzle)\s*[:=]\s*\"?([0-9\.,]+)\"?",
+                            gcode_text,
+                            re.IGNORECASE,
+                        )
+                        if noz_match:
+                            raw_noz = noz_match.group(1).split(",")[0].strip()
+                            try:
+                                f_noz = float(raw_noz.replace(",", "."))
+                                if 0.1 <= f_noz <= 2.0:
+                                    result["nozzle_diameter"] = f"{f_noz:g}"
+                            except ValueError:
+                                if raw_noz:
+                                    result["nozzle_diameter"] = raw_noz
 
                         # Weight regex (supports both '=' and ':', and both '.' and ',' decimals)
                         if result["weight_g"] == 0.0:
@@ -540,6 +579,20 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
             m_fil = re.search(r";\s*(?:filament_type)\s*=\s*\"?([^\";\r\n]+)\"?", gcode_text, re.IGNORECASE)
             if m_fil:
                 result["filament_type"] = m_fil.group(1).strip()
+            m_noz = re.search(
+                r";\s*(?:nozzle_diameter|nozzle_size|nozzle_diameters|nozzle)\s*[:=]\s*\"?([0-9\.,]+)\"?",
+                gcode_text,
+                re.IGNORECASE,
+            )
+            if m_noz:
+                raw_noz = m_noz.group(1).split(",")[0].strip()
+                try:
+                    f_noz = float(raw_noz.replace(",", "."))
+                    if 0.1 <= f_noz <= 2.0:
+                        result["nozzle_diameter"] = f"{f_noz:g}"
+                except ValueError:
+                    if raw_noz:
+                        result["nozzle_diameter"] = raw_noz
 
         # Fallback 4: Filename parsing for Weight, Printer Model & Time
         fname_lower = filename.lower()
@@ -679,6 +732,12 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
 
         logger.info(f"🧩 [3MF Parser] Final parsed objects ({len(objects_list)}): {[(o.get('id'), o.get('name'), o.get('bbox')) for o in objects_list]}")
 
+        try:
+            nd_f = float(str(result.get("nozzle_diameter", "0.4")).replace(",", "."))
+            result["nozzle_diameter"] = f"{nd_f:g}"
+        except (ValueError, TypeError):
+            result["nozzle_diameter"] = "0.4"
+
         result["objects"] = objects_list
         result["valid"] = True
 
@@ -773,15 +832,16 @@ def get_bambu_model_code(name_str: str) -> str:
       - a1 mini -> @BBL A1M
       - a1 -> @BBL A1
       - a2l -> @BBL A2L
-      - p1s -> @BBL X1C
+      - p1p -> @BBL P1P
+      - p1s -> @BBL P1S
+      - p2s -> @BBL P2S
+      - x1, x1 carbon -> @BBL X1C
+      - x1e -> @BBL X1E
+      - x2d -> @BBL X2D
       - h2c -> @BBL H2C
       - h2d -> @BBL H2D
       - h2d pro -> @BBL H2DP
       - h2s -> @BBL H2S
-      - p1p -> @BBL P1P
-      - p2s -> @BBL P2S
-      - x1, x1 carbon, x1e -> @BBL X1C
-      - x2d -> @BBL X2D
     """
     if not name_str:
         return "UNKNOWN"
@@ -803,11 +863,15 @@ def get_bambu_model_code(name_str: str) -> str:
         return "@BBL H2S"
     if "p1p" in s or "@bbl p1p" in s:
         return "@BBL P1P"
+    if "p1s" in s or "@bbl p1s" in s or "c12" in s:
+        return "@BBL P1S"
     if "p2s" in s or "@bbl p2s" in s:
         return "@BBL P2S"
     if "x2d" in s or "@bbl x2d" in s:
         return "@BBL X2D"
-    if "p1s" in s or "x1 carbon" in s or "x1c" in s or "x1e" in s or "x1" in s or "@bbl x1c" in s or "c12" in s or "c10" in s:
+    if "x1e" in s or "@bbl x1e" in s:
+        return "@BBL X1E"
+    if "x1 carbon" in s or "x1c" in s or "x1" in s or "@bbl x1c" in s or "c10" in s:
         return "@BBL X1C"
 
     return "UNKNOWN"
@@ -822,28 +886,81 @@ def check_compatibility(
     tray_info_idx: str = "",
     color: str = "",
     filament_name: str = "",
+    nozzle_diameter: str | float | None = None,
 ) -> dict[str, Any]:
     """
-    Checks G-code / model & filament compatibility between sliced 3MF metadata and target printer.
-    Stage 1 (Hardware): Checks printer model code (@BBL A1M vs @BBL A1 vs @BBL X1C, etc).
-    Stage 2 (Material): Checks filament type (e.g. TPU vs ABS), supporting multi-slot AMS auto-detection.
+    Checks G-code / model, nozzle & filament compatibility between sliced 3MF metadata and target printer.
+    Stage 1 (Hardware): Checks printer model code (@BBL A1M vs @BBL A1 vs @BBL X1C vs @BBL P1S vs @BBL X1E, etc).
+    Stage 2 (Nozzle): Checks nozzle diameter (e.g. 0.4 mm vs 0.2 mm).
+    Stage 3 (Material): Checks filament type (e.g. TPU vs ABS), supporting multi-slot AMS auto-detection.
     """
+    target_model_str = ""
+    if printer is not None:
+        target_model_str = str(getattr(printer, "printer_model", "") or getattr(printer, "model", "")).strip()
+
+    target_code = get_bambu_model_code(target_model_str) if target_model_str else "UNKNOWN"
+    if target_code == "UNKNOWN":
+        target_code = get_bambu_model_code(target_printer_name)
+
     sliced_code = get_bambu_model_code(sliced_model)
-    target_code = get_bambu_model_code(target_printer_name)
+    display_target = target_model_str or target_printer_name or target_code
+
+    BAMBU_256_COREXY_FAMILY = {"@BBL P1P", "@BBL P1S", "@BBL P2S", "@BBL X1C", "@BBL X1E"}
+    is_model_warning = False
+
+    target_nozzle = "0.4"
+    if printer is not None and hasattr(printer, "nozzle_diameter"):
+        target_nozzle = str(getattr(printer, "nozzle_diameter", "0.4") or "0.4").strip()
+
+    try:
+        s_noz_norm = f"{float(str(nozzle_diameter).replace(',', '.')):g}" if nozzle_diameter else ""
+    except (ValueError, TypeError):
+        s_noz_norm = str(nozzle_diameter).strip() if nozzle_diameter else ""
+
+    try:
+        t_noz_norm = f"{float(str(target_nozzle).replace(',', '.')):g}"
+    except (ValueError, TypeError):
+        t_noz_norm = str(target_nozzle).strip()
 
     if sliced_code != "UNKNOWN" and target_code != "UNKNOWN" and sliced_code != target_code:
-        return {
-            "compatible": False,
-            "reason_type": "PRINTER",
-            "level": "BLOCK",
-            "reason": "🛑 Принтер несумісний з файлом",
-            "sliced_model": sliced_model or sliced_code,
-            "target_model": target_printer_name or target_code,
-            "sliced_filament": filament_type,
-            "target_filament": target_filament,
-        }
+        if sliced_code in BAMBU_256_COREXY_FAMILY and target_code in BAMBU_256_COREXY_FAMILY:
+            is_model_warning = True
+        else:
+            return {
+                "compatible": False,
+                "reason_type": "PRINTER",
+                "level": "BLOCK",
+                "reason": f"🛑 Принтер несумісний з файлом (Різна модель: {sliced_model or sliced_code} vs {display_target})",
+                "sliced_model": sliced_model or sliced_code,
+                "target_model": display_target,
+                "sliced_filament": filament_type,
+                "target_filament": target_filament,
+                "sliced_nozzle": s_noz_norm or "0.4",
+                "target_nozzle": t_noz_norm,
+            }
 
-    # Stage 2: Material Check (Filament Type)
+    # Stage 2: Nozzle Diameter Check
+    if s_noz_norm:
+        try:
+            s_noz_f = float(s_noz_norm)
+            t_noz_f = float(t_noz_norm)
+            if abs(s_noz_f - t_noz_f) > 0.01:
+                return {
+                    "compatible": False,
+                    "reason_type": "NOZZLE",
+                    "level": "BLOCK",
+                    "reason": f"🛑 Невідповідність сопла! Файл нарізано під {s_noz_norm} мм, а на принтері встановлено {t_noz_norm} мм.",
+                    "sliced_model": sliced_model or sliced_code,
+                    "target_model": display_target,
+                    "sliced_filament": filament_type,
+                    "target_filament": target_filament,
+                    "sliced_nozzle": s_noz_norm,
+                    "target_nozzle": t_noz_norm,
+                }
+        except (ValueError, TypeError):
+            pass
+
+    # Stage 3: Material Check (Filament Type)
     norm_sliced_fil = normalize_filament_name(filament_type)
 
     # If printer has AMS, check if ANY loaded AMS slot matches the sliced filament
@@ -876,17 +993,28 @@ def check_compatibility(
 
         if matched_slot is not None:
             phys_num = matched_slot + 1
+            if is_model_warning:
+                reason = f"⚠️ Умовно сумісний (Різна модель: {sliced_model or sliced_code} ➔ {display_target}, знайдено в AMS Слоті {phys_num})"
+                level = "WARNING"
+                reason_type = "MODEL_WARN"
+            else:
+                reason = f"✅ Сумісність підтверджено! (Знайдено в AMS Слоті {phys_num})"
+                level = "OK"
+                reason_type = "OK"
+
             return {
                 "compatible": True,
-                "reason_type": "OK",
-                "level": "OK",
-                "reason": f"✅ Сумісність підтверджено! (Знайдено в AMS Слоті {phys_num})",
+                "reason_type": reason_type,
+                "level": level,
+                "reason": reason,
                 "sliced_model": sliced_model or sliced_code,
-                "target_model": target_printer_name or target_code,
+                "target_model": display_target,
                 "sliced_filament": filament_type,
                 "target_filament": f"AMS Слот {phys_num} ({filament_type})",
                 "matched_ams_slot": phys_num,
                 "candidate_ams_slots": candidate_slots,
+                "sliced_nozzle": s_noz_norm or "0.4",
+                "target_nozzle": t_noz_norm,
             }
         else:
             summary = printer.get_loaded_ams_summary() if hasattr(printer, "get_loaded_ams_summary") else ""
@@ -896,23 +1024,55 @@ def check_compatibility(
                 "level": "BLOCK",
                 "reason": f"🛑 У AMS принтера немає пластику {filament_type} ({summary})" if summary else f"🛑 У AMS принтера немає пластику {filament_type}",
                 "sliced_model": sliced_model or sliced_code,
-                "target_model": target_printer_name or target_code,
+                "target_model": display_target,
                 "sliced_filament": filament_type,
                 "target_filament": target_filament or "AMS (пластик відсутній)",
+                "sliced_nozzle": s_noz_norm or "0.4",
+                "target_nozzle": t_noz_norm,
             }
 
     # Standard fallback (single spool holder / non-AMS)
     norm_target_fil = normalize_filament_name(target_filament)
-    if norm_sliced_fil and norm_target_fil and norm_sliced_fil != norm_target_fil:
+    if printer is not None or target_filament:
+        if not norm_target_fil:
+            return {
+                "compatible": False,
+                "reason_type": "FILAMENT",
+                "level": "BLOCK",
+                "reason": f"🛑 На принтері не встановлено пластик (потрібен {filament_type})",
+                "sliced_model": sliced_model or sliced_code,
+                "target_model": display_target,
+                "sliced_filament": filament_type,
+                "target_filament": "Не встановлено",
+                "sliced_nozzle": s_noz_norm or "0.4",
+                "target_nozzle": t_noz_norm,
+            }
+        if norm_sliced_fil and norm_sliced_fil != norm_target_fil:
+            return {
+                "compatible": False,
+                "reason_type": "FILAMENT",
+                "level": "BLOCK",
+                "reason": f"🛑 Філамент несумісний з файлом ({filament_type} vs {target_filament})",
+                "sliced_model": sliced_model or sliced_code,
+                "target_model": display_target,
+                "sliced_filament": filament_type,
+                "target_filament": target_filament,
+                "sliced_nozzle": s_noz_norm or "0.4",
+                "target_nozzle": t_noz_norm,
+            }
+
+    if is_model_warning:
         return {
-            "compatible": False,
-            "reason_type": "FILAMENT",
-            "level": "BLOCK",
-            "reason": "🛑 Філамент несумісний з файлом",
+            "compatible": True,
+            "reason_type": "MODEL_WARN",
+            "level": "WARNING",
+            "reason": f"⚠️ Умовно сумісний (Різна модель: {sliced_model or sliced_code} ➔ {display_target})",
             "sliced_model": sliced_model or sliced_code,
-            "target_model": target_printer_name or target_code,
+            "target_model": display_target,
             "sliced_filament": filament_type,
             "target_filament": target_filament,
+            "sliced_nozzle": s_noz_norm or "0.4",
+            "target_nozzle": t_noz_norm,
         }
 
     return {
@@ -921,7 +1081,9 @@ def check_compatibility(
         "level": "OK",
         "reason": "✅ Сумісність підтверджено!",
         "sliced_model": sliced_model or sliced_code,
-        "target_model": target_printer_name or target_code,
+        "target_model": display_target,
         "sliced_filament": filament_type,
         "target_filament": target_filament,
+        "sliced_nozzle": s_noz_norm or "0.4",
+        "target_nozzle": t_noz_norm,
     }

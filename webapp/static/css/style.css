@@ -1753,3 +1753,525 @@ body {
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
+/* ==========================================================================
+   Spool Movements Audit Log Modal Toolbar
+   ========================================================================== */
+.movements-filter-toolbar {
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.movements-filters-row-top {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1fr;
+    gap: 10px;
+}
+
+@media (max-width: 580px) {
+    .movements-filters-row-top {
+        grid-template-columns: 1fr 1fr;
+    }
+    .movements-filters-row-top .spool-field {
+        grid-column: 1 / -1;
+    }
+}
+
+.movements-filter-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.movements-filter-item label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.modal-window .movements-filter-toolbar .form-control {
+    width: 100% !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    max-height: 38px !important;
+    padding: 6px 10px !important;
+    line-height: 24px !important;
+    font-size: 13px !important;
+    color: #f8fafc !important;
+    background: rgba(15, 23, 42, 0.95) !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    border-radius: var(--radius-sm) !important;
+    box-sizing: border-box !important;
+    transition: var(--transition);
+}
+
+.modal-window .movements-filter-toolbar select.form-control {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 10px center !important;
+    background-size: 14px !important;
+    padding-right: 30px !important;
+    cursor: pointer;
+}
+
+.modal-window .movements-filter-toolbar .form-control:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 2px var(--primary-glow) !important;
+}
+
+.movements-filters-row-bottom {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+}
+
+.movements-search-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.movements-search-wrap label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+}
+
+.movements-reset-btn {
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 0 14px !important;
+    border-radius: var(--radius-sm) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid var(--border-glass) !important;
+    color: var(--text-muted) !important;
+    font-size: 13px !important;
+    font-weight: 500;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: var(--transition);
+    flex-shrink: 0;
+}
+
+.movements-reset-btn:hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    color: #fff !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+.movements-reset-btn:active {
+    transform: scale(0.97);
+}
+
+/* ==========================================================================
+   LIVE COCKPIT PRINTER CARDS (MODULAR FEATURE)
+   To disable/revert: set ENABLE_COCKPIT_CARDS = false in app.js
+   or delete this block.
+   ========================================================================== */
+
+.cockpit-card {
+    position: relative;
+    overflow: hidden;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(135deg, rgba(26, 32, 44, 0.85) 0%, rgba(15, 20, 30, 0.9) 100%);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cockpit-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(99, 102, 241, 0.4);
+    box-shadow: 0 12px 36px -8px rgba(99, 102, 241, 0.25);
+}
+
+/* Header */
+.cockpit-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.cockpit-title-group {
+    flex: 1;
+    min-width: 0;
+}
+
+.cockpit-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 3px;
+}
+
+.cockpit-printer-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cockpit-file-name {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.cockpit-quick-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* Quick Action Buttons */
+.btn-cockpit-quick {
+    height: 32px;
+    padding: 0 9px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.btn-cockpit-quick:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.btn-cockpit-quick:active {
+    transform: scale(0.95);
+}
+
+/* LED Light Button */
+.btn-cockpit-light {
+    width: 32px;
+    padding: 0;
+}
+
+.btn-cockpit-light.active {
+    background: rgba(245, 158, 11, 0.22);
+    border-color: rgba(245, 158, 11, 0.7);
+    color: #fbbf24;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.45);
+}
+
+/* Speed Button */
+.btn-cockpit-speed {
+    min-width: 58px;
+}
+
+.btn-cockpit-speed:hover {
+    border-color: var(--primary);
+    color: #fff;
+}
+
+/* Body / Central Section */
+.cockpit-body {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 2px 0;
+}
+
+/* Circular SVG Progress Ring */
+.cockpit-ring-container {
+    position: relative;
+    width: 86px;
+    height: 86px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cockpit-ring-svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+    overflow: visible;
+}
+
+.cockpit-ring-bg {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.08);
+    stroke-width: 6.5;
+}
+
+.cockpit-ring-fill {
+    fill: none;
+    stroke-width: 6.5;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.6s ease, stroke 0.3s ease;
+}
+
+.cockpit-ring-fill.ring-running {
+    stroke: var(--emerald);
+    filter: drop-shadow(0 0 6px var(--emerald-glow));
+}
+
+.cockpit-ring-fill.ring-pause {
+    stroke: var(--amber);
+    filter: drop-shadow(0 0 6px var(--amber-glow));
+}
+
+.cockpit-ring-fill.ring-failed {
+    stroke: var(--rose);
+    filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.5));
+}
+
+.cockpit-ring-fill.ring-idle {
+    stroke: var(--cyan);
+    filter: drop-shadow(0 0 4px var(--cyan));
+}
+
+.cockpit-ring-fill.ring-offline {
+    stroke: #64748b;
+}
+
+.cockpit-ring-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+.cockpit-ring-pct {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.1;
+    color: #fff;
+    letter-spacing: -0.5px;
+}
+
+.cockpit-ring-layer {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.2;
+    margin-top: 2px;
+    max-width: 70px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Telemetry Grid beside circular progress */
+.cockpit-telemetry-grid {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px 10px;
+}
+
+.cockpit-tele-box {
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+
+.cockpit-tele-lbl {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cockpit-tele-val {
+    font-size: 12px;
+    font-weight: 600;
+    color: #f1f5f9;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* AMS Slots Strip */
+.cockpit-ams-strip {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+}
+
+.cockpit-ams-slot {
+    flex: 1;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 6px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.cockpit-ams-slot.active {
+    background: rgba(16, 185, 129, 0.08);
+    border-color: rgba(16, 185, 129, 0.6);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.cockpit-ams-slot.empty {
+    opacity: 0.45;
+    border-style: dashed;
+}
+
+.cockpit-ams-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.cockpit-ams-slot.active .cockpit-ams-head {
+    color: var(--emerald);
+}
+
+.cockpit-ams-color-pill {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+.cockpit-ams-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.cockpit-ams-type {
+    font-size: 10px;
+    font-weight: 600;
+    color: #e2e8f0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+}
+
+.cockpit-ams-grams {
+    font-size: 9px;
+    color: var(--text-muted);
+    line-height: 1.1;
+    margin-top: 1px;
+}
+
+.cockpit-ams-fill-bar {
+    width: 100%;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 2px;
+}
+
+.cockpit-ams-fill-inner {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+/* Single External Spool for Non-AMS */
+.cockpit-single-spool {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.cockpit-single-spool.active {
+    border-color: rgba(16, 185, 129, 0.6);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+
+@media (max-width: 380px) {
+    .cockpit-ring-container {
+        width: 76px;
+        height: 76px;
+    }
+    .cockpit-ring-pct {
+        font-size: 15px;
+    }
+    .cockpit-body {
+        gap: 10px;
+    }
+    .cockpit-ams-slot {
+        padding: 5px 4px;
+    }
+}
+
+
+

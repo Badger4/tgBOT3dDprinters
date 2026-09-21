@@ -2,6 +2,7 @@
 Commercial presets, history, health check, global settings, and WebApp static index routes.
 """
 
+import html
 import time
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,7 @@ from aiohttp import web
 
 import config
 from config import ADMIN_CHAT_ID, TELEGRAM_BOT_TOKEN, __version__, logger
-from models.commercial import calculate_commercial_price
+from models.commercial import calculate_commercial_price, validate_val_or_percent
 from services.http.auth import check_auth, verify_telegram_init_data
 
 START_TIME = time.time()
@@ -52,7 +53,11 @@ async def handle_serve_index(request: web.Request) -> web.StreamResponse:
     index_file = WEBAPP_DIR / "index.html"
     if not index_file.exists():
         return web.Response(text="<h1>WebApp index.html not found</h1>", content_type="text/html", status=404)
-    return web.FileResponse(index_file)
+    resp = web.FileResponse(index_file)
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -74,17 +79,14 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 def sanitize_commercial_presets(presets: dict[str, Any]) -> dict[str, Any]:
-    """Purges any preset entries containing test / demo / sample markers."""
+    """Sanitizes preset entries and ensures valid dictionaries."""
     if not isinstance(presets, dict):
         return {}
     clean = {}
-    test_keywords = {"test", "тест", "тестовий", "sample", "demo"}
     for pid, p in presets.items():
         if not isinstance(p, dict):
             continue
-        p_id_str = str(p.get("id") or pid).lower()
-        p_name_str = str(p.get("name") or "").lower()
-        if any(kw in p_id_str or kw in p_name_str for kw in test_keywords):
+        if not p.get("name"):
             continue
         clean[pid] = p
     return clean
@@ -136,39 +138,62 @@ async def handle_save_preset(request: web.Request) -> web.Response:
         data = await request.json()
         p_id = data.get("id") or f"preset_{int(time.time())}"
 
-        name = str(data.get("name") or "Новий пресет").strip()
-        test_keywords = {"test", "тест", "тестовий", "sample", "demo"}
-        if any(kw in name.lower() or kw in str(p_id).lower() for kw in test_keywords):
-            return web.json_response({"error": "Тестові назви пресетів заборонені"}, status=400)
+        name = str(data.get("name") or "").strip()
+        if not name:
+            return web.json_response({"error": "Назва пресету не може бути порожньою"}, status=400)
 
         raw_price = data.get("price_per_g")
         try:
-            price_g = float(raw_price) if raw_price is not None else 0.85
+            val_p = float(str(raw_price).replace(",", ".")) if raw_price is not None else 0.85
+            if val_p <= 0:
+                val_p = 0.85
+            price_g = val_p / 1000.0 if val_p >= 50 else val_p
         except (ValueError, TypeError):
             price_g = 0.85
 
         raw_elec = data.get("electricity_rate_uah")
         try:
-            elec_rate = float(raw_elec) if raw_elec is not None else 4.32
+            val_e = float(str(raw_elec).replace(",", ".")) if raw_elec is not None else 4.32
+            if val_e < 0:
+                val_e = 4.32
+            elec_rate = val_e
         except (ValueError, TypeError):
             elec_rate = 4.32
 
         raw_power = data.get("power_watts")
         try:
-            power_w = float(raw_power) if raw_power is not None else 120.0
+            val_pw = float(str(raw_power).replace(",", ".")) if raw_power is not None else 120.0
+            if val_pw < 0:
+                val_pw = 120.0
+            power_w = val_pw
         except (ValueError, TypeError):
             power_w = 120.0
+
+        raw_depr = str(data.get("depreciation_val") or "10")
+        ok_d, depr_clean = validate_val_or_percent(raw_depr)
+        if not ok_d:
+            return web.json_response({"error": f"Амортизація: {depr_clean}"}, status=400)
+
+        raw_cons = str(data.get("consumables_val") or "5")
+        ok_c, cons_clean = validate_val_or_percent(raw_cons)
+        if not ok_c:
+            return web.json_response({"error": f"Витратники: {cons_clean}"}, status=400)
+
+        raw_profit = str(data.get("profit_val") or "100%")
+        ok_pr, profit_clean = validate_val_or_percent(raw_profit)
+        if not ok_pr:
+            return web.json_response({"error": f"Прибуток: {profit_clean}"}, status=400)
 
         presets = await load_commercial_presets(app_obj)
         presets[p_id] = {
             "id": p_id,
-            "name": str(data.get("name") or "Новий пресет"),
+            "name": name,
             "price_per_g": price_g,
             "electricity_rate_uah": elec_rate,
             "power_watts": power_w,
-            "depreciation_val": str(data.get("depreciation_val") or "10"),
-            "consumables_val": str(data.get("consumables_val") or "5"),
-            "profit_val": str(data.get("profit_val") or "100%"),
+            "depreciation_val": depr_clean,
+            "consumables_val": cons_clean,
+            "profit_val": profit_clean,
         }
         presets_file = get_presets_file(app_obj)
         await app_obj.storage.save_json(presets_file, presets)
@@ -346,7 +371,91 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
 
         calc = calculate_commercial_price(preset, weight_g, time_mins)
         preset_name = preset.get("name", "За замовчуванням")
+
+        if request.query.get("send_telegram") == "1":
+            from services.report_generator import generate_commercial_calc_pdf
+            from aiogram.types import BufferedInputFile
+            from aiogram.enums import ParseMode
+            import config
+
+            bot = getattr(app_obj, "bot", None)
+            if not bot:
+                return web.json_response({"error": "Бот зараз не активний"}, status=503)
+
+            u_id = get_authenticated_user_id(request) or getattr(config, "ADMIN_CHAT_ID", None)
+            if not u_id:
+                return web.json_response({"error": "Користувача не ідентифіковано"}, status=400)
+
+            pdf_bytes = generate_commercial_calc_pdf(calc, filename=request.query.get("filename"), lang="uk")
+            fname = f"commercial_quote_{int(time.time())}.pdf"
+            doc_file = BufferedInputFile(pdf_bytes, filename=fname)
+            cap = (
+                f"💼 <b>Розрахунок вартості друку</b>\n"
+                f"Пресет: <b>{html.escape(preset_name)}</b>\n"
+                f"Вага: <b>{weight_g:.1f} г</b> | Час: <b>~{time_mins} хв</b>\n"
+                f"🏷️ <b>Підсумкова ціна: {calc.get('total_price', 0):.2f} ₴</b>"
+            )
+            try:
+                await bot.send_document(chat_id=int(u_id), document=doc_file, caption=cap, parse_mode=ParseMode.HTML)
+                return web.json_response({"status": "ok", "message": "PDF успішно надіслано в чат!"})
+            except Exception as ex:
+                logger.error(f"Failed to send PDF to user {u_id}: {ex}")
+                return web.json_response({"error": f"Помилка відправки в Telegram: {ex}"}, status=500)
+
+        req_format = request.query.get("format", "").lower()
+        if req_format != "html":
+            from services.report_generator import generate_commercial_calc_pdf
+            pdf_bytes = generate_commercial_calc_pdf(calc, filename=request.query.get("filename"), lang="uk")
+            fname = f"commercial_quote_{int(time.time())}.pdf"
+            disp_type = "inline" if request.query.get("inline") == "1" else "attachment"
+            return web.Response(
+                body=pdf_bytes,
+                headers={
+                    "Content-Type": "application/pdf",
+                    "Content-Disposition": f'{disp_type}; filename="{fname}"; filename*=UTF-8\'\'{fname}',
+                },
+            )
+
+        import urllib.parse
+        q_dict = dict(request.query)
+        q_dict["format"] = "pdf"
+        pdf_download_url = f"/api/commercial/export_pdf?{urllib.parse.urlencode(q_dict)}"
+
         date_str = time.strftime("%Y-%m-%d %H:%M")
+
+        pr_g = float(calc.get("price_per_g", preset.get("price_per_g", 0.85)))
+        pr_kg = pr_g * 1000.0
+        elec_rate = float(calc.get("electricity_rate_uah", preset.get("electricity_rate_uah", 4.32)))
+        power_w = float(calc.get("power_watts", preset.get("power_watts", 120.0)))
+        time_hours = float(calc.get("time_hours", time_mins / 60.0))
+        direct_cost = float(calc.get("direct_cost", 0.0))
+        depr_str = str(calc.get("depreciation_str", "-"))
+        cons_str = str(calc.get("consumables_str", "-"))
+        profit_str = str(calc.get("profit_str", "-"))
+        profit_is_pct = calc.get("profit_is_pct", False)
+
+        if profit_is_pct or "%" in profit_str:
+            formatted_profit = f"+{profit_str.lstrip('+')}" if not profit_str.startswith("+") else profit_str
+        else:
+            try:
+                val = float(profit_str)
+                formatted_profit = f"{val:.2f} ₴"
+            except ValueError:
+                formatted_profit = f"{profit_str} ₴"
+
+        if "%" in depr_str:
+            depr_model = f"База: {direct_cost:.2f} ₴"
+            depr_preset = f"Ставка: {depr_str}"
+        else:
+            depr_model = f"Час: {time_hours:.2f} год"
+            depr_preset = f"{depr_str} ₴/год" if not depr_str.endswith("₴/год") and not depr_str.endswith("грн") else depr_str
+
+        if "%" in cons_str:
+            cons_model = f"База: {direct_cost:.2f} ₴"
+            cons_preset = f"Ставка: {cons_str}"
+        else:
+            cons_model = f"Час: {time_hours:.2f} год"
+            cons_preset = f"{cons_str} ₴/год" if not cons_str.endswith("₴/год") and not cons_str.endswith("грн") else cons_str
 
         html_content = f"""<!DOCTYPE html>
 <html lang="uk">
@@ -354,30 +463,53 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Звіт розрахунку вартості друку</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
     @page {{ size: A4 portrait; margin: 8mm; }}
     * {{ box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 12px; font-size: 11px; }}
-    .container {{ width: 100%; max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }}
+    .container {{ width: 100%; max-width: 620px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }}
     .header {{ border-bottom: 2px solid #4f46e5; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }}
     h2 {{ margin: 0; color: #4f46e5; font-size: 16px; display: flex; align-items: center; gap: 6px; }}
     .summary-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-size: 11px; }}
-    table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11px; table-layout: fixed; }}
-    th, td {{ padding: 6px 8px; border: 1px solid #cbd5e1; word-wrap: break-word; }}
+    .table-responsive {{ width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 12px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; }}
+    table {{ width: 100%; border-collapse: collapse; margin: 0; font-size: 11px; min-width: 480px; }}
+    th, td {{ padding: 7px 9px; border: 1px solid #e2e8f0; }}
     th {{ background: #4f46e5 !important; color: #fff !important; font-weight: 600; text-align: left; }}
     .total-box {{ background: #eef2ff; border: 2px solid #4f46e5; border-radius: 6px; padding: 12px; text-align: right; font-size: 16px; font-weight: bold; color: #4f46e5; }}
-    .btn-print {{ display: block; width: 100%; max-width: 240px; margin: 0 auto 12px; padding: 8px 16px; background: #4f46e5; color: #fff; text-align: center; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; }}
+    .btn-row {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 auto 14px; max-width: 540px; width: 100%; }}
+    @media (max-width: 520px) {{
+        .btn-row {{ grid-template-columns: 1fr; }}
+    }}
+    .btn-action {{ width: 100%; padding: 10px 12px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: center; transition: all 0.15s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.1); box-sizing: border-box; }}
+    .btn-action:active {{ transform: scale(0.98); }}
+    .btn-tg {{ background: #0284c7; color: #fff !important; }}
+    .btn-pdf {{ background: #4f46e5; color: #fff !important; }}
+    .btn-print {{ background: #64748b; color: #fff !important; }}
+    .toast-msg {{ display: none; margin: 0 auto 12px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #10b981; color: #065f46; border-radius: 6px; font-weight: 600; text-align: center; max-width: 540px; font-size: 12px; }}
     @media print {{
         body {{ background: #fff; padding: 0; }}
         .container {{ box-shadow: none; border: none; padding: 0; max-width: 100%; }}
         .no-print {{ display: none !important; }}
+        .table-responsive {{ border: none; overflow: visible; }}
     }}
 </style>
 </head>
 <body>
 <div class="container">
     <div class="no-print">
-        <button onclick="window.print()" class="btn-print">🖨️ Зберегти як PDF / Друк</button>
+        <div id="toast" class="toast-msg"></div>
+        <div class="btn-row">
+            <button type="button" id="btn-send-tg" onclick="sendToTelegram(this)" class="btn-action btn-tg">
+                💬 Надіслати в Telegram
+            </button>
+            <a id="btn-direct-download" href="{pdf_download_url}" target="_blank" download="commercial_quote_{int(time.time())}.pdf" class="btn-action btn-pdf" onclick="handleDirectDownload(event, this)">
+                📥 Зберегти як PDF
+            </a>
+            <button type="button" onclick="handlePrint()" class="btn-action btn-print">
+                🖨️ Друк
+            </button>
+        </div>
     </div>
     <div class="header">
         <div>
@@ -390,25 +522,156 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
         <div><strong>Пресет:</strong> {preset_name}</div>
         <div><strong>Вага нитки:</strong> {weight_g:.1f} г</div>
         <div><strong>Час друку:</strong> {time_mins} хв</div>
-        <div><strong>Маржа:</strong> {calc.get("profit_margin_pct", 0)}%</div>
+        <div><strong>Маржа / Націнка:</strong> {formatted_profit}</div>
     </div>
-    <table>
-        <thead><tr><th style="width: 70%;">Стаття витрат</th><th style="width: 30%; text-align:right;">Сума</th></tr></thead>
-        <tbody>
-            <tr><td>Пластик (матеріал)</td><td style="text-align:right;">{calc.get("filament_cost", 0):.2f} ₴</td></tr>
-            <tr><td>Електроенергія</td><td style="text-align:right;">{calc.get("electricity_cost", 0):.2f} ₴</td></tr>
-            <tr><td>Амортизація обладнання</td><td style="text-align:right;">{calc.get("depreciation_cost", 0):.2f} ₴</td></tr>
-            <tr><td>Витратні матеріали</td><td style="text-align:right;">{calc.get("consumables_cost", 0):.2f} ₴</td></tr>
-            <tr style="font-weight:bold; background:#f8fafc;"><td>Собівартість (прямі витрати)</td><td style="text-align:right;">{calc.get("direct_cost", 0):.2f} ₴</td></tr>
-            <tr style="font-weight:bold; color:#16a34a; background:#f8fafc;"><td>Прибуток (Маржа)</td><td style="text-align:right; color:#16a34a;">{calc.get("profit_amount", 0):.2f} ₴</td></tr>
-        </tbody>
-    </table>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 32%;">Стаття витрат</th>
+                    <th style="width: 24%;">Дані моделі</th>
+                    <th style="width: 26%;">Дані пресета</th>
+                    <th style="width: 18%; text-align:right;">Сума</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>🧵 Пластик (матеріал)</td>
+                    <td>Вага: {weight_g:.1f} г</td>
+                    <td>{pr_g:.2f} ₴/г ({pr_kg:.0f} ₴/кг)</td>
+                    <td style="text-align:right;">{calc.get("filament_cost", 0):.2f} ₴</td>
+                </tr>
+                <tr>
+                    <td>⚡ Електроенергія</td>
+                    <td>Час: ~{time_mins} хв ({time_hours:.2f} год)</td>
+                    <td>{power_w:.0f} Вт | {elec_rate:.2f} ₴/кВт·год</td>
+                    <td style="text-align:right;">{calc.get("electricity_cost", 0):.2f} ₴</td>
+                </tr>
+                <tr>
+                    <td>🔧 Амортизація обладнання</td>
+                    <td>{depr_model}</td>
+                    <td>{depr_preset}</td>
+                    <td style="text-align:right;">{calc.get("depreciation_cost", 0):.2f} ₴</td>
+                </tr>
+                <tr>
+                    <td>🧼 Витратні матеріали та ТО</td>
+                    <td>{cons_model}</td>
+                    <td>{cons_preset}</td>
+                    <td style="text-align:right;">{calc.get("consumables_cost", 0):.2f} ₴</td>
+                </tr>
+                <tr style="font-weight:bold; background:#f8fafc;">
+                    <td>💵 Собівартість (прямі витрати)</td>
+                    <td>{weight_g:.1f} г | ~{time_mins} хв</td>
+                    <td>Прямі витрати + амортизація</td>
+                    <td style="text-align:right;">{calc.get("cost_before_profit", 0):.2f} ₴</td>
+                </tr>
+                <tr style="font-weight:bold; color:#16a34a; background:#f8fafc;">
+                    <td>💼 Прибуток (Маржа)</td>
+                    <td>База: {calc.get("cost_before_profit", 0):.2f} ₴</td>
+                    <td>Націнка: {formatted_profit}</td>
+                    <td style="text-align:right; color:#16a34a;">{calc.get("profit_cost", 0):.2f} ₴</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
     <div class="total-box">
         Підсумкова ціна: {calc.get("total_price", 0):.2f} ₴
     </div>
 </div>
 <script>
-    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 400); }};
+function showToast(text, isError) {{
+    var t = document.getElementById('toast');
+    if (!t) return;
+    t.innerHTML = text;
+    t.style.display = 'block';
+    t.style.background = isError ? '#fef2f2' : '#ecfdf5';
+    t.style.borderColor = isError ? '#ef4444' : '#10b981';
+    t.style.color = isError ? '#991b1b' : '#065f46';
+    setTimeout(function() {{
+        t.style.display = 'none';
+    }}, 6000);
+}}
+
+function sendToTelegram(btn) {{
+    var origText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Надсилаємо...';
+
+    var targetUrl = new URL(window.location.href);
+    targetUrl.searchParams.set('send_telegram', '1');
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {{
+        targetUrl.searchParams.set('initData', window.Telegram.WebApp.initData);
+    }}
+    try {{
+        var st = localStorage.getItem('web_session_token');
+        if (st && !targetUrl.searchParams.has('token')) targetUrl.searchParams.set('token', st);
+    }} catch(e) {{}}
+
+    fetch(targetUrl.toString(), {{
+        credentials: 'include',
+        headers: {{ 'ngrok-skip-browser-warning': 'true' }}
+    }})
+    .then(function(res) {{
+        if (!res.ok) {{
+            return res.json().then(function(j) {{ throw new Error(j.error || ('HTTP ' + res.status)); }});
+        }}
+        return res.json();
+    }})
+    .then(function(data) {{
+        if (data.status === 'ok') {{
+            btn.innerHTML = '✅ Надіслано в чат!';
+            showToast('✅ PDF успішно надіслано вам у чат Telegram! Перевірте повідомлення від бота.', false);
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {{
+                window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+            }}
+            setTimeout(function() {{
+                btn.innerHTML = origText;
+                btn.disabled = false;
+            }}, 4000);
+        }} else {{
+            throw new Error(data.error || 'Помилка надсилання');
+        }}
+    }})
+    .catch(function(err) {{
+        btn.disabled = false;
+        btn.innerHTML = origText;
+        showToast('⚠️ ' + err.message, true);
+    }});
+}}
+
+function handleDirectDownload(e, link) {{
+    if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.downloadFile === 'function') {{
+        try {{
+            window.Telegram.WebApp.downloadFile({{
+                url: link.href,
+                filename: link.getAttribute('download') || 'commercial_quote.pdf'
+            }});
+            showToast('⏳ Завантаження розпочато...', false);
+        }} catch (err) {{
+            console.warn("downloadFile failed:", err);
+        }}
+    }}
+}}
+
+function handlePrint() {{
+    var isTgMobile = window.Telegram && window.Telegram.WebApp && 
+                     (window.Telegram.WebApp.platform === 'android' || 
+                      window.Telegram.WebApp.platform === 'ios' || 
+                      /android|iphone|ipad|ipod/i.test(navigator.userAgent));
+    if (isTgMobile) {{
+        showToast("ℹ️ У мобільному Telegram прямий друк недоступний усередині застосунку. Скористайтеся 'Надіслати в Telegram' або 'Зберегти як PDF'.", false);
+        try {{
+            window.print();
+        }} catch(e) {{}}
+        return;
+    }}
+    try {{
+        window.print();
+    }} catch(err) {{
+        console.warn("Print error:", err);
+        showToast("⚠️ Друк не підтримується цим переглядачем. Скористайтеся 'Зберегти як PDF'.", true);
+    }}
+}}
 </script>
 </body>
 </html>"""
@@ -425,10 +688,54 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
     try:
         app_obj = request.app["app_obj"]
         history = await app_obj.storage.load_history()
-        date_str = time.strftime("%Y-%m-%d %H:%M")
-
         total_prints = len(history)
-        total_weight_g = 0.0
+        total_weight_g = sum(float(item.get("weight_g", 0.0) or 0.0) for item in history)
+
+        if request.query.get("send_telegram") == "1":
+            from services.report_generator import generate_history_pdf_report
+            from aiogram.types import BufferedInputFile
+            from aiogram.enums import ParseMode
+            import config
+
+            bot = getattr(app_obj, "bot", None)
+            if not bot:
+                return web.json_response({"error": "Бот зараз не активний"}, status=503)
+
+            u_id = get_authenticated_user_id(request) or getattr(config, "ADMIN_CHAT_ID", None)
+            if not u_id:
+                return web.json_response({"error": "Користувача не ідентифіковано"}, status=400)
+
+            pdf_bytes = generate_history_pdf_report(history)
+            fname = f"print_history_{int(time.time())}.pdf"
+            doc_file = BufferedInputFile(pdf_bytes, filename=fname)
+            cap = f"📊 <b>Звіт історії друку</b>\nВиконано робіт: <b>{total_prints}</b>\nВитрачено пластику: <b>{(total_weight_g/1000.0):.2f} кг</b>"
+            try:
+                await bot.send_document(chat_id=int(u_id), document=doc_file, caption=cap, parse_mode=ParseMode.HTML)
+                return web.json_response({"status": "ok", "message": "PDF успішно надіслано в чат!"})
+            except Exception as ex:
+                logger.error(f"Failed to send history PDF to user {u_id}: {ex}")
+                return web.json_response({"error": f"Помилка відправки в Telegram: {ex}"}, status=500)
+
+        req_format = request.query.get("format", "").lower()
+        if req_format != "html":
+            from services.report_generator import generate_history_pdf_report
+            pdf_bytes = generate_history_pdf_report(history)
+            fname = f"print_history_{int(time.time())}.pdf"
+            disp_type = "inline" if request.query.get("inline") == "1" else "attachment"
+            return web.Response(
+                body=pdf_bytes,
+                headers={
+                    "Content-Type": "application/pdf",
+                    "Content-Disposition": f'{disp_type}; filename="{fname}"; filename*=UTF-8\'\'{fname}',
+                },
+            )
+
+        import urllib.parse
+        q_dict = dict(request.query)
+        q_dict["format"] = "pdf"
+        pdf_download_url = f"/api/history/export_pdf?{urllib.parse.urlencode(q_dict)}"
+
+        date_str = time.strftime("%Y-%m-%d %H:%M")
 
         rows_html = ""
         for idx, item in enumerate(reversed(history), 1):
@@ -442,8 +749,6 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
             filament = item.get("filament_type", "PLA")
             weight_g = float(item.get("weight_g", 0.0) or 0.0)
             note = item.get("note", "Успішно")
-
-            total_weight_g += weight_g
 
             rows_html += f"""
             <tr>
@@ -463,6 +768,7 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Звіт історії друку</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
     @page {{ size: A4 portrait; margin: 8mm; }}
     * {{ box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
@@ -473,22 +779,44 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
     .summary-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 12px; text-align: center; }}
     .summary-item {{ font-size: 11px; color: #475569; }}
     .summary-item strong {{ display: block; font-size: 14px; color: #1e293b; margin-top: 2px; }}
-    table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10.5px; table-layout: fixed; }}
-    th, td {{ padding: 5px 6px; border: 1px solid #cbd5e1; word-wrap: break-word; overflow-wrap: break-word; }}
+    table {{ width: 100%; border-collapse: collapse; margin: 0; font-size: 10.5px; min-width: 620px; }}
+    th, td {{ padding: 6px 8px; border: 1px solid #e2e8f0; }}
     th {{ background: #4f46e5 !important; color: #fff !important; font-weight: 600; text-align: left; }}
     tr:nth-child(even) {{ background: #f8fafc; }}
-    .btn-print {{ display: block; width: 100%; max-width: 240px; margin: 0 auto 12px; padding: 8px 16px; background: #4f46e5; color: #fff; text-align: center; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; }}
+    .table-responsive {{ width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 12px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; }}
+    .btn-row {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 auto 14px; max-width: 540px; width: 100%; }}
+    @media (max-width: 520px) {{
+        .btn-row {{ grid-template-columns: 1fr; }}
+    }}
+    .btn-action {{ width: 100%; padding: 10px 12px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: center; transition: all 0.15s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.1); box-sizing: border-box; }}
+    .btn-action:active {{ transform: scale(0.98); }}
+    .btn-tg {{ background: #0284c7; color: #fff !important; }}
+    .btn-pdf {{ background: #4f46e5; color: #fff !important; }}
+    .btn-print {{ background: #64748b; color: #fff !important; }}
+    .toast-msg {{ display: none; margin: 0 auto 12px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #10b981; color: #065f46; border-radius: 6px; font-weight: 600; text-align: center; max-width: 540px; font-size: 12px; }}
     @media print {{
         body {{ background: #fff; padding: 0; }}
         .container {{ box-shadow: none; border: none; padding: 0; max-width: 100%; }}
         .no-print {{ display: none !important; }}
+        .table-responsive {{ border: none; overflow: visible; }}
     }}
 </style>
 </head>
 <body>
 <div class="container">
     <div class="no-print">
-        <button onclick="window.print()" class="btn-print">🖨️ Зберегти як PDF / Друк</button>
+        <div id="toast" class="toast-msg"></div>
+        <div class="btn-row">
+            <button type="button" id="btn-send-tg" onclick="sendToTelegram(this)" class="btn-action btn-tg">
+                💬 Надіслати в Telegram
+            </button>
+            <a id="btn-direct-download" href="{pdf_download_url}" target="_blank" download="print_history_{int(time.time())}.pdf" class="btn-action btn-pdf" onclick="handleDirectDownload(event, this)">
+                📥 Зберегти як PDF
+            </a>
+            <button type="button" onclick="handlePrint()" class="btn-action btn-print">
+                🖨️ Друк
+            </button>
+        </div>
     </div>
     <div class="header">
         <div>
@@ -501,25 +829,119 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
         <div class="summary-item">Всього виконано завдань: <strong>{total_prints}</strong></div>
         <div class="summary-item">Витрачено пластику: <strong>{(total_weight_g/1000.0):.2f} кг</strong> ({total_weight_g:.1f}г)</div>
     </div>
-    <table>
-        <thead>
-            <tr>
-                <th style="width: 6%; text-align:center;">№</th>
-                <th style="width: 18%;">Дата</th>
-                <th style="width: 18%;">Принтер</th>
-                <th style="width: 26%;">Модель</th>
-                <th style="width: 10%; text-align:center;">Пластик</th>
-                <th style="width: 10%; text-align:right;">Вага</th>
-                <th style="width: 12%;">Результат</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows_html if rows_html else '<tr><td colspan="7" style="text-align:center; padding:15px; color:#64748b;">Історія порожня</td></tr>'}
-        </tbody>
-    </table>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 6%; text-align:center;">№</th>
+                    <th style="width: 18%;">Дата</th>
+                    <th style="width: 18%;">Принтер</th>
+                    <th style="width: 26%;">Модель</th>
+                    <th style="width: 10%; text-align:center;">Пластик</th>
+                    <th style="width: 10%; text-align:right;">Вага</th>
+                    <th style="width: 12%;">Результат</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html if rows_html else '<tr><td colspan="7" style="text-align:center; padding:15px; color:#64748b;">Історія порожня</td></tr>'}
+            </tbody>
+        </table>
+    </div>
 </div>
 <script>
-    window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 400); }};
+function showToast(text, isError) {{
+    var t = document.getElementById('toast');
+    if (!t) return;
+    t.innerHTML = text;
+    t.style.display = 'block';
+    t.style.background = isError ? '#fef2f2' : '#ecfdf5';
+    t.style.borderColor = isError ? '#ef4444' : '#10b981';
+    t.style.color = isError ? '#991b1b' : '#065f46';
+    setTimeout(function() {{
+        t.style.display = 'none';
+    }}, 6000);
+}}
+
+function sendToTelegram(btn) {{
+    var origText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Надсилаємо...';
+
+    var targetUrl = new URL(window.location.href);
+    targetUrl.searchParams.set('send_telegram', '1');
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {{
+        targetUrl.searchParams.set('initData', window.Telegram.WebApp.initData);
+    }}
+    try {{
+        var st = localStorage.getItem('web_session_token');
+        if (st && !targetUrl.searchParams.has('token')) targetUrl.searchParams.set('token', st);
+    }} catch(e) {{}}
+
+    fetch(targetUrl.toString(), {{
+        credentials: 'include',
+        headers: {{ 'ngrok-skip-browser-warning': 'true' }}
+    }})
+    .then(function(res) {{
+        if (!res.ok) {{
+            return res.json().then(function(j) {{ throw new Error(j.error || ('HTTP ' + res.status)); }});
+        }}
+        return res.json();
+    }})
+    .then(function(data) {{
+        if (data.status === 'ok') {{
+            btn.innerHTML = '✅ Надіслано в чат!';
+            showToast('✅ PDF успішно надіслано вам у чат Telegram! Перевірте повідомлення від бота.', false);
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {{
+                window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+            }}
+            setTimeout(function() {{
+                btn.innerHTML = origText;
+                btn.disabled = false;
+            }}, 4000);
+        }} else {{
+            throw new Error(data.error || 'Помилка надсилання');
+        }}
+    }})
+    .catch(function(err) {{
+        btn.disabled = false;
+        btn.innerHTML = origText;
+        showToast('⚠️ ' + err.message, true);
+    }});
+}}
+
+function handleDirectDownload(e, link) {{
+    if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.downloadFile === 'function') {{
+        try {{
+            window.Telegram.WebApp.downloadFile({{
+                url: link.href,
+                filename: link.getAttribute('download') || 'print_history.pdf'
+            }});
+            showToast('⏳ Завантаження розпочато...', false);
+        }} catch (err) {{
+            console.warn("downloadFile failed:", err);
+        }}
+    }}
+}}
+
+function handlePrint() {{
+    var isTgMobile = window.Telegram && window.Telegram.WebApp && 
+                     (window.Telegram.WebApp.platform === 'android' || 
+                      window.Telegram.WebApp.platform === 'ios' || 
+                      /android|iphone|ipad|ipod/i.test(navigator.userAgent));
+    if (isTgMobile) {{
+        showToast("ℹ️ У мобільному Telegram прямий друк недоступний усередині застосунку. Скористайтеся 'Надіслати в Telegram' або 'Зберегти як PDF'.", false);
+        try {{
+            window.print();
+        }} catch(e) {{}}
+        return;
+    }}
+    try {{
+        window.print();
+    }} catch(err) {{
+        console.warn("Print error:", err);
+        showToast("⚠️ Друк не підтримується цим переглядачем. Скористайтеся 'Зберегти як PDF'.", true);
+    }}
+}}
 </script>
 </body>
 </html>"""

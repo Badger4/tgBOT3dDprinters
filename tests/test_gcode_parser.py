@@ -80,6 +80,29 @@ class TestGcodeParser(unittest.TestCase):
         self.assertFalse(res2["compatible"])
         self.assertEqual(res2["level"], "BLOCK")
 
+        # Cross-platform warning (Option 2): P1S gcode on X1E is conditionally compatible with WARNING
+        res_x1e = check_compatibility("Bambu Lab P1S", "PETG", "Bambu Lab X1E")
+        self.assertTrue(res_x1e["compatible"])
+        self.assertEqual(res_x1e["level"], "WARNING")
+        self.assertEqual(res_x1e["reason_type"], "MODEL_WARN")
+
+        # P1S gcode on printer object with custom name and printer_model='X1E' -> conditionally compatible
+        class MockPrinter:
+            def __init__(self, name, model):
+                self.name = name
+                self.printer_model = model
+                self.has_ams = False
+        p_x1e = MockPrinter("Custom Nickname", "X1E")
+        res_custom = check_compatibility("Bambu Lab P1S", "PETG", p_x1e.name, "PETG", printer=p_x1e)
+        self.assertTrue(res_custom["compatible"])
+        self.assertEqual(res_custom["level"], "WARNING")
+        self.assertEqual(res_custom["reason_type"], "MODEL_WARN")
+
+        # Compatible model: P1S gcode on printer object with custom name and printer_model='P1S'
+        p_p1s = MockPrinter("Custom Nickname", "P1S")
+        res_p1s = check_compatibility("Bambu Lab P1S", "PETG", p_p1s.name, "PETG", printer=p_p1s)
+        self.assertTrue(res_p1s["compatible"])
+
         # Material mismatch test (TPU 3MF vs ABS active spool)
         res4 = check_compatibility("Bambu Lab A1", "TPU", "Bambu Lab A1", "Bambu ABS")
         self.assertFalse(res4["compatible"])
@@ -147,6 +170,66 @@ class TestGcodeParser(unittest.TestCase):
         self.assertEqual(res["time_mins"], 45)
         self.assertEqual(len(res["objects"]), 2)
 
+    def test_parse_3mf_file_nozzle_diameter_gcode(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            gcode_content = """; model printing time: 30m
+            ; nozzle_diameter = 0.2
+            ; total filament weight [g] : 10.0
+            """
+            zf.writestr("Metadata/plate_1.gcode", gcode_content)
+
+        res = parse_3mf_file(buf.getvalue(), "nozzle_02.3mf")
+        self.assertTrue(res["valid"])
+        self.assertEqual(res["nozzle_diameter"], "0.2")
+
+    def test_parse_3mf_file_nozzle_diameter_xml(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            xml_content = """<?xml version="1.0" encoding="UTF-8"?>
+            <config>
+                <header>
+                    <header_item key="nozzle_diameter" value="0.6"/>
+                </header>
+            </config>"""
+            zf.writestr("Metadata/slice_info.config", xml_content)
+
+        res = parse_3mf_file(buf.getvalue(), "nozzle_06.3mf")
+        self.assertTrue(res["valid"])
+        self.assertEqual(res["nozzle_diameter"], "0.6")
+
+    def test_check_compatibility_nozzle(self):
+        class MockPrinter:
+            def __init__(self, name, model, nozzle="0.4"):
+                self.name = name
+                self.printer_model = model
+                self.nozzle_diameter = nozzle
+                self.has_ams = False
+
+        p_04 = MockPrinter("Bambu A1", "A1", "0.4")
+        p_02 = MockPrinter("Bambu A1", "A1", "0.2")
+
+        # Matching nozzle (0.4 vs 0.4)
+        res_ok = check_compatibility("Bambu Lab A1", "PLA", p_04.name, "PLA", printer=p_04, nozzle_diameter="0.4")
+        self.assertTrue(res_ok["compatible"])
+        self.assertEqual(res_ok["sliced_nozzle"], "0.4")
+        self.assertEqual(res_ok["target_nozzle"], "0.4")
+
+        # Mismatched nozzle (file 0.4 vs printer 0.2)
+        res_fail = check_compatibility("Bambu Lab A1", "PLA", p_02.name, "PLA", printer=p_02, nozzle_diameter="0.4")
+        self.assertFalse(res_fail["compatible"])
+        self.assertEqual(res_fail["reason_type"], "NOZZLE")
+        self.assertEqual(res_fail["level"], "BLOCK")
+        self.assertIn("Невідповідність сопла", res_fail["reason"])
+        self.assertEqual(res_fail["sliced_nozzle"], "0.4")
+        self.assertEqual(res_fail["target_nozzle"], "0.2")
+
+        # Tolerance: "0.40" vs "0.4"
+        p_040 = MockPrinter("Bambu A1", "A1", "0.40")
+        res_tol = check_compatibility("Bambu Lab A1", "PLA", p_040.name, "PLA", printer=p_040, nozzle_diameter="0.4")
+        self.assertTrue(res_tol["compatible"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

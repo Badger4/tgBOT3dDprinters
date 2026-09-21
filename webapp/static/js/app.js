@@ -48,13 +48,19 @@ function getBambuModelCode(nameStr) {
     if (s.includes("p1p") || s.includes("@bbl p1p")) {
         return "@BBL P1P";
     }
+    if (s.includes("p1s") || s.includes("@bbl p1s") || s.includes("c12")) {
+        return "@BBL P1S";
+    }
     if (s.includes("p2s") || s.includes("@bbl p2s")) {
         return "@BBL P2S";
     }
     if (s.includes("x2d") || s.includes("@bbl x2d")) {
         return "@BBL X2D";
     }
-    if (s.includes("p1s") || s.includes("x1 carbon") || s.includes("x1c") || s.includes("x1e") || s.includes("x1") || s.includes("@bbl x1c") || s.includes("c12") || s.includes("c10")) {
+    if (s.includes("x1e") || s.includes("@bbl x1e")) {
+        return "@BBL X1E";
+    }
+    if (s.includes("x1 carbon") || s.includes("x1c") || s.includes("x1") || s.includes("@bbl x1c") || s.includes("c10")) {
         return "@BBL X1C";
     }
 
@@ -924,6 +930,315 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // ==========================================================================
+    // PRINTER CARDS: Live Cockpit vs Classic Toggle (Modular feature)
+    // To revert to classic cards at any time, set ENABLE_COCKPIT_CARDS = false
+    // ==========================================================================
+    const ENABLE_COCKPIT_CARDS = true;
+
+    function formatCockpitHexColor(raw) {
+        if (!raw) return "#3b82f6";
+        let s = String(raw).trim();
+        if (s.startsWith("#")) {
+            return s;
+        }
+        if (/^[0-9A-Fa-f]{3,8}$/.test(s)) {
+            return "#" + s;
+        }
+        return "#3b82f6";
+    }
+
+    function renderClassicPrinterCard(p, statusInfo, modelName, isPrinting, progress, timeStr, layerStr, filamentDisplay, hasPhysicalSpool, slotGrams, printerModelVal, serialVal, fullSearchText) {
+        const rawSt = String(p.state || "IDLE").toUpperCase();
+        const st = rawSt;
+        return `
+            <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">
+                <div class="printer-card-header">
+                    <div class="printer-name-group">
+                        <h3>${escapeHtml(p.name)}</h3>
+                        <div class="printer-model-sub"><i class="fa-solid fa-file-code"></i> ${escapeHtml(modelName)}</div>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <span class="status-pill ${statusInfo.badgeClass}">${statusInfo.label}</span>
+                        <button type="button" class="btn-card-gear" data-id="${p.id}" title="Налаштування принтера"><i class="fa-solid fa-gear"></i></button>
+                    </div>
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-header">
+                        <span>Прогрес: ${progress}%</span>
+                        <span>${timeStr}</span>
+                    </div>
+                    <div class="progress-bar-wrap">
+                        <div class="progress-bar ${st === 'PAUSE' || st === 'PAUSED' ? 'amber' : st === 'FAILED' ? 'red' : ''}" style="width: ${progress}%;"></div>
+                    </div>
+                </div>
+
+                <div class="printer-stats-row">
+                    <span><i class="fa-solid fa-temperature-high color-red"></i> ${p.nozzle_temp}°C <small style="opacity:0.75;">(${p.nozzle_diameter || '0.4'}мм)</small></span>
+                    <span><i class="fa-solid fa-hot-tub-person color-orange"></i> ${p.bed_temp}°C</span>
+                    <span><i class="fa-solid fa-layer-group color-blue"></i> ${layerStr}</span>
+                    <span><i class="fa-solid fa-spool ${hasPhysicalSpool ? 'color-purple' : 'text-muted'}" style="${hasPhysicalSpool ? '' : 'opacity:0.4;'}"></i> ${filamentDisplay}</span>
+                </div>
+            </div>`;
+    }
+
+    function renderCockpitPrinterCard(p, statusInfo, modelName, isPrinting, progress, timeStr, layerStr, filamentDisplay, hasPhysicalSpool, slotGrams, printerModelVal, serialVal, fullSearchText, assignedSpools) {
+        const rawSt = String(p.state || "IDLE").toUpperCase();
+        const lightIsOn = (p.chamber_light_state === "on");
+        const spdLvl = parseInt(p.spd_lvl || 2);
+        const speedMeta = {
+            1: { icon: "🐢", pct: "50%", name: "Тихий" },
+            2: { icon: "⚡", pct: "100%", name: "Стандарт" },
+            3: { icon: "🚀", pct: "124%", name: "Спорт" },
+            4: { icon: "🏎️", pct: "166%", name: "Турбо" }
+        };
+        const curSpd = speedMeta[spdLvl] || speedMeta[2];
+
+        // Circular progress calculations (Radius = 35 -> Circumference = 219.91)
+        const validPct = Math.min(100, Math.max(0, Number(progress) || 0));
+        const dashOffset = (219.91 * (1 - (validPct / 100))).toFixed(1);
+
+        let ringClass = "ring-idle";
+        if (isPrinting) ringClass = "ring-running";
+        else if (statusInfo.code === "PAUSE") ringClass = "ring-pause";
+        else if (statusInfo.code === "FAILED") ringClass = "ring-failed";
+        else if (statusInfo.code === "OFFLINE") ringClass = "ring-offline";
+
+        let centerPctText = isPrinting || statusInfo.code === "PAUSE" ? `${validPct}%` : (statusInfo.code === "IDLE" ? "Вільний" : "—");
+        let centerLayerText = isPrinting || statusInfo.code === "PAUSE" ? `Шар ${p.current_layer || 0}/${p.total_layers || 0}` : (statusInfo.code === "IDLE" ? "Готовий" : statusInfo.label);
+
+        // AMS slots strip
+        const hasAms = Boolean(p.has_ams);
+        let amsPanelHtml = "";
+
+        if (hasAms) {
+            const slotKeys = ["0", "1", "2", "3"];
+            const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4" };
+            const activeKey = String(p.active_slot_key || p.active_ams_tray || "255");
+
+            const slotsHtml = slotKeys.map(k => {
+                const isActive = (k === activeKey || String(p.active_ams_tray) === k);
+                const trayInfo = (p.ams_trays_info || {})[k] || {};
+                const assigned = (assignedSpools || []).find(s => String(s.assigned_slot_key) === k);
+                const hasTray = Boolean(!trayInfo.empty && trayInfo.type);
+                const hasAssigned = Boolean(assigned && (assigned.remaining_grams > 0 || assigned.name));
+                const isLoaded = hasTray || hasAssigned;
+
+                if (!isLoaded) {
+                    return `
+                        <div class="cockpit-ams-slot empty ${isActive ? 'active' : ''}">
+                            <div class="cockpit-ams-head">
+                                <span>${slotLabels[k]}${isActive ? ' ⚡' : ''}</span>
+                                <i class="fa-solid fa-ban" style="font-size: 8px; opacity: 0.35;"></i>
+                            </div>
+                            <div class="cockpit-ams-info">
+                                <span class="cockpit-ams-type text-muted">—</span>
+                                <span class="cockpit-ams-grams text-muted">Порожньо</span>
+                            </div>
+                            <div class="cockpit-ams-fill-bar">
+                                <div class="cockpit-ams-fill-inner" style="width: 0%;"></div>
+                            </div>
+                        </div>`;
+                }
+
+                let spoolColor = "#3b82f6";
+                let spoolType = "PLA";
+                let displayGrams = 0;
+                let pct = 0;
+
+                if (assigned) {
+                    spoolColor = formatCockpitHexColor(assigned.color);
+                    spoolType = assigned.type || "PLA";
+                    displayGrams = assigned.remaining_grams !== undefined ? assigned.remaining_grams : 0;
+                    const maxCap = assigned.initial_grams || assigned.total_grams || 1000;
+                    pct = Math.min(100, Math.max(0, Math.round((displayGrams / maxCap) * 100)));
+                } else if (hasTray) {
+                    spoolColor = formatCockpitHexColor(trayInfo.color);
+                    spoolType = trayInfo.type || "PLA";
+                    displayGrams = (p.ams_slots && p.ams_slots[k] !== undefined) ? p.ams_slots[k] : 0;
+                    if (trayInfo.remain !== undefined && trayInfo.remain >= 0) {
+                        pct = trayInfo.remain;
+                    } else {
+                        pct = Math.min(100, Math.max(0, Math.round((displayGrams / 1000) * 100)));
+                    }
+                }
+
+                const gramsText = displayGrams > 0 ? `${Math.round(displayGrams)}g` : `${pct}%`;
+
+                return `
+                    <div class="cockpit-ams-slot ${isActive ? 'active' : ''}" title="${slotLabels[k]}: ${escapeHtml(spoolType)} (${gramsText})">
+                        <div class="cockpit-ams-head">
+                            <span>${slotLabels[k]}${isActive ? ' ⚡' : ''}</span>
+                            <div class="cockpit-ams-color-pill" style="background-color: ${spoolColor};"></div>
+                        </div>
+                        <div class="cockpit-ams-info">
+                            <span class="cockpit-ams-type">${escapeHtml(spoolType)}</span>
+                            <span class="cockpit-ams-grams">${gramsText}</span>
+                        </div>
+                        <div class="cockpit-ams-fill-bar">
+                            <div class="cockpit-ams-fill-inner" style="width: ${pct}%; background-color: ${spoolColor};"></div>
+                        </div>
+                    </div>`;
+            }).join("");
+
+            amsPanelHtml = `<div class="cockpit-ams-strip">${slotsHtml}</div>`;
+        } else {
+            // Single external spool holder
+            const activeKey = String(p.active_slot_key || "254");
+            const isExternalActive = (activeKey === "254" || activeKey === "255");
+            const assigned = (assignedSpools || []).find(s => ["254", "255"].includes(String(s.assigned_slot_key)));
+            const spoolColor = formatCockpitHexColor(assigned?.color || (isExternalActive && isPrinting ? "#10b981" : "#3b82f6"));
+
+            amsPanelHtml = `
+                <div class="cockpit-single-spool ${isExternalActive ? 'active' : ''}">
+                    <div class="d-flex align-items-center gap-2" style="min-width: 0;">
+                        <span class="badge" style="background: rgba(255,255,255,0.08); font-size: 10px; font-weight: 700; padding: 2px 6px;">VT${isExternalActive ? ' ⚡' : ''}</span>
+                        <div class="cockpit-ams-color-pill" style="background-color: ${spoolColor};"></div>
+                        <span class="text-truncate" style="font-size: 11px; font-weight: 600;">${filamentDisplay || 'Зовнішня котушка'}</span>
+                    </div>
+                    <span style="font-size: 11px; color: var(--text-muted); flex-shrink: 0;">${hasPhysicalSpool ? `${Math.round(slotGrams)}g` : 'Порожньо'}</span>
+                </div>`;
+        }
+
+        return `
+            <div class="printer-card cockpit-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">
+                <!-- Header -->
+                <div class="cockpit-header">
+                    <div class="cockpit-title-group">
+                        <div class="cockpit-title-row">
+                            <h3 class="cockpit-printer-name">${escapeHtml(p.name)}</h3>
+                            <span class="status-pill ${statusInfo.badgeClass}">${statusInfo.label}</span>
+                        </div>
+                        <div class="cockpit-file-name" title="${escapeHtml(modelName)}">
+                            <i class="fa-solid fa-file-code"></i>
+                            <span>${escapeHtml(modelName)}</span>
+                        </div>
+                    </div>
+                    <div class="cockpit-quick-actions">
+                        <button type="button" class="btn-cockpit-quick btn-cockpit-light ${lightIsOn ? 'active' : ''}" data-id="${p.id}" title="Підсвітка камери: ${lightIsOn ? 'Увімкнено' : 'Вимкнено'}">
+                            <i class="fa-solid fa-lightbulb"></i>
+                        </button>
+                        <button type="button" class="btn-cockpit-quick btn-cockpit-speed" data-id="${p.id}" data-lvl="${spdLvl}" title="Швидкість: ${curSpd.name} (${curSpd.pct})">
+                            <span class="cockpit-spd-icon">${curSpd.icon}</span>
+                            <span class="cockpit-spd-val">${curSpd.pct}</span>
+                        </button>
+                        <button type="button" class="btn-card-gear" data-id="${p.id}" title="Налаштування принтера">
+                            <i class="fa-solid fa-gear"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Cockpit Body: Circular SVG Progress & Telemetry -->
+                <div class="cockpit-body">
+                    <div class="cockpit-ring-container">
+                        <svg class="cockpit-ring-svg" viewBox="0 0 84 84">
+                            <circle class="cockpit-ring-bg" cx="42" cy="42" r="35"></circle>
+                            <circle class="cockpit-ring-fill ${ringClass}" cx="42" cy="42" r="35"
+                                    style="stroke-dasharray: 219.91; stroke-dashoffset: ${dashOffset};"></circle>
+                        </svg>
+                        <div class="cockpit-ring-text">
+                            <span class="cockpit-ring-pct">${centerPctText}</span>
+                            <span class="cockpit-ring-layer">${centerLayerText}</span>
+                        </div>
+                    </div>
+
+                    <div class="cockpit-telemetry-grid">
+                        <div class="cockpit-tele-box">
+                            <span class="cockpit-tele-lbl"><i class="fa-regular fa-clock color-cyan"></i> Залишилось</span>
+                            <span class="cockpit-tele-val">${timeStr}</span>
+                        </div>
+                        <div class="cockpit-tele-box">
+                            <span class="cockpit-tele-lbl"><i class="fa-solid fa-layer-group color-blue"></i> Шари</span>
+                            <span class="cockpit-tele-val">${layerStr}</span>
+                        </div>
+                        <div class="cockpit-tele-box">
+                            <span class="cockpit-tele-lbl"><i class="fa-solid fa-temperature-high color-red"></i> Сопло</span>
+                            <span class="cockpit-tele-val">${p.nozzle_temp !== undefined ? p.nozzle_temp : 0}°C <small style="font-size:10px; opacity:0.75; font-weight:normal;">(${p.nozzle_diameter || '0.4'}мм)</small></span>
+                        </div>
+                        <div class="cockpit-tele-box">
+                            <span class="cockpit-tele-lbl"><i class="fa-solid fa-hot-tub-person color-orange"></i> Стіл</span>
+                            <span class="cockpit-tele-val">${p.bed_temp !== undefined ? p.bed_temp : 0}°C</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cockpit AMS Mini-Slots / External Spool -->
+                ${amsPanelHtml}
+            </div>`;
+    }
+
+    async function handleQuickLightToggle(pId, btnEl, e) {
+        if (e) e.stopPropagation();
+        triggerHaptic("medium");
+
+        const wasActive = btnEl.classList.contains("active");
+        btnEl.classList.toggle("active");
+        btnEl.setAttribute("title", `Підсвітка камери: ${!wasActive ? 'Увімкнено' : 'Вимкнено'}`);
+
+        try {
+            const res = await fetch(`/api/printers/${pId}/control`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "light_toggle" })
+            });
+            const data = await res.json();
+            if (data.status === "ok") {
+                const p = printersData.find(x => x.id === pId);
+                if (p) p.chamber_light_state = data.light_state || (!wasActive ? "on" : "off");
+            } else {
+                btnEl.classList.toggle("active");
+            }
+        } catch (err) {
+            console.error("Quick light error:", err);
+            btnEl.classList.toggle("active");
+        }
+    }
+
+    async function handleQuickSpeedCycle(pId, btnEl, e) {
+        if (e) e.stopPropagation();
+        triggerHaptic("medium");
+
+        const curLvl = parseInt(btnEl.getAttribute("data-lvl") || "2");
+        const nextLvl = (curLvl % 4) + 1;
+
+        const speedMeta = {
+            1: { icon: "🐢", pct: "50%", name: "Тихий" },
+            2: { icon: "⚡", pct: "100%", name: "Стандарт" },
+            3: { icon: "🚀", pct: "124%", name: "Спорт" },
+            4: { icon: "🏎️", pct: "166%", name: "Турбо" }
+        };
+
+        btnEl.setAttribute("data-lvl", nextLvl);
+        btnEl.setAttribute("title", `Швидкість: ${speedMeta[nextLvl].name} (${speedMeta[nextLvl].pct})`);
+        const iconEl = btnEl.querySelector(".cockpit-spd-icon");
+        const valEl = btnEl.querySelector(".cockpit-spd-val");
+        if (iconEl) iconEl.textContent = speedMeta[nextLvl].icon;
+        if (valEl) valEl.textContent = speedMeta[nextLvl].pct;
+
+        try {
+            const res = await fetch(`/api/printers/${pId}/control`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "set_speed", level: nextLvl })
+            });
+            const data = await res.json();
+            if (data.status === "ok") {
+                const p = printersData.find(x => x.id === pId);
+                if (p) p.spd_lvl = nextLvl;
+            } else {
+                btnEl.setAttribute("data-lvl", curLvl);
+                if (iconEl) iconEl.textContent = speedMeta[curLvl].icon;
+                if (valEl) valEl.textContent = speedMeta[curLvl].pct;
+            }
+        } catch (err) {
+            console.error("Quick speed error:", err);
+            btnEl.setAttribute("data-lvl", curLvl);
+            if (iconEl) iconEl.textContent = speedMeta[curLvl].icon;
+            if (valEl) valEl.textContent = speedMeta[curLvl].pct;
+        }
+    }
+
     function renderPrinters(printers) {
         updateFilterBadges(printers);
         populatePrinterSettingsSelect(printers);
@@ -1026,36 +1341,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 timeStr
             ].filter(Boolean).join(" ").toLowerCase();
 
-            return `
-                <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">
-                    <div class="printer-card-header">
-                        <div class="printer-name-group">
-                            <h3>${escapeHtml(p.name)}</h3>
-                            <div class="printer-model-sub"><i class="fa-solid fa-file-code"></i> ${escapeHtml(modelName)}</div>
-                        </div>
-                        <div class="d-flex align-items-center">
-                            <span class="status-pill ${statusInfo.badgeClass}">${statusInfo.label}</span>
-                            <button type="button" class="btn-card-gear" data-id="${p.id}" title="Налаштування принтера"><i class="fa-solid fa-gear"></i></button>
-                        </div>
-                    </div>
-
-                    <div class="progress-container">
-                        <div class="progress-header">
-                            <span>Прогрес: ${progress}%</span>
-                            <span>${timeStr}</span>
-                        </div>
-                        <div class="progress-bar-wrap">
-                            <div class="progress-bar ${st === 'PAUSE' || st === 'PAUSED' ? 'amber' : st === 'FAILED' ? 'red' : ''}" style="width: ${progress}%;"></div>
-                        </div>
-                    </div>
-
-                    <div class="printer-stats-row">
-                        <span><i class="fa-solid fa-temperature-high color-red"></i> ${p.nozzle_temp}°C</span>
-                        <span><i class="fa-solid fa-hot-tub-person color-orange"></i> ${p.bed_temp}°C</span>
-                        <span><i class="fa-solid fa-layer-group color-blue"></i> ${layerStr}</span>
-                        <span><i class="fa-solid fa-spool ${hasPhysicalSpool ? 'color-purple' : 'text-muted'}" style="${hasPhysicalSpool ? '' : 'opacity:0.4;'}"></i> ${filamentDisplay}</span>
-                    </div>
-                </div>`;
+            if (ENABLE_COCKPIT_CARDS) {
+                return renderCockpitPrinterCard(p, statusInfo, modelName, isPrinting, progress, timeStr, layerStr, filamentDisplay, hasPhysicalSpool, slotGrams, printerModelVal, serialVal, fullSearchText, assignedSpools);
+            } else {
+                return renderClassicPrinterCard(p, statusInfo, modelName, isPrinting, progress, timeStr, layerStr, filamentDisplay, hasPhysicalSpool, slotGrams, printerModelVal, serialVal, fullSearchText);
+            }
         }).join("");
 
         // Attach click listeners to cards & settings gear buttons
@@ -1071,6 +1361,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 e.stopPropagation();
                 const pId = btn.getAttribute("data-id");
                 openPrinterSettingsModal(pId);
+            });
+        });
+
+        document.querySelectorAll(".btn-cockpit-light").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const pId = btn.getAttribute("data-id");
+                handleQuickLightToggle(pId, btn, e);
+            });
+        });
+
+        document.querySelectorAll(".btn-cockpit-speed").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const pId = btn.getAttribute("data-id");
+                handleQuickSpeedCycle(pId, btn, e);
             });
         });
 
@@ -1116,7 +1420,7 @@ document.addEventListener("DOMContentLoaded", () => {
         modalStatusEl.textContent = statusInfo.label;
         modalStatusEl.className = `status-pill ${statusInfo.badgeClass}`;
 
-        modalNozzleTemp.textContent = `${p.nozzle_temp}°C`;
+        modalNozzleTemp.textContent = `${p.nozzle_temp}°C (${p.nozzle_diameter || '0.4'} мм)`;
         modalBedTemp.textContent = `${p.bed_temp}°C`;
         modalLayer.textContent = layerStr;
         modalTime.textContent = timeStr || "0 хв";
@@ -2698,16 +3002,132 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    function attachDirectDownloadLink(linkId, baseUrl) {
+    async function triggerPdfReportExport(endpointBase, params = {}, defaultFilename = "report.pdf", btnEl = null) {
+        const initData = window.Telegram?.WebApp?.initData || "";
+        const sessionToken = localStorage.getItem("web_session_token") || "";
+
+        // 1. URL to send PDF to Telegram bot in background
+        const sendTgUrl = new URL(endpointBase, window.location.origin);
+        for (const [k, v] of Object.entries(params)) {
+            if (v !== undefined && v !== null && v !== "") {
+                sendTgUrl.searchParams.set(k, v);
+            }
+        }
+        sendTgUrl.searchParams.set("send_telegram", "1");
+        if (initData) sendTgUrl.searchParams.set("initData", initData);
+        if (sessionToken) sendTgUrl.searchParams.set("token", sessionToken);
+
+        // 2. Direct PDF download URL
+        const pdfUrl = new URL(endpointBase, window.location.origin);
+        for (const [k, v] of Object.entries(params)) {
+            if (v !== undefined && v !== null && v !== "") {
+                pdfUrl.searchParams.set(k, v);
+            }
+        }
+        pdfUrl.searchParams.set("format", "pdf");
+        if (initData) pdfUrl.searchParams.set("initData", initData);
+        if (sessionToken) pdfUrl.searchParams.set("token", sessionToken);
+
+        const fullPdfStr = pdfUrl.toString();
+
+        let origHtml = "";
+        if (btnEl) {
+            origHtml = btnEl.innerHTML;
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Формування...</span>';
+        }
+
+        // A. Send PDF directly to user's Telegram chat
+        const sendPromise = fetch(sendTgUrl.toString(), {
+            credentials: "include",
+            headers: { "ngrok-skip-browser-warning": "true" }
+        })
+        .then(r => r.json())
+        .catch(err => {
+            console.warn("Telegram send failed:", err);
+            return { error: String(err) };
+        });
+
+        // B. If inside Telegram WebApp
+        const isInsideTelegram = !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData);
+        if (isInsideTelegram && typeof window.Telegram.WebApp.downloadFile === "function") {
+            try {
+                window.Telegram.WebApp.downloadFile({
+                    url: fullPdfStr,
+                    filename: defaultFilename
+                });
+            } catch (err) {
+                console.warn("Telegram downloadFile failed:", err);
+            }
+        }
+
+        // C. If in a desktop browser or external browser, trigger download directly
+        if (!isInsideTelegram) {
+            try {
+                const a = document.createElement("a");
+                a.href = fullPdfStr;
+                a.download = defaultFilename;
+                a.target = "_blank";
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => a.remove(), 1000);
+            } catch (err) {
+                console.warn("Browser download trigger failed:", err);
+            }
+        }
+
+        if (window.Telegram?.WebApp?.HapticFeedback) {
+            window.Telegram.WebApp.HapticFeedback.notificationOccurred("success");
+        }
+
+        const sendRes = await sendPromise;
+        if (btnEl) {
+            if (sendRes && sendRes.status === "ok") {
+                btnEl.innerHTML = '<i class="fa-solid fa-check"></i> <span>Надіслано в бот!</span>';
+                if (isInsideTelegram && window.Telegram?.WebApp?.showAlert) {
+                    window.Telegram.WebApp.showAlert("📄 PDF-звіт успішно надіслано вам у чат з ботом!");
+                }
+            } else if (sendRes && sendRes.error) {
+                console.warn("Bot send error:", sendRes.error);
+                btnEl.innerHTML = '<i class="fa-solid fa-check"></i> <span>PDF завантажено</span>';
+            } else {
+                btnEl.innerHTML = '<i class="fa-solid fa-check"></i> <span>Готово!</span>';
+            }
+            setTimeout(() => {
+                btnEl.innerHTML = origHtml;
+                btnEl.disabled = false;
+            }, 3500);
+        }
+    }
+
+    function getMovementsFilterParams() {
+        const spoolSelect = document.getElementById("mov-filter-spool");
+        const actionSelect = document.getElementById("mov-filter-action");
+        const dateSelect = document.getElementById("mov-filter-date");
+        const searchInput = document.getElementById("mov-filter-search");
+        const params = {};
+        if (spoolSelect && spoolSelect.value && spoolSelect.value !== "all") params.spool_id = spoolSelect.value;
+        if (actionSelect && actionSelect.value && actionSelect.value !== "all") params.action = actionSelect.value;
+        if (dateSelect && dateSelect.value && dateSelect.value !== "all") params.date = dateSelect.value;
+        if (searchInput && searchInput.value.trim()) params.q = searchInput.value.trim();
+        return params;
+    }
+
+    function attachDirectDownloadLink(linkId, baseUrl, defaultFilename = "report.pdf") {
         const el = document.getElementById(linkId);
         if (!el) return;
         const updateHref = () => {
             const initData = window.Telegram?.WebApp?.initData || "";
             const sessionToken = localStorage.getItem("web_session_token") || "";
-            const effectiveUrl = (linkId === "btn-export-movements-pdf" && typeof getMovementsPdfExportUrl === "function")
-                ? getMovementsPdfExportUrl()
-                : baseUrl;
-            const url = new URL(effectiveUrl, window.location.origin);
+            let params = {};
+            if (linkId === "btn-export-movements-pdf") {
+                params = getMovementsFilterParams();
+            }
+            const url = new URL(baseUrl, window.location.origin);
+            for (const [k, v] of Object.entries(params)) {
+                if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
+            }
+            url.searchParams.set("format", "pdf");
             if (initData && !url.searchParams.has("initData")) url.searchParams.set("initData", initData);
             if (sessionToken && !url.searchParams.has("token")) url.searchParams.set("token", sessionToken);
             el.href = url.toString();
@@ -2715,19 +3135,20 @@ document.addEventListener("DOMContentLoaded", () => {
         el.addEventListener("mouseenter", updateHref);
         el.addEventListener("touchstart", updateHref, { passive: true });
         el.addEventListener("click", (e) => {
-            updateHref();
-            if (window.Telegram?.WebApp?.openLink) {
-                e.preventDefault();
-                window.Telegram.WebApp.openLink(el.href);
+            e.preventDefault();
+            let params = {};
+            if (linkId === "btn-export-movements-pdf") {
+                params = getMovementsFilterParams();
             }
+            triggerPdfReportExport(baseUrl, params, defaultFilename, el);
         });
         updateHref();
     }
 
-    attachDirectDownloadLink("btn-export-history-pdf", "/api/history/export_pdf");
-    attachDirectDownloadLink("btn-export-spools-pdf", "/api/spools/export_pdf");
-    attachDirectDownloadLink("btn-export-parts-pdf", "/api/parts/export_pdf");
-    attachDirectDownloadLink("btn-export-movements-pdf", "/api/spools/movements/export_pdf");
+    attachDirectDownloadLink("btn-export-history-pdf", "/api/history/export_pdf", "print_history.pdf");
+    attachDirectDownloadLink("btn-export-spools-pdf", "/api/spools/export_pdf", "spools_inventory.pdf");
+    attachDirectDownloadLink("btn-export-parts-pdf", "/api/parts/export_pdf", "parts_inventory.pdf");
+    attachDirectDownloadLink("btn-export-movements-pdf", "/api/spools/movements/export_pdf", "spool_movements_audit.pdf");
 
     const btnMovements = document.getElementById("btn-view-spool-movements");
     if (btnMovements) {
@@ -2766,8 +3187,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const weightG = document.getElementById("calc-weight-g")?.value || "100";
             const timeMins = document.getElementById("calc-time-mins")?.value || "60";
 
-            const endpoint = `/api/commercial/export_pdf?preset_id=${encodeURIComponent(presetId)}&weight_g=${encodeURIComponent(weightG)}&time_mins=${encodeURIComponent(timeMins)}`;
-            downloadReportFile(endpoint, `print_cost_calculation_${new Date().toISOString().slice(0, 10)}.html`);
+            triggerPdfReportExport(
+                "/api/commercial/export_pdf",
+                { preset_id: presetId, weight_g: weightG, time_mins: timeMins },
+                `commercial_quote_${new Date().toISOString().slice(0, 10)}.pdf`,
+                exportPdfBtn
+            );
         });
     }
 
@@ -3397,6 +3822,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (document.getElementById("p-setting-access-code")) document.getElementById("p-setting-access-code").value = p.accessCode || "";
             if (document.getElementById("p-setting-sn")) document.getElementById("p-setting-sn").value = p.serialNumber || "";
             if (document.getElementById("p-setting-model")) document.getElementById("p-setting-model").value = p.printer_model || "A1";
+            if (document.getElementById("p-setting-nozzle-diameter")) document.getElementById("p-setting-nozzle-diameter").value = p.nozzle_diameter || "0.4";
             if (document.getElementById("p-setting-ams")) document.getElementById("p-setting-ams").value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");
             if (document.getElementById("p-setting-maint-interval")) document.getElementById("p-setting-maint-interval").value = p.maintenance_interval_hours || 100;
             if (document.getElementById("p-setting-maint-counter-val")) document.getElementById("p-setting-maint-counter-val").textContent = `${(p.maintenance_hours_counter || 0.0).toFixed(1)} год`;
@@ -3443,6 +3869,7 @@ document.addEventListener("DOMContentLoaded", () => {
             accessCode: document.getElementById("p-setting-access-code")?.value || "",
             serialNumber: document.getElementById("p-setting-sn")?.value || "",
             printer_model: document.getElementById("p-setting-model")?.value || "A1",
+            nozzle_diameter: document.getElementById("p-setting-nozzle-diameter")?.value || "0.4",
             ams_enabled: document.getElementById("p-setting-ams")?.value === "true" ? true : (document.getElementById("p-setting-ams")?.value === "false" ? false : "auto"),
             maintenance_interval_hours: parseInt(document.getElementById("p-setting-maint-interval")?.value || 100),
             notify: notifyObj,
@@ -3506,6 +3933,7 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("ps-modal-access-code").value = p.accessCode || "";
             document.getElementById("ps-modal-sn").value = p.serialNumber || "";
             document.getElementById("ps-modal-model").value = p.printer_model || "A1";
+            if (document.getElementById("ps-modal-nozzle-diameter")) document.getElementById("ps-modal-nozzle-diameter").value = p.nozzle_diameter || "0.4";
             document.getElementById("ps-modal-ams").value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");
             document.getElementById("ps-modal-maint-interval").value = p.maintenance_interval_hours || 100;
             document.getElementById("ps-modal-maint-counter").textContent = `${(p.maintenance_hours_counter || 0.0).toFixed(1)} год`;
@@ -3561,6 +3989,7 @@ document.addEventListener("DOMContentLoaded", () => {
             accessCode: document.getElementById("ps-modal-access-code")?.value || "",
             serialNumber: document.getElementById("ps-modal-sn")?.value || "",
             printer_model: document.getElementById("ps-modal-model")?.value || "A1",
+            nozzle_diameter: document.getElementById("ps-modal-nozzle-diameter")?.value || "0.4",
             ams_enabled: document.getElementById("ps-modal-ams")?.value === "true" ? true : (document.getElementById("ps-modal-ams")?.value === "false" ? false : "auto"),
             maintenance_interval_hours: parseInt(document.getElementById("ps-modal-maint-interval")?.value || 100),
             notify: notifyObj,
@@ -3659,12 +4088,14 @@ document.addEventListener("DOMContentLoaded", () => {
                     const elFilename = document.getElementById("file-modal-filename");
                     const elModel = document.getElementById("file-modal-model");
                     const elType = document.getElementById("file-modal-type") || document.getElementById("file-modal-filament");
+                    const elNozzle = document.getElementById("file-modal-nozzle");
                     const elWeight = document.getElementById("file-modal-weight");
                     const elTime = document.getElementById("file-modal-time");
 
                     if (elFilename) elFilename.textContent = data.filename || "";
                     if (elModel) elModel.textContent = data.printer_model || "Невизначено";
                     if (elType) elType.textContent = data.filament_type || "PLA";
+                    if (elNozzle) elNozzle.textContent = `${data.nozzle_diameter || "0.4"} мм`;
                     if (elWeight) elWeight.textContent = `${data.weight_g} г`;
                     if (elTime) elTime.textContent = `${data.time_mins} хв`;
 
@@ -3725,8 +4156,15 @@ document.addEventListener("DOMContentLoaded", () => {
             filePrintersList.innerHTML = printers.map(p => {
                 let badgeText = '✅ Сумісний';
                 if (!p.compatible) {
-                    badgeText = p.reason_type === 'FILAMENT' ? '🛑 Несумісність пластику' : '🛑 Несумісна модель';
+                    if (p.reason_type === 'NOZZLE') {
+                        badgeText = '🛑 Несумісне сопло';
+                    } else if (p.reason_type === 'FILAMENT') {
+                        badgeText = '🛑 Несумісність пластику';
+                    } else {
+                        badgeText = '🛑 Несумісна модель';
+                    }
                 }
+                const pNozzle = p.nozzle_diameter ? ` | 🎯 ${p.nozzle_diameter}мм` : '';
                 return `
                 <div class="spool-item mb-2" style="flex-direction:column; align-items:stretch;">
                     <div class="d-flex justify-content-between align-items-center">
@@ -3734,11 +4172,11 @@ document.addEventListener("DOMContentLoaded", () => {
                             <i class="fa-solid fa-print ${p.state === 'RUNNING' ? 'color-green' : 'color-purple'}" style="font-size:20px;"></i>
                             <div class="spool-details">
                                 <h4>${escapeHtml(p.name)}</h4>
-                                <p>Статус: <strong>${p.state}</strong> | ${badgeText}</p>
+                                <p>Статус: <strong>${p.state}</strong>${pNozzle} | ${badgeText}</p>
                             </div>
                         </div>
                         <button class="btn btn-sm ${p.compatible ? 'btn-success' : 'btn-outline-danger'} btn-start-print-job" data-id="${p.id}" ${p.state === 'RUNNING' ? 'disabled' : ''}>
-                            ${p.state === 'RUNNING' ? 'Зайнятий' : (p.compatible ? '🚀 Друк' : '🛑 Заблокировано')}
+                            ${p.state === 'RUNNING' ? 'Зайнятий' : (p.compatible ? '🚀 Друк' : '🛑 Заблоковано')}
                         </button>
                     </div>
                     ${!p.compatible ? `<div class="mt-2 p-2" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); border-radius:6px; font-size:12px; color:#fca5a5;">${escapeHtml(p.reason.replace(/<[^>]*>/g, ""))}</div>` : ''}
@@ -3822,25 +4260,51 @@ document.addEventListener("DOMContentLoaded", () => {
             let isComp = true;
             let reasons = [];
 
+            const corexyFamily = ["@BBL P1P", "@BBL P1S", "@BBL P2S", "@BBL X1C", "@BBL X1E"];
+            let isModelWarn = false;
+
             if (targetM && targetM !== 'Unknown') {
                 const targetCode = getBambuModelCode(targetM);
-                const printerCode = getBambuModelCode(p.name);
+                const pModel = p.printer_model || p.model || p.name;
+                const printerCode = getBambuModelCode(pModel);
                 if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
-                    isComp = false;
-                    reasons.push(`нарізано для ${targetM}`);
+                    if (corexyFamily.includes(targetCode) && corexyFamily.includes(printerCode)) {
+                        isModelWarn = true;
+                        reasons.push(`⚠️ різна модель: ${targetM} ➔ ${pModel}`);
+                    } else {
+                        isComp = false;
+                        reasons.push(`нарізано для ${targetM}`);
+                    }
                 }
             }
 
-            if (partFilament && printerFilament && printerFilament !== 'Невизначено') {
-                const normPartFil = normalizeFilamentName(partFilament);
-                const normPrinterFil = normalizeFilamentName(printerFilament);
-                if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
+            if (partFilament) {
+                if (!printerFilament || printerFilament === 'Невизначено') {
                     isComp = false;
-                    reasons.push(`пластик: ${printerFilament} vs ${partFilament}`);
+                    reasons.push(`пластик не встановлено (потрібен ${partFilament})`);
+                } else {
+                    const normPartFil = normalizeFilamentName(partFilament);
+                    const normPrinterFil = normalizeFilamentName(printerFilament);
+                    if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
+                        isComp = false;
+                        reasons.push(`пластик: ${printerFilament} vs ${partFilament}`);
+                    }
                 }
             }
 
-            const compTag = isComp ? ' ✅ СУМІСНИЙ' : ` 🛑 НЕСУМІСНИЙ (${reasons.join('; ')})`;
+            const partNozzle = part.nozzle_diameter ? parseFloat(part.nozzle_diameter) : null;
+            const printerNozzle = p.nozzle_diameter ? parseFloat(p.nozzle_diameter) : 0.4;
+            if (partNozzle && Math.abs(partNozzle - printerNozzle) > 0.01) {
+                isComp = false;
+                reasons.push(`сопло: ${printerNozzle}мм vs ${partNozzle}мм`);
+            }
+
+            let compTag = ' ✅ СУМІСНИЙ';
+            if (!isComp) {
+                compTag = ` 🛑 НЕСУМІСНИЙ (${reasons.join('; ')})`;
+            } else if (isModelWarn) {
+                compTag = ` ⚠️ УМОВНО СУМІСНИЙ (${reasons.join('; ')})`;
+            }
             return `${idx + 1}. ${p.name} (${p.gcode_state || 'IDLE'})${compTag}`;
         }).join("\n");
 
@@ -3855,27 +4319,46 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const selectedPrinter = printersData[chosenIndex];
 
-        // Strict compatibility blocking
+        // Strict compatibility blocking / CoreXY warning
         const targetM = part.printer_model || '';
         const partFilament = part.filament_type || '';
         const printerFilament = selectedPrinter.filament_type || '';
 
         if (targetM && targetM !== 'Unknown') {
             const targetCode = getBambuModelCode(targetM);
-            const printerCode = getBambuModelCode(selectedPrinter.name);
+            const selModel = selectedPrinter.printer_model || selectedPrinter.model || selectedPrinter.name;
+            const printerCode = getBambuModelCode(selModel);
             if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
-                alert(`🛑 Помилка сумісності моделі принтера!\nДеталь нарізано для ${targetM}, а принтер ${selectedPrinter.name} (${printerCode}) не є сумісним.`);
-                return;
+                const corexyFamily = ["@BBL P1P", "@BBL P1S", "@BBL P2S", "@BBL X1C", "@BBL X1E"];
+                if (corexyFamily.includes(targetCode) && corexyFamily.includes(printerCode)) {
+                    if (!confirm(`⚠️ Увага: деталь нарізано для ${targetM}, а обраний принтер ${selectedPrinter.name} (${selModel}).\nПлатформа 256x256 однакова, але моделі відрізняються.\n\nПродовжити запуск друку?`)) {
+                        return;
+                    }
+                } else {
+                    alert(`🛑 Помилка сумісності моделі принтера!\nДеталь нарізано для ${targetM}, а принтер ${selectedPrinter.name} (${printerCode}) не є сумісним.`);
+                    return;
+                }
             }
         }
 
-        if (partFilament && printerFilament && printerFilament !== 'Невизначено') {
+        if (partFilament) {
+            if (!printerFilament || printerFilament === 'Невизначено') {
+                alert(`🛑 Помилка: на принтері ${selectedPrinter.name} не встановлено пластик!\nДля друку потрібен пластик "${partFilament}".`);
+                return;
+            }
             const normPartFil = normalizeFilamentName(partFilament);
             const normPrinterFil = normalizeFilamentName(printerFilament);
             if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
                 alert(`🛑 Помилка сумісності пластику!\nДеталь вимагає пластик "${partFilament}", а на принтері ${selectedPrinter.name} встановлено "${printerFilament}".`);
                 return;
             }
+        }
+
+        const partNozzle = part.nozzle_diameter ? parseFloat(part.nozzle_diameter) : null;
+        const printerNozzle = selectedPrinter.nozzle_diameter ? parseFloat(selectedPrinter.nozzle_diameter) : 0.4;
+        if (partNozzle && Math.abs(partNozzle - printerNozzle) > 0.01) {
+            alert(`🛑 Помилка сумісності сопла!\nДеталь нарізано під сопло ${partNozzle} мм, а на принтері ${selectedPrinter.name} встановлено ${printerNozzle} мм.`);
+            return;
         }
 
         try {
@@ -3941,6 +4424,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="part-detail-badge">
                     <span class="part-detail-label"><i class="fa-solid fa-print color-purple"></i> Модель принтера</span>
                     <span class="part-detail-value">${escapeHtml(printerModelDisplay)}</span>
+                </div>
+
+                <div class="part-detail-badge">
+                    <span class="part-detail-label"><i class="fa-solid fa-circle-dot color-green"></i> Діаметр сопла</span>
+                    <span class="part-detail-value">${escapeHtml(part.nozzle_diameter || '0.4')} мм</span>
                 </div>
 
                 <div class="part-detail-badge">
@@ -4076,6 +4564,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 const pModelBadge = part.printer_model && part.printer_model !== 'Unknown'
                     ? `<span class="badge badge-outline text-info border-info ms-2" style="font-size: 0.75rem;"><i class="fa-solid fa-print"></i> ${escapeHtml(part.printer_model)}</span>`
                     : '';
+                const pNozzleBadge = part.nozzle_diameter
+                    ? `<span class="badge badge-outline text-success border-success ms-1" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-dot"></i> ${escapeHtml(part.nozzle_diameter)}мм</span>`
+                    : '';
 
                 html += `
                     <div class="spool-item-card part-item-card glass-card mb-3 p-3">
@@ -4090,7 +4581,7 @@ document.addEventListener("DOMContentLoaded", () => {
                                         <h4 class="m-0 text-light fs-6 fw-bold">
                                             <i class="fa-solid fa-puzzle-piece color-green me-1"></i> ${escapeHtml(part.name)}
                                         </h4>
-                                        ${pModelBadge}
+                                        ${pModelBadge}${pNozzleBadge}
                                     </div>
                                     <small class="text-muted" style="font-size: 0.72rem;"><i class="fa-solid fa-circle-info"></i> Натисніть для детальної інформації</small>
                                 </div>

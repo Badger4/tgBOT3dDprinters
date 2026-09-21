@@ -327,6 +327,7 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             print_info_str = "\n".join(lines) + "\n"
 
     if is_en:
+        noz_d = getattr(target_printer, "nozzle_diameter", "0.4")
         status_txt = (
             f"<b>📊 Printer Status: {target_printer.name}</b>\n\n"
             f"{state_emoji} <b>State:</b> <code>{state_label}</code>{wifi_str}\n"
@@ -334,11 +335,12 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             f"🌐 <b>IP:</b> <tg-spoiler>{target_printer.ip}</tg-spoiler>\n"
             f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
             f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
-            f"🔥 <b>Nozzle:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> | 🛏️ <b>Bed:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
+            f"🔥 <b>Nozzle:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> (🎯 <code>{noz_d} mm</code>) | 🛏️ <b>Bed:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
             f"{filament_block}"
             f"{hours_str}"
         )
     else:
+        noz_d = getattr(target_printer, "nozzle_diameter", "0.4")
         status_txt = (
             f"<b>📊 Стан принтера: {target_printer.name}</b>\n\n"
             f"{state_emoji} <b>Стан:</b> <code>{state_label}</code>{wifi_str}\n"
@@ -346,7 +348,7 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             f"🌐 <b>IP:</b> <tg-spoiler>{target_printer.ip}</tg-spoiler>\n"
             f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
             f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
-            f"🔥 <b>Сопло:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> | 🛏️ <b>Стіл:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
+            f"🔥 <b>Сопло:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> (🎯 <code>{noz_d} мм</code>) | 🛏️ <b>Стіл:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
             f"{filament_block}"
             f"{hours_str}"
         )

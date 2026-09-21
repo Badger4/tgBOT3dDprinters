@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 from bot.handlers import setup_routers
@@ -553,9 +554,21 @@ class PrinterBotApp:
 
         await self.initialize()
 
-        self.bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        session = AiohttpSession(timeout=25.0)
+        self.bot = Bot(token=TELEGRAM_BOT_TOKEN, session=session)
         self.dp = Dispatcher()
         self.dp["app"] = self
+
+        @self.dp.message.outer_middleware()
+        async def log_telegram_message(handler, event, data):
+            st_obj = data.get("state")
+            cur_st = await st_obj.get_state() if st_obj else None
+            u_str = str(event.from_user.id) if event.from_user else "unknown"
+            if event.from_user and event.from_user.username:
+                u_str += f" (@{event.from_user.username})"
+            txt = getattr(event, "text", None) or getattr(event, "caption", None) or ""
+            logger.info(f"📩 [Telegram Message] from={u_str} | state={cur_st} | text={txt!r}")
+            return await handler(event, data)
 
         main_router = setup_routers()
         self.dp.include_router(main_router)
@@ -602,7 +615,7 @@ class PrinterBotApp:
 
         try:
             logger.info("🤖 Starting Telegram Bot polling...")
-            await self.dp.start_polling(self.bot)
+            await self.dp.start_polling(self.bot, polling_timeout=20)
         finally:
             monitor_task.cancel()
             if ngrok_tunnel:

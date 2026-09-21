@@ -303,12 +303,17 @@ async def add_part_three_mf(message: Message, state: FSMContext, app: Any) -> No
 
     printer_model = "Unknown"
     filament_type = "PLA"
+    nozzle_diameter = "0.4"
+    weight_g = 0.0
+    time_mins = 0
 
     if doc_id:
         try:
-            file_info = await message.bot.get_file(doc_id)
-            file_bytes_io = await message.bot.download_file(file_info.file_path)
-            file_bytes = file_bytes_io.read()
+            bot_instance = message.bot or getattr(app, "bot", None)
+            if bot_instance:
+                file_info = await bot_instance.get_file(doc_id)
+                file_bytes_io = await bot_instance.download_file(file_info.file_path)
+                file_bytes = file_bytes_io.read()
 
             import config
             from services.gcode_parser import parse_3mf_file
@@ -324,6 +329,18 @@ async def add_part_three_mf(message: Message, state: FSMContext, app: Any) -> No
                 printer_model = meta["printer_model"]
             if meta.get("filament_type"):
                 filament_type = meta["filament_type"]
+            if meta.get("nozzle_diameter"):
+                nozzle_diameter = str(meta["nozzle_diameter"])
+            if meta.get("weight_g"):
+                try:
+                    weight_g = float(meta["weight_g"])
+                except (ValueError, TypeError):
+                    weight_g = 0.0
+            if meta.get("time_mins"):
+                try:
+                    time_mins = int(meta["time_mins"])
+                except (ValueError, TypeError):
+                    time_mins = 0
         except Exception as e:
             logger.warning(f"Error handling 3mf file in add_part_three_mf: {e}")
 
@@ -334,15 +351,35 @@ async def add_part_three_mf(message: Message, state: FSMContext, app: Any) -> No
         "count": cnt_val,
         "quantity": cnt_val,
         "three_mf": doc_id,
-        "three_mf_name": doc_name,
+        "three_mf_name": doc_name if doc_id else "",
         "old_three_mf": "",
         "printer_model": printer_model,
         "filament_type": filament_type,
+        "nozzle_diameter": nozzle_diameter,
+        "weight_g": weight_g,
+        "weight": weight_g,
+        "time_mins": time_mins,
+        "print_time": time_mins,
         "updated_at": time.time(),
     }
 
     await app.storage.save_json(app.storage.parts_file, parts)
-    await message.answer("✅ <b>Деталь успішно додано!</b>", parse_mode=ParseMode.HTML)
+
+    success_text = "✅ <b>Деталь успішно додано!</b>"
+    details = []
+    if printer_model and printer_model != "Unknown":
+        details.append(f"🖨️ {html.escape(printer_model)}")
+    if filament_type:
+        details.append(f"🧵 {html.escape(filament_type)}")
+    if weight_g > 0:
+        details.append(f"⚖️ {weight_g:.1f} г")
+    if time_mins > 0:
+        from services.gcode_parser import format_print_time_human
+        details.append(f"⏱️ {format_print_time_human(time_mins)}")
+    if details:
+        success_text += "\nℹ️ " + " | ".join(details)
+
+    await message.answer(success_text, parse_mode=ParseMode.HTML)
 
     u_data = await app.storage.load_user(message.from_user.id)
     lang = get_user_lang(u_data)

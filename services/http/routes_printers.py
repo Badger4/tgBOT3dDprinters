@@ -62,6 +62,7 @@ def build_printer_telemetry(p: Any) -> dict[str, Any]:
             "is_calibrating": False,
             "last_mqtt_msg_time": 0.0,
             "model": p.get("printer_model", "X1C"),
+            "nozzle_diameter": p.get("nozzle_diameter", "0.4"),
             "access_code": p.get("accessCode", p.get("access_code", "")),
             "serial_number": p.get("serialNumber", p.get("serial_number", "")),
         }
@@ -102,6 +103,9 @@ def build_printer_telemetry(p: Any) -> dict[str, Any]:
         "notify": getattr(p, "notify", True),
         "current_job_objects": getattr(p, "current_job_objects", []),
         "skipped_objects": getattr(p, "skipped_objects", []),
+        "model": getattr(p, "printer_model", "X1C"),
+        "printer_model": getattr(p, "printer_model", "X1C"),
+        "nozzle_diameter": getattr(p, "nozzle_diameter", "0.4"),
     }
 
 
@@ -432,6 +436,8 @@ async def handle_update_printer_settings(request: web.Request) -> web.Response:
                 p.notify = bool(raw_n)
         if "spd_lvl" in data:
             p.spd_lvl = int(data["spd_lvl"])
+        if "nozzle_diameter" in data and str(data["nozzle_diameter"]).strip():
+            p.nozzle_diameter = str(data["nozzle_diameter"]).strip()
         if "maintenance_interval_hours" in data:
             p.maintenance_interval_hours = int(data["maintenance_interval_hours"])
         if data.get("reset_maintenance") is True:
@@ -453,6 +459,7 @@ async def handle_update_printer_settings(request: web.Request) -> web.Response:
                     "accessCode": p.access_code,
                     "serialNumber": p.serial_number,
                     "printer_model": getattr(p, "printer_model", "A1"),
+                    "nozzle_diameter": getattr(p, "nozzle_diameter", "0.4"),
                     "ams_enabled": getattr(p, "ams_enabled", None),
                     "notify": p.notify,
                     "spd_lvl": getattr(p, "spd_lvl", 2),

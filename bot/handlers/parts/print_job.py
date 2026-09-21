@@ -128,11 +128,23 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
         tray_info_idx=part.get("tray_info_idx", ""),
         color=part.get("color", ""),
         filament_name=part.get("filament_name", ""),
+        nozzle_diameter=part.get("nozzle_diameter"),
     )
     if not comp.get("compatible"):
         reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
         await callback.answer(f"🛑 ДРУК БЛОКОВАНО: {reason}", show_alert=True)
-        if comp.get("reason_type") == "PRINTER":
+        if comp.get("reason_type") == "NOZZLE":
+            s_noz = comp.get("sliced_nozzle") or part.get("nozzle_diameter", "0.4")
+            t_noz = comp.get("target_nozzle") or getattr(printer, "nozzle_diameter", "0.4")
+            await callback.message.answer(
+                f"🚨 <b>ПОМИЛКА СУМІСНОСТІ СОПЛА! ДРУК БЛОКОВАНО!</b>\n\n"
+                f"🛑 <b>Невідповідність діаметра сопла!</b>\n"
+                f"• <b>Діаметр у деталі (G-code):</b> <code>{html.escape(str(s_noz))} мм</code>\n"
+                f"• <b>Сопло на принтері:</b> <code>{html.escape(str(t_noz))} мм</code>\n\n"
+                f"<i>Будь ласка, замініть сопло на принтері на {html.escape(str(s_noz))} мм або оберіть інший принтер.</i>",
+                parse_mode=ParseMode.HTML,
+            )
+        elif comp.get("reason_type") == "PRINTER":
             p_model = part.get("printer_model") or comp.get("sliced_model", "Невідомо")
             await callback.message.answer(
                 f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n"

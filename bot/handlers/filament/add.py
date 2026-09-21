@@ -17,6 +17,7 @@ from bot.keyboards import (
     get_spool_edit_fields_keyboard,
     get_confirm_delete_spool_keyboard,
     get_printers_keyboard,
+    get_printers_mount_keyboard,
     get_ams_slots_keyboard,
     get_filament_colors_keyboard,
     get_spool_quantity_keyboard,
@@ -435,16 +436,35 @@ async def handle_filament_states(message: Message, app) -> bool:
 
     cancel_keywords = {
         "відміна", "відмінити", "скасувати", "стоп", "назад", "⬅️ назад",
-        "cancel", "/cancel", "back", "⬅️ back", "❌ скасувати", "❌ cancel"
+        "cancel", "/cancel", "back", "⬅️ back", "❌ скасувати", "❌ cancel",
+        "головне меню", "⬅️ головне меню", "main menu", "⬅️ main menu",
+        "повернутись в меню", "назад в меню", "⬅️ назад в меню",
     }
     if text.lower() in cancel_keywords:
-        user["state"] = "printer_menu" if target_printer else "idle"
-        for k in ["new_spool", "edit_spool", "edit_spool_id", "pending_spool", "delete_spool", "delete_spool_id", "mount_spool", "mount_printer_id", "edit_weight_slot_key", "edit_weight_slot_label"]:
-            user.get("context_data", {}).pop(k, None)
-        await app.storage.save_user(user)
-        kb = get_single_printer_filament_keyboard(lang=u_lang) if (target_printer and (state.startswith("edit_filament") or state.startswith("select_slot_for_weight"))) else (get_printer_menu_keyboard(target_printer, lang=u_lang) if target_printer else get_filament_menu_keyboard(lang=u_lang))
-        await message.answer("Дію скасовано." if u_lang != "en" else "Action cancelled.", reply_markup=kb)
-        return True
+        # For multi-step selection states, "назад" should step back rather than aborting entirely
+        if state in ["select_printer_for_mount", "select_slot_for_mount"] and text.lower() in ["назад", "⬅️ назад", "back", "⬅️ back"]:
+            pass  # Fall through to state-specific step back
+        else:
+            mount_src = user.get("context_data", {}).get("mount_source")
+            is_wh_cancel = (mount_src == "warehouse") or (not target_printer)
+            user["state"] = "printer_menu" if (target_printer and not is_wh_cancel) else "idle"
+            for k in ["new_spool", "edit_spool", "edit_spool_id", "pending_spool", "delete_spool", "delete_spool_id", "mount_spool", "mount_printer_id", "mount_source", "edit_weight_slot_key", "edit_weight_slot_label"]:
+                user.get("context_data", {}).pop(k, None)
+            if is_wh_cancel:
+                user.get("context_data", {}).pop("selected_printer_id", None)
+            await app.storage.save_user(user)
+
+            if is_wh_cancel:
+                kb = get_filament_menu_keyboard(lang=u_lang)
+            elif target_printer and (state.startswith("edit_filament") or state.startswith("select_slot_for_weight")):
+                kb = get_single_printer_filament_keyboard(lang=u_lang)
+            elif target_printer:
+                kb = get_printer_menu_keyboard(target_printer, lang=u_lang)
+            else:
+                kb = get_filament_menu_keyboard(lang=u_lang)
+
+            await message.answer("Дію скасовано." if u_lang != "en" else "Action cancelled.", reply_markup=kb)
+            return True
 
     if state == "add_spool_name":
         if not text:
@@ -785,7 +805,8 @@ async def handle_filament_states(message: Message, app) -> bool:
 
         if selected:
             user["context_data"]["mount_spool"] = selected
-            selected_pid = user.get("context_data", {}).get("selected_printer_id")
+            mount_src = user.get("context_data", {}).get("mount_source")
+            selected_pid = user.get("context_data", {}).get("selected_printer_id") if mount_src != "warehouse" else None
             target_p = app.printers.get(selected_pid) if selected_pid else None
 
             if target_p:
@@ -806,11 +827,22 @@ async def handle_filament_states(message: Message, app) -> bool:
                     await app.storage.save_spools(spools)
                     await app.save_printers_config()
 
-                    user["state"] = "printer_menu"
-                    user.setdefault("context_data", {})["selected_printer_id"] = target_p.id
-                    user["context_data"].pop("mount_spool", None)
-                    user["context_data"].pop("mount_printer_id", None)
-                    await app.storage.save_user(user)
+                    is_from_warehouse = (mount_src == "warehouse" or not selected_pid)
+                    if is_from_warehouse:
+                        user["state"] = "idle"
+                        user.get("context_data", {}).pop("selected_printer_id", None)
+                        user.get("context_data", {}).pop("mount_source", None)
+                        user.get("context_data", {}).pop("mount_spool", None)
+                        user.get("context_data", {}).pop("mount_printer_id", None)
+                        await app.storage.save_user(user)
+                        menu_kb = get_filament_menu_keyboard(lang=u_lang)
+                    else:
+                        user["state"] = "printer_menu"
+                        user.setdefault("context_data", {})["selected_printer_id"] = target_p.id
+                        user.get("context_data", {}).pop("mount_spool", None)
+                        user.get("context_data", {}).pop("mount_printer_id", None)
+                        await app.storage.save_user(user)
+                        menu_kb = get_single_printer_filament_keyboard(lang=u_lang)
 
                     stock_info = f"\n📦 Залишок на Складі: <b>{rem_stock} шт</b>" if rem_stock > 0 else ""
                     stock_info_en = f"\n📦 Remaining in stock: <b>{rem_stock} pcs</b>" if rem_stock > 0 else ""
@@ -820,7 +852,7 @@ async def handle_filament_states(message: Message, app) -> bool:
                         if u_lang != "en" else
                         f"✅ <b>Spool {html.escape(mounted_spool['name'])} mounted on {html.escape(target_p.name)} [External (VT)]!</b>{stock_info_en}",
                         parse_mode=ParseMode.HTML,
-                        reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
+                        reply_markup=menu_kb,
                     )
                     hw_kb = InlineKeyboardMarkup(inline_keyboard=[
                         [
@@ -843,7 +875,7 @@ async def handle_filament_states(message: Message, app) -> bool:
                     if u_lang != "en" else
                     f"🖨️ <b>Select printer to mount spool {html.escape(selected['name'])}:</b>",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=get_printers_keyboard(app.printers, lang=u_lang),
+                    reply_markup=get_printers_mount_keyboard(app.printers, lang=u_lang),
                 )
         else:
             await message.answer(
@@ -855,6 +887,22 @@ async def handle_filament_states(message: Message, app) -> bool:
 
     if state == "select_printer_for_mount":
         selected_spool = ctx_data.get("mount_spool")
+        mount_src = ctx_data.get("mount_source")
+
+        # Check back navigation
+        if text.lower() in cancel_keywords or text.strip().lower() in step_back_keywords:
+            spools = await app.storage.load_spools()
+            available_spools = [s for s in spools.values() if not s.get("assigned_printer_id")]
+            user["state"] = "select_spool_to_mount"
+            user.get("context_data", {}).pop("mount_printer_id", None)
+            await app.storage.save_user(user)
+            await message.answer(
+                "🔗 <b>Оберіть котушку зі Складу для установки на принтер:</b>" if u_lang != "en" else "🔗 <b>Select spool from stock to mount:</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_spools_keyboard({s["id"]: s for s in available_spools}, lang=u_lang),
+            )
+            return True
+
         target_p = None
         for p in app.printers.values():
             if text in [f"🖨️ {p.name}", p.name]:
@@ -885,11 +933,22 @@ async def handle_filament_states(message: Message, app) -> bool:
                 await app.storage.save_spools(spools)
                 await app.save_printers_config()
 
-                user["state"] = "printer_menu"
-                user.setdefault("context_data", {})["selected_printer_id"] = target_p.id
-                user["context_data"].pop("mount_spool", None)
-                user["context_data"].pop("mount_printer_id", None)
-                await app.storage.save_user(user)
+                is_from_warehouse = (mount_src == "warehouse" or not selected_pid)
+                if is_from_warehouse:
+                    user["state"] = "idle"
+                    user.get("context_data", {}).pop("selected_printer_id", None)
+                    user.get("context_data", {}).pop("mount_source", None)
+                    user.get("context_data", {}).pop("mount_spool", None)
+                    user.get("context_data", {}).pop("mount_printer_id", None)
+                    await app.storage.save_user(user)
+                    menu_kb = get_filament_menu_keyboard(lang=u_lang)
+                else:
+                    user["state"] = "printer_menu"
+                    user.setdefault("context_data", {})["selected_printer_id"] = target_p.id
+                    user.get("context_data", {}).pop("mount_spool", None)
+                    user.get("context_data", {}).pop("mount_printer_id", None)
+                    await app.storage.save_user(user)
+                    menu_kb = get_single_printer_filament_keyboard(lang=u_lang)
 
                 stock_info = f"\n📦 Залишок на Складі: <b>{rem_stock} шт</b>" if rem_stock > 0 else ""
                 stock_info_en = f"\n📦 Remaining in stock: <b>{rem_stock} pcs</b>" if rem_stock > 0 else ""
@@ -899,7 +958,7 @@ async def handle_filament_states(message: Message, app) -> bool:
                     if u_lang != "en" else
                     f"✅ <b>Spool {html.escape(mounted_spool['name'])} mounted on {html.escape(target_p.name)} [External (VT)]!</b>{stock_info_en}",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
+                    reply_markup=menu_kb,
                 )
                 hw_kb = InlineKeyboardMarkup(inline_keyboard=[
                     [
@@ -925,7 +984,34 @@ async def handle_filament_states(message: Message, app) -> bool:
     if state == "select_slot_for_mount":
         selected_spool = ctx_data.get("mount_spool")
         p_id = ctx_data.get("mount_printer_id")
+        mount_src = ctx_data.get("mount_source")
         target_p = app.printers.get(p_id) if p_id else None
+
+        # Check back navigation
+        if text.lower() in cancel_keywords or text.strip().lower() in step_back_keywords:
+            if mount_src == "warehouse":
+                user["state"] = "select_printer_for_mount"
+                user.get("context_data", {}).pop("mount_printer_id", None)
+                await app.storage.save_user(user)
+                spool_name = selected_spool.get("name", "котушки") if selected_spool else "котушки"
+                await message.answer(
+                    f"🖨️ <b>Оберіть принтер для установки котушки {html.escape(spool_name)}:</b>"
+                    if u_lang != "en" else
+                    f"🖨️ <b>Select printer to mount spool {html.escape(spool_name)}:</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=get_printers_mount_keyboard(app.printers, lang=u_lang),
+                )
+                return True
+            else:
+                user["state"] = "printer_menu"
+                user.get("context_data", {}).pop("mount_spool", None)
+                user.get("context_data", {}).pop("mount_printer_id", None)
+                await app.storage.save_user(user)
+                await message.answer(
+                    "Дію скасовано." if u_lang != "en" else "Action cancelled.",
+                    reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
+                )
+                return True
 
         if not target_p or not selected_spool:
             user["state"] = "idle"
@@ -958,11 +1044,22 @@ async def handle_filament_states(message: Message, app) -> bool:
         await app.storage.save_spools(spools)
         await app.save_printers_config()
 
-        user["state"] = "printer_menu"
-        user.setdefault("context_data", {})["selected_printer_id"] = target_p.id
-        user["context_data"].pop("mount_spool", None)
-        user["context_data"].pop("mount_printer_id", None)
-        await app.storage.save_user(user)
+        is_from_warehouse = (mount_src == "warehouse" or not selected_pid)
+        if is_from_warehouse:
+            user["state"] = "idle"
+            user.get("context_data", {}).pop("selected_printer_id", None)
+            user.get("context_data", {}).pop("mount_source", None)
+            user.get("context_data", {}).pop("mount_spool", None)
+            user.get("context_data", {}).pop("mount_printer_id", None)
+            await app.storage.save_user(user)
+            menu_kb = get_filament_menu_keyboard(lang=u_lang)
+        else:
+            user["state"] = "printer_menu"
+            user.setdefault("context_data", {})["selected_printer_id"] = target_p.id
+            user.get("context_data", {}).pop("mount_spool", None)
+            user.get("context_data", {}).pop("mount_printer_id", None)
+            await app.storage.save_user(user)
+            menu_kb = get_single_printer_filament_keyboard(lang=u_lang)
 
         stock_info = f"\n📦 Залишок на Складі: <b>{rem_stock} шт</b>" if rem_stock > 0 else ""
         stock_info_en = f"\n📦 Remaining in stock: <b>{rem_stock} pcs</b>" if rem_stock > 0 else ""
@@ -972,7 +1069,7 @@ async def handle_filament_states(message: Message, app) -> bool:
             if u_lang != "en" else
             f"✅ <b>Spool {html.escape(mounted_spool['name'])} mounted on {html.escape(target_p.name)} [{slot_label}]!</b>{stock_info_en}",
             parse_mode=ParseMode.HTML,
-            reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
+            reply_markup=menu_kb,
         )
         hw_kb = InlineKeyboardMarkup(inline_keyboard=[
             [
