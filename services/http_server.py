@@ -39,6 +39,7 @@ from services.http.routes_settings import (
     handle_export_history_csv,
     handle_export_history_pdf,
     handle_get_history,
+    handle_mark_history_scrap,
     handle_get_presets,
     handle_get_settings,
     handle_get_user_settings,
@@ -176,6 +177,7 @@ def create_http_app(app_obj: Any) -> web.Application:
     # History & Events API
     web_app.router.add_get("/api/events", handle_sse_stream)
     web_app.router.add_get("/api/history", handle_get_history)
+    web_app.router.add_post("/api/history/mark_scrap", handle_mark_history_scrap)
     web_app.router.add_delete("/api/history", handle_delete_history)
     web_app.router.add_get("/api/history/export", handle_export_history_csv)
     web_app.router.add_get("/api/history/export_pdf", handle_export_history_pdf)

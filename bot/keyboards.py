@@ -1166,6 +1166,38 @@ def get_fleet_calibrate_confirm_keyboard(lang: str = "uk") -> InlineKeyboardMark
     )
 
 
+def get_live_status_inline_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:
+    """Inline keyboard for live farm dashboard message with in-place refresh."""
+    is_en = lang == "en"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Оновити статус" if not is_en else "🔄 Refresh Status",
+                    callback_data="refresh_live_status",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💡 Світло: Все Увімк" if not is_en else "💡 Lights: All On",
+                    callback_data="batch_light_on",
+                ),
+                InlineKeyboardButton(
+                    text="🌑 Світло: Все Вимк" if not is_en else "🌑 Lights: All Off",
+                    callback_data="batch_light_off",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎯 Калібрувати вільні" if not is_en else "🎯 Calibrate Idle",
+                    callback_data="batch_calibrate_prompt",
+                )
+            ]
+        ]
+    )
+
+
+
 
 
 

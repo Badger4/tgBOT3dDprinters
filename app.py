@@ -83,6 +83,55 @@ class PrinterBotApp:
         self.bot: Bot | None = None
         self.dp: Dispatcher | None = None
         self.printer_states: dict[str, dict[str, Any]] = {}
+        self.live_status_messages: dict[str, dict[str, Any]] = {}
+
+    async def update_live_status_messages(self) -> None:
+        """Silently edits live status messages in-place for active printers."""
+        if not self.bot or not getattr(self, "live_status_messages", None):
+            return
+
+        from bot.handlers.dashboard import format_live_dashboard_text
+        from bot.keyboards import get_live_status_inline_keyboard
+        from aiogram.exceptions import TelegramBadRequest
+
+        now = time.time()
+        expired_chats = []
+
+        for chat_id, data in list(self.live_status_messages.items()):
+            # Expire after 45 minutes of inactivity
+            if now - data.get("updated_at", 0) > 2700:
+                expired_chats.append(chat_id)
+                continue
+
+            lang = data.get("lang", "uk")
+            msg_id = data.get("message_id")
+            if not msg_id:
+                continue
+
+            dash_text = format_live_dashboard_text(self, lang)
+            kb = get_live_status_inline_keyboard(lang)
+
+            try:
+                await self.bot.edit_message_text(
+                    text=dash_text,
+                    chat_id=int(chat_id),
+                    message_id=int(msg_id),
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb,
+                )
+            except TelegramBadRequest as ex:
+                err_str = str(ex).lower()
+                if "message is not modified" in err_str:
+                    pass
+                elif "message to edit not found" in err_str or "chat not found" in err_str:
+                    expired_chats.append(chat_id)
+                else:
+                    logger.debug(f"Live status edit notice ({chat_id}): {ex}")
+            except Exception as ex:
+                logger.debug(f"Live status update error ({chat_id}): {ex}")
+
+        for cid in expired_chats:
+            self.live_status_messages.pop(cid, None)
 
     async def initialize(self) -> None:
         printers_data = await self.storage.load_json(self.storage.printers_file, [])
@@ -290,6 +339,7 @@ class PrinterBotApp:
                 "lastErrorCodes": set(),
             }
 
+        last_live_status_check = 0.0
         while True:
             try:
                 # Prune removed printer states to prevent memory leaks
@@ -364,12 +414,24 @@ class PrinterBotApp:
                             start_txt += f"📦 **Залишок на бабіні:** *{p.filament_grams}g*"
 
                             if is_insufficient:
-                                deficit = round(used_w - spool_before, 2)
-                                start_txt += (
-                                    f"\n\n🚨 **УВАГА! Недостатньо пластику для друку!**\n"
-                                    f"❌ Вага моделі (`{used_w}g`) більша ніж залишок (`{spool_before}g`)!\n"
-                                    f"⚠️ Не вистачає ~*{deficit}g*! Не кажи потім, що я не попереджала, Бака!"
-                                )
+                                backup_slots = p.find_ams_backup_slots(p.filament_type) if hasattr(p, "find_ams_backup_slots") else []
+                                total_backup = sum(float(b.get("grams", 0.0)) for b in backup_slots)
+                                total_avail = round(spool_before + total_backup, 2)
+                                if total_avail >= used_w:
+                                    backup_names = ", ".join([f"{b['name']} ({b['grams']}g)" for b in backup_slots])
+                                    start_txt += (
+                                        f"\n\nℹ️ *На активній котушці замало нитки ({spool_before}g),*\n"
+                                        f"але в AMS знайдено сумісний резерв: *Слот {backup_names}*!\n"
+                                        f"✨ Всього доступно: *{total_avail}g* (потрібно: `{used_w}g`). Автозаміна AMS спрацює штатно! 😉✅"
+                                    )
+                                else:
+                                    deficit = round(used_w - total_avail if backup_slots else used_w - spool_before, 2)
+                                    deficit_note = f" (всього в AMS: {total_avail}g)" if backup_slots else ""
+                                    start_txt += (
+                                        f"\n\n🚨 **УВАГА! Недостатньо пластику для друку!**\n"
+                                        f"❌ Вага моделі (`{used_w}g`) більша ніж залишок (`{spool_before}g`{deficit_note})!\n"
+                                        f"⚠️ Не вистачає ~*{deficit}g*! Не кажи потім, що я не попереджала, Бака!"
+                                    )
                                 st["notifiedInsufficentWarning"] = True
 
                             await self.send_notification(
@@ -382,13 +444,34 @@ class PrinterBotApp:
                             st["notifiedPauseErrorRepeat"] = False
 
                         elif is_insufficient and not st.get("notifiedInsufficentWarning"):
-                            deficit = round(used_w - spool_before, 2)
-                            warn_txt = (
-                                f"🚨 **УВАГА! Недостатньо пластику на принтері {p.name}!**\n"
-                                f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
-                                f"⚖️ **Вага моделі:** `{used_w}g` | 📦 **Залишок:** `{spool_before}g`\n"
-                                f"⚠️ Не вистачає ~*{deficit}g* пластику! Іди міняй котушку, Бака! 😤"
-                            )
+                            backup_slots = p.find_ams_backup_slots(p.filament_type) if hasattr(p, "find_ams_backup_slots") else []
+                            total_backup = sum(float(b.get("grams", 0.0)) for b in backup_slots)
+                            total_avail = round(spool_before + total_backup, 2)
+                            if total_avail >= used_w:
+                                backup_names = ", ".join([f"{b['name']} ({b['grams']}g)" for b in backup_slots])
+                                warn_txt = (
+                                    f"ℹ️ *Гей! На активній котушці {p.name} всього {spool_before}g,*\n"
+                                    f"але в AMS є сумісний резерв: *Слот {backup_names}* (разом: *{total_avail}g* / потрібно: `{used_w}g`).\n"
+                                    f"✨ Автозаміна AMS перемкнеться штатно під час друку! Можеш не хвилюватися, Бака! 😉✅"
+                                )
+                            else:
+                                if backup_slots:
+                                    total_def = round(used_w - total_avail, 2)
+                                    warn_txt = (
+                                        f"🚨 **УВАГА! Навіть з урахуванням усіх слотів AMS пластику не вистачить!**\n"
+                                        f"🖨️ **Принтер:** *{p.name}*\n"
+                                        f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
+                                        f"⚖️ **Потрібно:** `{used_w}g` | 📦 **Всього в AMS:** `{total_avail}g`\n"
+                                        f"⚠️ Не вистачає ще ~*{total_def}g*! Підготуй нову котушку, Бака! 😤"
+                                    )
+                                else:
+                                    deficit = round(used_w - spool_before, 2)
+                                    warn_txt = (
+                                        f"🚨 **УВАГА! Недостатньо пластику на принтері {p.name}!**\n"
+                                        f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
+                                        f"⚖️ **Вага моделі:** `{used_w}g` | 📦 **Залишок:** `{spool_before}g`\n"
+                                        f"⚠️ Не вистачає ~*{deficit}g* пластику! Іди міняй котушку, Бака! 😤"
+                                    )
                             await self.send_notification("start", warn_txt)
                             st["notifiedInsufficentWarning"] = True
 
@@ -644,6 +727,12 @@ class PrinterBotApp:
                             st[notif_key] = False
 
                     st["lastState"] = curr_state
+
+                # Periodic in-place update of registered live status messages (every 15s)
+                if time.time() - last_live_status_check >= 15.0:
+                    last_live_status_check = time.time()
+                    if getattr(self, "live_status_messages", None):
+                        asyncio.create_task(self.update_live_status_messages())
 
                 sleep_interval = 5 if is_any_printing else 15
                 gc.collect()

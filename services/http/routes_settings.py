@@ -237,6 +237,9 @@ async def handle_calculate_commercial(request: web.Request) -> web.Response:
             preset = list(presets.values())[0] if presets else DEFAULT_PRESETS["default_pla"]
 
         calc = calculate_commercial_price(preset, weight_g, time_mins)
+        client_order = str(data.get("client_order", "")).strip()
+        if client_order:
+            calc["client_order"] = client_order
         return web.json_response({"status": "ok", "calculation": calc})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
@@ -286,8 +289,16 @@ async def handle_get_history(request: web.Request) -> web.Response:
                 "cost_uah": cost,
                 "filament_type": filament,
                 "note": item.get("note", "Успішно виконано"),
+                "client_order": item.get("client_order", ""),
+                "is_scrap": item.get("is_scrap", False),
+                "scrap_reason": item.get("scrap_reason", ""),
+                "wasted_weight_g": item.get("wasted_weight_g"),
+                "refunded_g": item.get("refunded_g", 0.0),
             }
         )
+
+    total_scrap_jobs = sum(1 for item in history if item.get("is_scrap"))
+    total_scrap_grams = sum(float(item.get("wasted_weight_g", item.get("weight_g", 0.0))) for item in history if item.get("is_scrap"))
 
     return web.json_response(
         {
@@ -295,9 +306,54 @@ async def handle_get_history(request: web.Request) -> web.Response:
             "total_weight_g": round(total_grams, 1),
             "total_weight_kg": round(total_grams / 1000.0, 3),
             "total_cost_uah": round(total_cost, 2),
+            "total_scrap_jobs": total_scrap_jobs,
+            "total_scrap_g": round(total_scrap_grams, 1),
+            "scrap_rate_pct": round((total_scrap_jobs / len(normalized_history) * 100.0), 1) if normalized_history else 0.0,
             "history": normalized_history,
         }
     )
+
+
+async def handle_mark_history_scrap(request: web.Request) -> web.Response:
+    """POST /api/history/mark_scrap - Marks a history record as scrap with wasted weight & optional spool refund."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    ts = data.get("timestamp")
+    if ts is None:
+        return web.json_response({"error": "Missing timestamp"}, status=400)
+
+    try:
+        ts_val = float(ts)
+        wasted_w = float(data.get("wasted_weight_g", 0.0))
+        refund_g = float(data.get("refund_grams", 0.0))
+        reason = str(data.get("reason", "Брак")).strip() or "Брак"
+        p_id = data.get("printer_id")
+        slot_key = data.get("slot_key")
+        spool_id = data.get("spool_id")
+
+        app_obj = request.app["app_obj"]
+        if hasattr(app_obj.storage, "mark_history_scrap"):
+            entry = await app_obj.storage.mark_history_scrap(
+                timestamp=ts_val,
+                wasted_weight_g=wasted_w,
+                reason=reason,
+                refund_grams=refund_g,
+                printer_id=p_id,
+                slot_key=slot_key,
+                spool_id=spool_id,
+            )
+            if entry:
+                return web.json_response({"status": "ok", "entry": entry})
+            return web.json_response({"error": "Entry not found"}, status=404)
+        return web.json_response({"error": "Not supported"}, status=501)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
 
 
 async def handle_delete_history(request: web.Request) -> web.Response:
@@ -370,6 +426,9 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
             preset = DEFAULT_PRESETS.get("default_pla", {})
 
         calc = calculate_commercial_price(preset, weight_g, time_mins)
+        client_order = str(request.query.get("client_order", "")).strip()
+        if client_order:
+            calc["client_order"] = client_order
         preset_name = preset.get("name", "За замовчуванням")
 
         if request.query.get("send_telegram") == "1":
@@ -389,10 +448,11 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
             pdf_bytes = generate_commercial_calc_pdf(calc, filename=request.query.get("filename"), lang="uk")
             fname = f"commercial_quote_{int(time.time())}.pdf"
             doc_file = BufferedInputFile(pdf_bytes, filename=fname)
+            order_extra = f"\n👤 Клієнт / Замовлення: <b>{html.escape(client_order)}</b>" if client_order else ""
             cap = (
                 f"💼 <b>Розрахунок вартості друку</b>\n"
                 f"Пресет: <b>{html.escape(preset_name)}</b>\n"
-                f"Вага: <b>{weight_g:.1f} г</b> | Час: <b>~{time_mins} хв</b>\n"
+                f"Вага: <b>{weight_g:.1f} г</b> | Час: <b>~{time_mins} хв</b>{order_extra}\n"
                 f"🏷️ <b>Підсумкова ціна: {calc.get('total_price', 0):.2f} ₴</b>"
             )
             try:
@@ -519,6 +579,7 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
         <div style="font-size: 11px; color: #64748b; text-align: right;"><strong>Дата:</strong> {date_str}</div>
     </div>
     <div class="summary-grid">
+        {f'<div style="grid-column: 1 / -1; background: #e0f2fe; padding: 6px; border-radius: 4px; border: 1px solid #bae6fd; color: #0369a1;"><strong>👤 Клієнт / Номер замовлення:</strong> {html.escape(client_order)}</div>' if client_order else ''}
         <div><strong>Пресет:</strong> {preset_name}</div>
         <div><strong>Вага нитки:</strong> {weight_g:.1f} г</div>
         <div><strong>Час друку:</strong> {time_mins} хв</div>

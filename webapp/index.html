@@ -124,6 +124,10 @@
                                 <input type="number" id="calc-time-mins" class="form-control" value="120" min="1" step="5">
                             </div>
                         </div>
+                        <div class="form-group">
+                            <label><i class="fa-solid fa-user-tag color-blue"></i> <span data-i18n="client_order_label">Клієнт / Номер замовлення (опціонально)</span></label>
+                            <input type="text" id="calc-client-order" class="form-control" placeholder="напр., Замовлення #104 (Олександр)" autocomplete="off">
+                        </div>
                     </form>
 
                     <!-- Breakdown Output Box -->
@@ -262,6 +266,13 @@
                             <span id="stat-total-weight" class="stat-value">0 kg</span>
                         </div>
                     </div>
+                    <div class="stat-card">
+                        <div class="stat-icon" style="color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label" data-i18n="total_scrap_label">Брак друку</span>
+                            <span id="stat-total-scrap" class="stat-value" style="color: #ef4444;">0 (0%)</span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- History Filters Bar -->
@@ -293,13 +304,14 @@
                                 <tr>
                                     <th data-i18n="th_date">Дата</th>
                                     <th data-i18n="th_printer">Принтер</th>
-                                    <th data-i18n="th_model">Модель</th>
+                                    <th data-i18n="th_model">Модель / Замовлення</th>
                                     <th data-i18n="th_weight_g">Вага (г)</th>
+                                    <th data-i18n="th_status">Статус / Облік</th>
                                     <th style="width: 40px;"></th>
                                 </tr>
                             </thead>
                             <tbody id="history-table-body">
-                                <tr><td colspan="5" class="text-center" data-i18n="no_history_records">Немає записів історії</td></tr>
+                                <tr><td colspan="6" class="text-center" data-i18n="no_history_records">Немає записів історії</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1158,6 +1170,90 @@
                         </div>
                         <button type="submit" id="save-preset-submit" class="btn btn-primary w-100 mt-2">Зберегти пресет</button>
                     </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- SCRAP RECORDING MODAL (AUTOMATED WITHOUT PHYSICAL SCALES) -->
+        <div id="scrap-modal" class="modal-backdrop" onclick="if(event.target===this)window.closeScrapModal()">
+            <div class="modal-window" style="max-width: 480px;">
+                <div class="modal-header">
+                    <h3 id="scrap-modal-title"><i class="fa-solid fa-triangle-exclamation color-red"></i> Фіксація браку друку</h3>
+                    <button type="button" class="icon-btn-close" onclick="window.closeScrapModal()"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body p-3">
+                    <input type="hidden" id="scrap-entry-ts">
+                    <input type="hidden" id="scrap-printer-id">
+                    <input type="hidden" id="scrap-slot-key">
+                    <input type="hidden" id="scrap-spool-id">
+                    
+                    <div class="glass-card p-3 mb-3" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color);">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <strong id="scrap-model-name" style="font-size: 13px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Модель</strong>
+                            <span id="scrap-printer-badge" class="badge badge-secondary" style="font-size: 11px;">Принтер</span>
+                        </div>
+                        <div class="d-flex justify-content-between text-muted" style="font-size: 11px;">
+                            <span>Планова вага: <b id="scrap-planned-weight" class="text-white">0</b> г</span>
+                            <span>Дата: <span id="scrap-date-str">-</span></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="mb-0" style="font-weight: 600; font-size: 13px;">
+                                <i class="fa-solid fa-chart-pie color-blue"></i> Відсоток виконання на момент зупинки:
+                            </label>
+                            <span id="scrap-pct-display" class="badge badge-primary" style="font-size: 13px; font-weight: bold; padding: 4px 8px;">50%</span>
+                        </div>
+                        <input type="range" id="scrap-pct-slider" min="0" max="100" value="50" step="1" class="w-100" style="accent-color: #ef4444; height: 8px; cursor: pointer;">
+                        <small class="text-muted mt-1 d-block" style="font-size: 11px; line-height: 1.3;">
+                            Перетягніть повзунок на приблизний відсоток зупинки. Ваги не потрібні — система автоматично вирахує втрачений та зекономлений пластик!
+                        </small>
+                    </div>
+
+                    <!-- Auto Calculation Cards -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px;">
+                        <div class="glass-card p-2 text-center" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3);">
+                            <small style="color: #ef4444; font-weight: 600; font-size: 11px; display: block;"><i class="fa-solid fa-trash-can"></i> Втрачено (Брак):</small>
+                            <div style="margin-top: 4px;">
+                                <strong id="scrap-wasted-grams" style="font-size: 18px; color: #ef4444;">0.0</strong>
+                                <small style="color: #ef4444;">г</small>
+                            </div>
+                        </div>
+                        <div class="glass-card p-2 text-center" style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);">
+                            <small style="color: #22c55e; font-weight: 600; font-size: 11px; display: block;"><i class="fa-solid fa-rotate-left"></i> Невитрачено:</small>
+                            <div style="margin-top: 4px;">
+                                <strong id="scrap-refund-grams" style="font-size: 18px; color: #22c55e;">0.0</strong>
+                                <small style="color: #22c55e;">г</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label style="font-weight: 600; font-size: 12px; margin-bottom: 6px;"><i class="fa-solid fa-triangle-exclamation color-orange"></i> Причина виникнення браку:</label>
+                        <select id="scrap-reason-select" class="form-control">
+                            <option value="Відлипання від столу (Warping)">Відлипання від столу (Warping)</option>
+                            <option value="Забиття сопла / хотенду (Clog)">Забиття сопла / хотенду (Clog)</option>
+                            <option value="Зсув шарів (Layer Shift)">Зсув шарів (Layer Shift)</option>
+                            <option value="Сплутування нитки на котушці">Сплутування нитки на котушці</option>
+                            <option value="Зупинено оператором вручну">Зупинено оператором вручну</option>
+                            <option value="Знеструмлення або збій">Знеструмлення або збій живлення</option>
+                            <option value="Механічна помилка принтера">Механічна помилка принтера</option>
+                            <option value="Інший дефект">Інший дефект друку</option>
+                        </select>
+                    </div>
+
+                    <div class="form-check mb-3" style="display: flex; align-items: flex-start; gap: 8px;">
+                        <input type="checkbox" id="scrap-refund-checkbox" class="form-check-input" checked style="margin-top: 3px; cursor: pointer;">
+                        <label for="scrap-refund-checkbox" class="form-check-label" style="font-size: 11px; cursor: pointer; line-height: 1.4;">
+                            <strong style="color: #22c55e;">Повернути невитрачений пластик на котушку</strong><br>
+                            <span class="text-muted">Залишок на складі/в AMS автоматично збільшиться на невитрачені грами з записом в журнал руху.</span>
+                        </label>
+                    </div>
+
+                    <button type="button" id="btn-submit-scrap" class="btn btn-danger w-100 py-2 font-weight-bold" style="font-size: 13px;">
+                        <i class="fa-solid fa-check"></i> Зафіксувати брак та списати
+                    </button>
                 </div>
             </div>
         </div>

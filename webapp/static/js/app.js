@@ -617,10 +617,50 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function triggerHaptic(type = "medium") {
         if (window.Telegram?.WebApp?.HapticFeedback) {
-            try { window.Telegram.WebApp.HapticFeedback.impactOccurred(type); } catch(e){}
+            try {
+                if (type === "success" || type === "error" || type === "warning") {
+                    window.Telegram.WebApp.HapticFeedback.notificationOccurred(type);
+                } else if (type === "selection") {
+                    window.Telegram.WebApp.HapticFeedback.selectionChanged();
+                } else {
+                    window.Telegram.WebApp.HapticFeedback.impactOccurred(type);
+                }
+            } catch (e) {}
         }
     }
     window.triggerHaptic = triggerHaptic;
+
+    function renderVisualSpoolSvg(color = "#3b82f6", remainingGrams = 1000, totalGrams = 1000, size = 42) {
+        const rem = Math.max(0, parseFloat(remainingGrams) || 0);
+        const tot = Math.max(1, parseFloat(totalGrams) || 1000);
+        const pct = Math.min(1.0, Math.max(0.0, rem / tot));
+        const pct100 = Math.round(pct * 100);
+
+        const cx = size / 2;
+        const cy = size / 2;
+        const rOuter = size * 0.46;
+        const rHub = size * 0.18;
+        const rFilament = rHub + (rOuter - rHub - 2) * Math.sqrt(pct);
+        const isLow = rem < 100 || pct < 0.15;
+        const pulseClass = isLow ? "spool-svg-pulse" : "";
+        const spoolColor = (color && color.startsWith("#")) ? color : "#3b82f6";
+
+        return `
+            <div class="visual-spool-container" title="Залишок: ${Math.round(rem)}g (${pct100}%)">
+                <svg class="visual-spool-svg ${pulseClass}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+                    <circle cx="${cx}" cy="${cy}" r="${rOuter}" fill="#1e293b" stroke="#475569" stroke-width="1.5" />
+                    <circle cx="${cx}" cy="${cy}" r="${Math.max(rHub, rFilament)}" fill="${spoolColor}" />
+                    <circle cx="${cx}" cy="${cy}" r="${Math.max(rHub, rFilament)}" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1" stroke-dasharray="2,2" />
+                    <circle cx="${cx}" cy="${cy}" r="${rHub}" fill="#0f172a" stroke="#334155" stroke-width="1" />
+                    <line x1="${cx - rHub + 1}" y1="${cy}" x2="${cx + rHub - 1}" y2="${cy}" stroke="#475569" stroke-width="1" />
+                    <line x1="${cx}" y1="${cy - rHub + 1}" x2="${cx}" y2="${cy + rHub - 1}" stroke="#475569" stroke-width="1" />
+                    <circle cx="${cx}" cy="${cy}" r="${size * 0.08}" fill="#000000" />
+                    ${isLow ? `<circle cx="${cx}" cy="${cy}" r="${rOuter}" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3,2" />` : ''}
+                </svg>
+            </div>
+        `;
+    }
+    window.renderVisualSpoolSvg = renderVisualSpoolSvg;
 
     function escapeHtml(str) {
         if (!str) return "";
@@ -2411,7 +2451,7 @@ document.addEventListener("DOMContentLoaded", () => {
                                                 </div>
                                             </div>
                                             <div class="d-flex align-items-center gap-2 mb-1" style="min-width:0;">
-                                                <div class="spool-color-dot" style="background-color:${spoolColor}; width:14px; height:14px; border-radius:50%; border:1px solid rgba(255,255,255,0.4); flex-shrink:0;"></div>
+                                                ${renderVisualSpoolSvg(spoolColor, grams, assignedSpool ? (assignedSpool.initial_grams || 1000) : 1000, 26)}
                                                 <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0;">
                                                     <strong>${spoolName}</strong> <small class="text-muted">(${spoolType})</small>
                                                 </div>
@@ -2483,7 +2523,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 spoolsList.innerHTML = spoolsArray.map(s => `
                     <div class="spool-item glass-card p-3 mb-2 d-flex justify-content-between align-items-center">
                         <div class="spool-left d-flex align-items-center gap-2">
-                            <div class="spool-color-circle" style="background-color: ${s.color || '#3b82f6'}; width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3);"></div>
+                            ${renderVisualSpoolSvg(s.color || '#3b82f6', s.remaining_grams, s.initial_grams || s.total_grams, 44)}
                             <div class="spool-details">
                                 <h4 style="margin:0; font-size:14px;">
                                     ${escapeHtml(s.name)} 
@@ -2780,11 +2820,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const statJobsEl = document.getElementById("stat-total-jobs");
         const statWeightEl = document.getElementById("stat-total-weight");
+        const statScrapEl = document.getElementById("stat-total-scrap");
 
         let totalGrams = 0;
+        let scrapJobs = 0;
         history.forEach(item => {
             const g = item.weight_g !== undefined ? item.weight_g : (item.weight ? Math.round(item.weight) : 0);
             totalGrams += g;
+            if (item.is_scrap) scrapJobs++;
         });
 
         if (statJobsEl) statJobsEl.textContent = history.length;
@@ -2792,9 +2835,13 @@ document.addEventListener("DOMContentLoaded", () => {
             const formattedGrams = totalGrams > 0 && totalGrams < 10 ? (Math.round(totalGrams * 10) / 10) : Math.round(totalGrams);
             statWeightEl.textContent = `${formattedGrams} g`;
         }
+        if (statScrapEl) {
+            const scrapPct = history.length ? Math.round((scrapJobs / history.length) * 100) : 0;
+            statScrapEl.textContent = `${scrapJobs} (${scrapPct}%)`;
+        }
 
         if (!history || history.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="5" class="text-center">Записи історії за обраними фільтрами не знайдені</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center">Записи історії за обраними фільтрами не знайдені</td></tr>`;
             return;
         }
 
@@ -2803,7 +2850,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const printerName = escapeHtml(item.printer_name || item.printer || "Принтер");
             const taskName = escapeHtml(item.subtask_name || item.task || "Модель");
             const printerId = escapeHtml(item.printer_id || item.printer_sn || "");
+            const clientOrder = escapeHtml(item.client_order || "");
             const weightVal = item.weight_g !== undefined ? item.weight_g : (item.weight ? Math.round(item.weight) : 0);
+            const isScrap = Boolean(item.is_scrap);
+            const wastedW = item.wasted_weight_g !== undefined ? item.wasted_weight_g : weightVal;
+            const refundedG = item.refunded_g || 0;
+            const scrapReason = escapeHtml(item.scrap_reason || "Брак");
 
             return `
             <tr>
@@ -2811,13 +2863,31 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td><strong>${printerName}</strong></td>
                 <td>
                     <div class="d-flex align-items-center justify-content-between gap-2">
-                        <code>${taskName}</code>
+                        <div style="min-width: 0;">
+                            <code>${taskName}</code>
+                            ${clientOrder ? `<div class="mt-1"><span class="badge-order-ref" title="${clientOrder}"><i class="fa-solid fa-user"></i> ${clientOrder}</span></div>` : ''}
+                        </div>
                         <button type="button" class="icon-btn btn-reprint-history" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" title="Повторно кинути на друк">
                             <i class="fa-solid fa-rotate-right"></i>
                         </button>
                     </div>
                 </td>
-                <td>${weightVal}g</td>
+                <td>
+                    <b>${weightVal}g</b>
+                    ${isScrap ? `<div style="font-size:10px; color:#ef4444;">Втрата: ${wastedW}g</div>` : ''}
+                </td>
+                <td>
+                    ${isScrap ? `
+                        <div class="d-flex flex-column align-items-start gap-1">
+                            <span class="badge-scrap" title="${scrapReason}">❌ ${scrapReason}</span>
+                            ${refundedG > 0 ? `<small style="font-size:10px; color:#22c55e;">+${refundedG}g ↺</small>` : ''}
+                        </div>
+                    ` : `
+                        <button type="button" class="btn-mark-scrap" data-ts="${item.timestamp}" data-weight="${weightVal}" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" data-slot="${item.slot_key || ''}" data-spool-id="${item.spool_id || ''}" data-date="${dateFormatted}" title="Зафіксувати брак та повернути пластик">
+                            ⚠️ Брак
+                        </button>
+                    `}
+                </td>
                 <td class="text-center">
                     <button class="btn btn-xs btn-outline-danger btn-delete-history-entry" data-ts="${item.timestamp}" title="Видалити запис">
                         <i class="fa-solid fa-xmark"></i>
@@ -2916,7 +2986,139 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             });
         });
+
+        tbody.querySelectorAll(".btn-mark-scrap").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const data = {
+                    ts: btn.getAttribute("data-ts"),
+                    weight: parseFloat(btn.getAttribute("data-weight")) || 0,
+                    task: btn.getAttribute("data-task") || "Модель",
+                    printer: btn.getAttribute("data-printer") || "Принтер",
+                    printerId: btn.getAttribute("data-printer-id") || "",
+                    slotKey: btn.getAttribute("data-slot") || "",
+                    spoolId: btn.getAttribute("data-spool-id") || "",
+                    date: btn.getAttribute("data-date") || "-",
+                };
+                openScrapModal(data);
+            });
+        });
     }
+
+    let activeScrapTarget = null;
+
+    window.closeScrapModal = function() {
+        const modal = document.getElementById("scrap-modal");
+        if (modal) modal.classList.remove("active");
+        activeScrapTarget = null;
+    };
+
+    function updateScrapCalculations() {
+        if (!activeScrapTarget) return;
+        const slider = document.getElementById("scrap-pct-slider");
+        const pct = parseInt(slider?.value || 50, 10);
+        const weight = parseFloat(activeScrapTarget.weight || 0);
+
+        const wasted = Math.round(weight * (pct / 100.0) * 10) / 10;
+        const refund = Math.max(0, Math.round((weight - wasted) * 10) / 10);
+
+        const pctDisp = document.getElementById("scrap-pct-display");
+        const wastedEl = document.getElementById("scrap-wasted-grams");
+        const refundEl = document.getElementById("scrap-refund-grams");
+
+        if (pctDisp) pctDisp.textContent = `${pct}%`;
+        if (wastedEl) wastedEl.textContent = wasted.toFixed(1);
+        if (refundEl) refundEl.textContent = refund.toFixed(1);
+    }
+
+    document.getElementById("scrap-pct-slider")?.addEventListener("input", updateScrapCalculations);
+
+    function openScrapModal(data) {
+        activeScrapTarget = data;
+        triggerHaptic("medium");
+
+        const tsEl = document.getElementById("scrap-entry-ts");
+        const pIdEl = document.getElementById("scrap-printer-id");
+        const slotEl = document.getElementById("scrap-slot-key");
+        const spoolEl = document.getElementById("scrap-spool-id");
+
+        if (tsEl) tsEl.value = data.ts || "";
+        if (pIdEl) pIdEl.value = data.printerId || "";
+        if (slotEl) slotEl.value = data.slotKey || "";
+        if (spoolEl) spoolEl.value = data.spoolId || "";
+
+        const nameEl = document.getElementById("scrap-model-name");
+        const badgeEl = document.getElementById("scrap-printer-badge");
+        const weightEl = document.getElementById("scrap-planned-weight");
+        const dateEl = document.getElementById("scrap-date-str");
+
+        if (nameEl) nameEl.textContent = data.task || "Модель";
+        if (badgeEl) badgeEl.textContent = data.printer || "Принтер";
+        if (weightEl) weightEl.textContent = data.weight || "0";
+        if (dateEl) dateEl.textContent = data.date || "-";
+
+        const slider = document.getElementById("scrap-pct-slider");
+        if (slider) slider.value = 50;
+        updateScrapCalculations();
+
+        const modal = document.getElementById("scrap-modal");
+        if (modal) modal.classList.add("active");
+    }
+
+    document.getElementById("btn-submit-scrap")?.addEventListener("click", async () => {
+        if (!activeScrapTarget) return;
+        const ts = document.getElementById("scrap-entry-ts")?.value;
+        const slider = document.getElementById("scrap-pct-slider");
+        const pct = parseInt(slider?.value || 50, 10);
+        const weight = parseFloat(activeScrapTarget.weight || 0);
+        const wasted = Math.round(weight * (pct / 100.0) * 10) / 10;
+        const refund = Math.max(0, Math.round((weight - wasted) * 10) / 10);
+        const reason = document.getElementById("scrap-reason-select")?.value || "Брак";
+        const shouldRefund = document.getElementById("scrap-refund-checkbox")?.checked ?? true;
+
+        const payload = {
+            timestamp: parseFloat(ts),
+            wasted_weight_g: wasted,
+            refund_grams: shouldRefund ? refund : 0.0,
+            reason: reason,
+            printer_id: document.getElementById("scrap-printer-id")?.value || null,
+            slot_key: document.getElementById("scrap-slot-key")?.value || null,
+            spool_id: document.getElementById("scrap-spool-id")?.value || null,
+        };
+
+        const btn = document.getElementById("btn-submit-scrap");
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Збереження...`;
+        }
+
+        try {
+            const res = await fetch("/api/history/mark_scrap", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            const resData = await res.json();
+            if (res.ok && resData.status === "ok") {
+                triggerHaptic("success");
+                window.closeScrapModal();
+                alert(`⚠️ Брак зафіксовано (${wasted}г)!${shouldRefund && refund > 0 ? ` Повернено ${refund}г на баланс котушки.` : ''}`);
+                loadHistory();
+                if (typeof loadMaterials === "function") loadMaterials();
+            } else {
+                triggerHaptic("error");
+                alert(`Помилка: ${resData.error || 'Не вдалося зберегти брак'}`);
+            }
+        } catch (err) {
+            triggerHaptic("error");
+            console.error("Scrap submit error:", err);
+            alert("Помилка зв'язку при збереженні браку.");
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-check"></i> Зафіксувати брак та списати`;
+            }
+        }
+    });
 
     function applyHistoryFilters() {
         if (!cachedHistoryEntries) return;
@@ -2929,9 +3131,10 @@ document.addEventListener("DOMContentLoaded", () => {
             const taskName = String(item.subtask_name || item.task || "").toLowerCase();
             const printerName = String(item.printer_name || item.printer || "").toLowerCase().trim();
             const printerId = String(item.printer_id || item.printer_sn || "").toLowerCase().trim();
+            const clientOrder = String(item.client_order || "").toLowerCase().trim();
 
-            // 1. Search Query filter (task name or printer name)
-            if (searchQuery && !taskName.includes(searchQuery) && !printerName.includes(searchQuery)) {
+            // 1. Search Query filter (task name, printer name, or client/order reference)
+            if (searchQuery && !taskName.includes(searchQuery) && !printerName.includes(searchQuery) && !clientOrder.includes(searchQuery)) {
                 return false;
             }
 
@@ -3270,10 +3473,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const presetId = presetSelect?.value || "";
             const weightG = document.getElementById("calc-weight-g")?.value || "100";
             const timeMins = document.getElementById("calc-time-mins")?.value || "60";
+            const clientOrder = (document.getElementById("calc-client-order")?.value || "").trim();
 
             triggerPdfReportExport(
                 "/api/commercial/export_pdf",
-                { preset_id: presetId, weight_g: weightG, time_mins: timeMins },
+                { preset_id: presetId, weight_g: weightG, time_mins: timeMins, client_order: clientOrder },
                 `commercial_quote_${new Date().toISOString().slice(0, 10)}.pdf`,
                 exportPdfBtn
             );
@@ -3378,12 +3582,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const weight_g = parseFloat(document.getElementById("calc-weight-g").value) || 100;
         const time_mins = parseInt(document.getElementById("calc-time-mins").value) || 60;
         const preset_id = document.getElementById("calc-preset-select").value;
+        const client_order = (document.getElementById("calc-client-order")?.value || "").trim();
 
         try {
             const res = await fetch("/api/commercial/calculate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ weight_g, time_mins, preset_id })
+                body: JSON.stringify({ weight_g, time_mins, preset_id, client_order })
             });
             const data = await res.json();
             if (data.status === "ok" && data.calculation) {
@@ -3404,6 +3609,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("calc-preset-select")?.addEventListener("change", recalculateCommercial);
     document.getElementById("calc-weight-g")?.addEventListener("input", recalculateCommercial);
     document.getElementById("calc-time-mins")?.addEventListener("input", recalculateCommercial);
+    document.getElementById("calc-client-order")?.addEventListener("input", recalculateCommercial);
 
     // Preset Modal handlers
     const presetModal = document.getElementById("preset-modal");

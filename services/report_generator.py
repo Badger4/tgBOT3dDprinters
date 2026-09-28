@@ -162,26 +162,30 @@ def generate_history_pdf_report(history: list[dict[str, Any]]) -> bytes:
 
     story: list[Any] = []
 
+    scrap_jobs = sum(1 for item in history if item.get("is_scrap"))
+    scrap_weight = sum(float(item.get("wasted_weight_g", item.get("weight_g", 0.0)) or 0.0) for item in history if item.get("is_scrap"))
+    scrap_sub = f" | Брак: <b>{scrap_jobs} робіт ({scrap_weight:.1f} г)</b>" if scrap_jobs > 0 else ""
+
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     story.append(Paragraph("📊 Звіт історії друку 3D Ферми", title_style))
     story.append(
         Paragraph(
-            f"Згенеровано: <b>{now_str}</b> | Всього записів: <b>{len(history)}</b>",
+            f"Згенеровано: <b>{now_str}</b> | Всього робіт: <b>{len(history)}</b>{scrap_sub}",
             subtitle_style,
         )
     )
     story.append(Spacer(1, 10))
 
-    col_widths = [30, 110, 110, 245, 75, 75, 155]
+    col_widths = [30, 105, 105, 255, 70, 75, 160]
     table_data = [
         [
             Paragraph("№", header_cell_style),
             Paragraph("Дата та час", header_cell_style),
             Paragraph("Принтер", header_cell_style),
-            Paragraph("Назва моделі / 3MF", header_cell_style),
-            Paragraph("Тип пластику", header_cell_style),
+            Paragraph("Назва моделі / Замовлення", header_cell_style),
+            Paragraph("Тип нитки", header_cell_style),
             Paragraph("Витрата (г)", header_cell_style),
-            Paragraph("Примітка", header_cell_style),
+            Paragraph("Статус / Примітка", header_cell_style),
         ]
     ]
 
@@ -201,30 +205,47 @@ def generate_history_pdf_report(history: list[dict[str, Any]]) -> bytes:
         else:
             dt_str = str(ts)
         p_name = html.escape(str(item.get("printer_name", "Принтер")))
-        subtask = html.escape(str(item.get("subtask_name", "Модель")))
+        subtask_raw = html.escape(str(item.get("subtask_name", "Модель")))
+        client_order = str(item.get("client_order") or "").strip()
+        if client_order:
+            subtask_html = f"<b>{subtask_raw}</b><br/><font color='#0284c7'>👤 {html.escape(client_order)}</font>"
+        else:
+            subtask_html = subtask_raw
+
         filament = html.escape(str(item.get("filament_type", "PLA")))
         weight_g = float(item.get("weight_g", 0.0) or 0.0)
         total_weight += weight_g
-        raw_note = str(item.get("note", "Завершено") or "Завершено").strip()
-        if not raw_note or raw_note.lower() in ("успішно", "успішно виконано", "завершено", "success", "finish", "completed", "ok") or "успіш" in raw_note.lower() or "заверш" in raw_note.lower() or raw_note.startswith("?"):
-            note_str = "Завершено"
+
+        is_scrap = bool(item.get("is_scrap"))
+        wasted_g = float(item.get("wasted_weight_g", weight_g) or weight_g)
+
+        if is_scrap:
+            reason = html.escape(str(item.get("scrap_reason", "Брак")))
+            note_html = f"<font color='#dc2626'><b>❌ БРАК:</b> {reason}</font>"
+            weight_html = f"{weight_g:.1f}<br/><font color='#dc2626' size='7'>Втрата: {wasted_g:.1f}г</font>"
         else:
-            note_str = raw_note
-        note = html.escape(note_str)
+            raw_note = str(item.get("note", "Завершено") or "Завершено").strip()
+            if not raw_note or raw_note.lower() in ("успішно", "успішно виконано", "завершено", "success", "finish", "completed", "ok") or "успіш" in raw_note.lower() or "заверш" in raw_note.lower() or raw_note.startswith("?"):
+                note_str = "Завершено"
+            else:
+                note_str = raw_note
+            note_html = html.escape(note_str)
+            weight_html = f"{weight_g:.1f}"
 
         table_data.append(
             [
                 Paragraph(str(idx), cell_style),
                 Paragraph(dt_str, cell_style),
                 Paragraph(p_name, cell_style),
-                Paragraph(subtask, cell_style),
+                Paragraph(subtask_html, cell_style),
                 Paragraph(filament, cell_style),
-                Paragraph(f"{weight_g:.1f}", bold_cell_style),
-                Paragraph(note, cell_style),
+                Paragraph(weight_html, bold_cell_style),
+                Paragraph(note_html, cell_style),
             ]
         )
 
     # Summary Row
+    summary_extra = f"<br/><font size='7'>Брак: {scrap_weight:.1f} г</font>" if scrap_jobs > 0 else ""
     table_data.append(
         [
             Paragraph("Всього", header_cell_style),
@@ -232,8 +253,8 @@ def generate_history_pdf_report(history: list[dict[str, Any]]) -> bytes:
             Paragraph("-", header_cell_style),
             Paragraph("-", header_cell_style),
             Paragraph("-", header_cell_style),
-            Paragraph(f"{total_weight:.1f} г ({total_weight/1000.0:.2f} кг)", header_cell_style),
-            Paragraph("-", header_cell_style),
+            Paragraph(f"{total_weight:.1f} г ({total_weight/1000.0:.2f} кг){summary_extra}", header_cell_style),
+            Paragraph(f"Брак: {scrap_jobs} шт" if scrap_jobs > 0 else "Без браку", header_cell_style),
         ]
     )
 
@@ -1595,7 +1616,26 @@ def generate_commercial_calc_pdf(
     )
     story.append(Paragraph(doc_title, title_style))
     story.append(Paragraph(gen_str, subtitle_style))
-    story.append(Spacer(1, 12))
+    story.append(Spacer(1, 8))
+
+    client_order = str(calc.get("client_order") or "").strip()
+    if client_order:
+        order_lbl = "Замовник / Номер замовлення:" if not is_en else "Client / Order Reference:"
+        story.append(
+            Paragraph(
+                f"👤 {order_lbl} <b>{html.escape(client_order)}</b>",
+                ParagraphStyle(
+                    "CalcClientRef",
+                    fontName=font_bold,
+                    fontSize=9,
+                    leading=12,
+                    textColor=colors.HexColor("#0284c7"),
+                ),
+            )
+        )
+        story.append(Spacer(1, 6))
+    else:
+        story.append(Spacer(1, 4))
 
     weight_g = float(calc.get("weight_g", 0.0) or 0.0)
     time_mins = int(calc.get("time_mins", 0) or 0)

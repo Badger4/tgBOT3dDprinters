@@ -10,36 +10,33 @@ from typing import Any
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 router = Router()
 
 
-@router.message(F.text.lower().in_(["📊 стан ферми", "стан ферми", "ферма", "📊 farm status", "farm status"]))
-async def handle_dashboard(message: Message, app, state: FSMContext | None = None):
-    if state:
-        await state.clear()
-    chat_id = str(message.chat.id)
-    if not await app.is_user_approved(chat_id):
-        return
+def make_progress_bar(pct: int, length: int = 10) -> str:
+    """Creates a visual unicode progress bar [████░░░░░░]."""
+    p = max(0, min(100, pct))
+    filled = int(round(length * (p / 100.0)))
+    empty = length - filled
+    return "█" * filled + "░" * empty
 
-    user = await app.storage.load_user(chat_id)
-    u_lang = user.get("language", "uk")
-    is_en = u_lang == "en"
+
+def format_live_dashboard_text(app: Any, lang: str = "uk") -> str:
+    """Formats full live farm status text with progress bars and telemetry."""
+    is_en = lang == "en"
+    now_str = time.strftime("%H:%M:%S")
 
     if not app.printers:
-        await message.answer(
-            "⚠️ No printers added yet!" if is_en else "⚠️ У базі немає доданих принтерів."
-        )
-        return
+        return "⚠️ No printers added yet!" if is_en else "⚠️ У базі немає доданих принтерів."
 
     if is_en:
-        dash_txt = "<b>🏭 3D Farm Dashboard</b>\n\n"
-        dash_txt += f"<b>Total Printers: {len(app.printers)}</b>\n\n"
+        dash_txt = f"<b>🏭 3D Farm Live Dashboard</b> (<code>{now_str}</code>)\n\n"
     else:
-        dash_txt = "<b>🏭 Дашборд 3D Ферми</b>\n\n"
-        dash_txt += f"<b>Всього принтерів: {len(app.printers)}</b>\n\n"
+        dash_txt = f"<b>🏭 Стан 3D Ферми LIVE</b> (<code>{now_str}</code>)\n\n"
 
     for pid, p in app.printers.items():
         p_name = html.escape(p.name)
@@ -57,18 +54,18 @@ async def handle_dashboard(message: Message, app, state: FSMContext | None = Non
             st_str = "Пауза" if not is_en else "PAUSE"
         else:
             st_emoji = "⚪"
-            st_str = "Онлайн" if not is_en else "ONLINE"
+            st_str = "Вільний" if not is_en else "IDLE"
 
         spd_str = (
-            f" ({p.spd_mag}%)"
+            f" ⚡{p.spd_mag}%"
             if getattr(p, "spd_mag", 100) and getattr(p, "spd_mag", 100) != 100 and is_p_online
             else ""
         )
 
-        dash_txt += f"{st_emoji} <b>{p_name}</b>: <code>{st_str}</code>{spd_str}\n"
+        dash_txt += f"{st_emoji} <b>{p_name}</b> | <code>{st_str}</code>{spd_str}\n"
 
         if not is_p_online or mapped_st == "OFFLINE":
-            dash_txt += f"   🔌 <i>{'Вимкнений або немає зв\'язку' if not is_en else 'Offline / Powered off'}</i>\n"
+            dash_txt += f"   🔌 <i>{'Вимкнений або немає зв\'язку' if not is_en else 'Offline / Powered off'}</i>\n\n"
         elif mapped_st in ["RUNNING", "PAUSE"]:
             from bot.handlers.printers.view import format_remaining_time, get_finish_time_str
             sub_task = html.escape(p.subtask_name or ("Model" if is_en else "Модель"))
@@ -82,16 +79,87 @@ async def handle_dashboard(message: Message, app, state: FSMContext | None = Non
                 p_pct = 0
             rem_str = format_remaining_time(rem_m, is_en)
             finish_str = get_finish_time_str(rem_m, is_en)
-            finish_note = f" ({finish_str})" if finish_str else ""
-            dash_txt += f"   📄 <i>{sub_task}</i> ({p_pct}%) | ⏱️ ~{rem_str}{finish_note}\n"
-            dash_txt += f"   🔥 {p.nozzle_temper}°C | 🛏️ {p.bed_temper}°C | 🧵 {p.filament_grams}g\n"
+            finish_note = f" (~{finish_str})" if finish_str else ""
+            p_bar = make_progress_bar(p_pct, 10)
+
+            dash_txt += f"   📄 <i>{sub_task}</i>\n"
+            dash_txt += f"   <code>[{p_bar}]</code> <b>{p_pct}%</b> | ⏱️ {rem_str}{finish_note}\n"
+            dash_txt += f"   🌡️ Сопло: {p.nozzle_temper}°C | Стіл: {p.bed_temper}°C\n"
+            dash_txt += f"   📦 Залишок: {p.filament_grams}g ({html.escape(p.filament_type)})\n\n"
         else:
             rem_lbl = "Remaining:" if is_en else "Залишок:"
-            dash_txt += f"   📦 {rem_lbl} {p.filament_grams}g | 🧵 {html.escape(p.filament_type)}\n"
-        dash_txt += "\n"
+            dash_txt += f"   🌡️ Сопло: {p.nozzle_temper}°C | Стіл: {p.bed_temper}°C\n"
+            dash_txt += f"   📦 {rem_lbl} {p.filament_grams}g ({html.escape(p.filament_type)})\n\n"
 
-    from bot.keyboards import get_farm_batch_actions_keyboard
-    await message.answer(dash_txt, parse_mode=ParseMode.HTML, reply_markup=get_farm_batch_actions_keyboard(u_lang))
+    return dash_txt
+
+
+@router.message(Command("status"))
+@router.message(F.text.lower().in_(["📊 стан ферми", "стан ферми", "ферма", "📊 farm status", "farm status", "/status"]))
+async def handle_dashboard(message: Message, app, state: FSMContext | None = None):
+    if state:
+        await state.clear()
+    chat_id = str(message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        return
+
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    dash_txt = format_live_dashboard_text(app, u_lang)
+    from bot.keyboards import get_live_status_inline_keyboard
+
+    sent = await message.answer(
+        dash_txt,
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_live_status_inline_keyboard(u_lang),
+    )
+
+    # Register for auto in-place live updates
+    if not hasattr(app, "live_status_messages"):
+        app.live_status_messages = {}
+    app.live_status_messages[chat_id] = {
+        "message_id": sent.message_id,
+        "updated_at": time.time(),
+        "lang": u_lang,
+    }
+
+
+@router.callback_query(F.data == "refresh_live_status")
+async def handle_callback_refresh_live_status(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    if not await app.is_user_approved(chat_id):
+        await callback.answer("⚠️ Немає доступу.", show_alert=True)
+        return
+
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    dash_txt = format_live_dashboard_text(app, u_lang)
+    from bot.keyboards import get_live_status_inline_keyboard
+    from aiogram.exceptions import TelegramBadRequest
+
+    try:
+        await callback.message.edit_text(
+            dash_txt,
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_live_status_inline_keyboard(u_lang),
+        )
+        await callback.answer("Оновлено! ✨" if u_lang != "en" else "Refreshed! ✨")
+    except TelegramBadRequest as ex:
+        if "message is not modified" in str(ex).lower():
+            await callback.answer("Дані актуальні! 👍" if u_lang != "en" else "Up to date! 👍")
+        else:
+            await callback.answer()
+    except Exception:
+        await callback.answer()
+
+    if not hasattr(app, "live_status_messages"):
+        app.live_status_messages = {}
+    app.live_status_messages[chat_id] = {
+        "message_id": callback.message.message_id,
+        "updated_at": time.time(),
+        "lang": u_lang,
+    }
 
 
 # ==============================================================================

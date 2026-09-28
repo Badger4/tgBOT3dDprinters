@@ -2096,3 +2096,42 @@ class BambuPrinter:
                     errors.append(desc)
 
         return errors
+
+    def find_ams_backup_slots(self, required_type: str | None = None) -> list[dict[str, Any]]:
+        """
+        Finds compatible backup AMS slots that have remaining filament of the same material type.
+        Returns a list of dicts: [{"slot": "1", "name": "A2", "grams": 800.0, "type": "PLA", "color": "#FFFFFF"}, ...]
+        """
+        if not getattr(self, "has_ams", False):
+            return []
+
+        active_slot = self.get_active_slot_key() or getattr(self, "last_active_slot", None)
+        slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT"}
+
+        backups: list[dict[str, Any]] = []
+        target_type = (required_type or getattr(self, "filament_type", "") or "").strip().upper()
+        if not target_type or target_type in ["НЕВИЗНАЧЕНО", "UNKNOWN"]:
+            return []
+
+        # Check all AMS slots except the active one
+        for slot_k in ["0", "1", "2", "3"]:
+            if active_slot is not None and str(slot_k) == str(active_slot):
+                continue
+            grams = float(self.ams_slots.get(slot_k, 0.0) or 0.0)
+            if grams <= 0:
+                continue
+
+            tray_info = self.ams_trays_info.get(slot_k, {})
+            tray_type = str(tray_info.get("type") or tray_info.get("tray_type") or "").strip().upper()
+
+            # Check if material type matches (e.g. PLA in PLA Basic, PLA == PLA, PETG == PETG)
+            if tray_type and (tray_type == target_type or target_type in tray_type or tray_type in target_type):
+                backups.append({
+                    "slot": slot_k,
+                    "name": slot_names.get(slot_k, f"A{int(slot_k)+1}"),
+                    "grams": round(grams, 1),
+                    "type": tray_type,
+                    "color": tray_info.get("color") or tray_info.get("tray_color") or "",
+                })
+
+        return backups

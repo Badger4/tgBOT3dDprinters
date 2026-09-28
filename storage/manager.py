@@ -442,3 +442,70 @@ class StorageManager:
         filtered = [item for item in history if item.get("timestamp") != timestamp]
         return await self.save_json(self.history_file, filtered)
 
+    async def mark_history_scrap(
+        self,
+        timestamp: float,
+        wasted_weight_g: float,
+        reason: str = "Брак",
+        refund_grams: float = 0.0,
+        printer_id: str | None = None,
+        slot_key: str | None = None,
+        spool_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Marks an existing history record as scrap/failed, updating wasted weight and note.
+        Optionally refunds unprinted grams back to the assigned spool.
+        """
+        history = await self.load_history()
+        target_entry = None
+        for item in history:
+            try:
+                item_ts = float(item.get("timestamp", 0.0))
+                if abs(item_ts - float(timestamp)) < 0.5:
+                    target_entry = item
+                    break
+            except (ValueError, TypeError):
+                continue
+
+        if not target_entry:
+            return None
+
+        target_entry["is_scrap"] = True
+        target_entry["scrap_reason"] = reason
+        target_entry["wasted_weight_g"] = round(float(wasted_weight_g), 1)
+        target_entry["refunded_g"] = round(float(refund_grams), 1)
+        target_entry["note"] = f"Брак ❌ ({reason})"
+
+        await self.save_json(self.history_file, history)
+
+        # Handle spool refund if requested
+        if refund_grams > 0:
+            spools = await self.load_spools()
+            target_spool = None
+            if spool_id and spool_id in spools:
+                target_spool = spools[spool_id]
+            elif printer_id:
+                for s in spools.values():
+                    if s.get("assigned_printer_id") == printer_id:
+                        if slot_key is None or str(s.get("assigned_slot_key")) == str(slot_key):
+                            target_spool = s
+                            break
+
+            if target_spool:
+                prev_w = float(target_spool.get("remaining_grams", 0.0))
+                new_w = round(prev_w + refund_grams, 1)
+                target_spool["remaining_grams"] = new_w
+                await self.save_spools(spools)
+                await self.record_spool_movement(
+                    spool_id=target_spool["id"],
+                    spool_name=target_spool.get("name", "Spool"),
+                    action="scrap_refund",
+                    weight_change_g=+refund_grams,
+                    prev_weight_g=prev_w,
+                    new_weight_g=new_w,
+                    reason=f"Повернення невитраченого пластику через брак ({reason})",
+                    user="System",
+                )
+
+        return target_entry
+
