@@ -645,12 +645,27 @@ document.addEventListener("DOMContentLoaded", () => {
         const pulseClass = isLow ? "spool-svg-pulse" : "";
         const spoolColor = (color && color.startsWith("#")) ? color : "#3b82f6";
 
+        // Calculate luminance for contrast outline on light colors (white, ivory, light yellow, etc.)
+        let isLightColor = false;
+        if (spoolColor.startsWith("#") && spoolColor.length >= 7) {
+            const r = parseInt(spoolColor.slice(1, 3), 16) || 0;
+            const g = parseInt(spoolColor.slice(3, 5), 16) || 0;
+            const b = parseInt(spoolColor.slice(5, 7), 16) || 0;
+            const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+            isLightColor = luminance > 0.72;
+        }
+
+        const filamentStroke = isLightColor ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.25)";
+        const filamentStrokeWidth = isLightColor ? 1.5 : 1;
+        const contrastBorder = isLightColor ? `<circle cx="${cx}" cy="${cy}" r="${Math.max(rHub, rFilament)}" fill="none" stroke="#64748b" stroke-width="1.2" />` : "";
+
         return `
-            <div class="visual-spool-container" title="Залишок: ${Math.round(rem)}g (${pct100}%)">
+            <div class="visual-spool-container ${isLightColor ? 'light-spool' : ''}" title="Залишок: ${Math.round(rem)}g (${pct100}%)">
                 <svg class="visual-spool-svg ${pulseClass}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
                     <circle cx="${cx}" cy="${cy}" r="${rOuter}" fill="#1e293b" stroke="#475569" stroke-width="1.5" />
                     <circle cx="${cx}" cy="${cy}" r="${Math.max(rHub, rFilament)}" fill="${spoolColor}" />
-                    <circle cx="${cx}" cy="${cy}" r="${Math.max(rHub, rFilament)}" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1" stroke-dasharray="2,2" />
+                    ${contrastBorder}
+                    <circle cx="${cx}" cy="${cy}" r="${Math.max(rHub, rFilament)}" fill="none" stroke="${filamentStroke}" stroke-width="${filamentStrokeWidth}" stroke-dasharray="2,2" />
                     <circle cx="${cx}" cy="${cy}" r="${rHub}" fill="#0f172a" stroke="#334155" stroke-width="1" />
                     <line x1="${cx - rHub + 1}" y1="${cy}" x2="${cx + rHub - 1}" y2="${cy}" stroke="#475569" stroke-width="1" />
                     <line x1="${cx}" y1="${cy - rHub + 1}" x2="${cx}" y2="${cy + rHub - 1}" stroke="#475569" stroke-width="1" />
@@ -1122,7 +1137,34 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>`;
             }).join("");
 
-            amsPanelHtml = `<div class="cockpit-ams-strip">${slotsHtml}</div>`;
+            const humIdx = parseInt(p.ams_humidity_idx || 0);
+            let humBadgeHtml = "";
+            if (humIdx >= 1) {
+                let humClass = "hum-dry";
+                let humIcon = '<i class="fa-solid fa-droplet color-cyan"></i>';
+                let humTitle = "Вологість в нормі";
+                if (humIdx === 3) {
+                    humClass = "hum-ok";
+                    humIcon = '<i class="fa-solid fa-droplet color-green"></i>';
+                    humTitle = "Вологість помірна";
+                } else if (humIdx === 4) {
+                    humClass = "hum-warn";
+                    humIcon = '<i class="fa-solid fa-triangle-exclamation color-amber"></i>';
+                    humTitle = "Підвищена вологість! Осушувач насичується";
+                } else if (humIdx >= 5) {
+                    humClass = "hum-danger";
+                    humIcon = '<i class="fa-solid fa-circle-exclamation color-red"></i>';
+                    humTitle = "Критична вологість! Замініть осушувач";
+                }
+                humBadgeHtml = `<span class="badge-ams-humidity ${humClass}" title="${humTitle}">${humIcon} ${humIdx}/5</span>`;
+            }
+
+            amsPanelHtml = `
+                <div class="cockpit-ams-header">
+                    <span><i class="fa-solid fa-box-archive"></i> AMS</span>
+                    ${humBadgeHtml}
+                </div>
+                <div class="cockpit-ams-strip">${slotsHtml}</div>`;
         } else {
             // Single external spool holder
             const activeKey = String(p.active_slot_key || "254");
@@ -3474,10 +3516,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const weightG = document.getElementById("calc-weight-g")?.value || "100";
             const timeMins = document.getElementById("calc-time-mins")?.value || "60";
             const clientOrder = (document.getElementById("calc-client-order")?.value || "").trim();
+            const elecRate = document.getElementById("calc-elec-rate")?.value || "4.32";
+            const powerWatts = document.getElementById("calc-power-watts")?.value || "120";
 
             triggerPdfReportExport(
                 "/api/commercial/export_pdf",
-                { preset_id: presetId, weight_g: weightG, time_mins: timeMins, client_order: clientOrder },
+                { preset_id: presetId, weight_g: weightG, time_mins: timeMins, client_order: clientOrder, electricity_rate_uah: elecRate, power_watts: powerWatts },
                 `commercial_quote_${new Date().toISOString().slice(0, 10)}.pdf`,
                 exportPdfBtn
             );
@@ -3487,6 +3531,20 @@ document.addEventListener("DOMContentLoaded", () => {
     // 9. Tab 2: Commercial Calculator & Presets
     let currentPresets = {};
     let editingPresetId = null;
+
+    function syncPresetToInputs(pId) {
+        const p = currentPresets[pId];
+        if (p) {
+            const elecInp = document.getElementById("calc-elec-rate");
+            if (elecInp && p.electricity_rate_uah !== undefined) {
+                elecInp.value = p.electricity_rate_uah;
+            }
+            const powInp = document.getElementById("calc-power-watts");
+            if (powInp && p.power_watts !== undefined) {
+                powInp.value = p.power_watts;
+            }
+        }
+    }
 
     async function loadCommercialPresets() {
         try {
@@ -3514,6 +3572,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     `<option value="${p.id}">${escapeHtml(p.name)}</option>`
                 ).join("");
                 if (!selectEl.value) selectEl.value = presetList[0].id;
+                syncPresetToInputs(selectEl.value);
 
                 listEl.innerHTML = presetList.map(p => `
                     <div class="spool-item">
@@ -3583,12 +3642,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const time_mins = parseInt(document.getElementById("calc-time-mins").value) || 60;
         const preset_id = document.getElementById("calc-preset-select").value;
         const client_order = (document.getElementById("calc-client-order")?.value || "").trim();
+        const electricity_rate_uah = parseFloat(document.getElementById("calc-elec-rate")?.value) || 4.32;
+        const power_watts = parseFloat(document.getElementById("calc-power-watts")?.value) || 120;
 
         try {
             const res = await fetch("/api/commercial/calculate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ weight_g, time_mins, preset_id, client_order })
+                body: JSON.stringify({ weight_g, time_mins, preset_id, client_order, electricity_rate_uah, power_watts })
             });
             const data = await res.json();
             if (data.status === "ok" && data.calculation) {
@@ -3606,9 +3667,14 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    document.getElementById("calc-preset-select")?.addEventListener("change", recalculateCommercial);
+    document.getElementById("calc-preset-select")?.addEventListener("change", (e) => {
+        syncPresetToInputs(e.target.value);
+        recalculateCommercial();
+    });
     document.getElementById("calc-weight-g")?.addEventListener("input", recalculateCommercial);
     document.getElementById("calc-time-mins")?.addEventListener("input", recalculateCommercial);
+    document.getElementById("calc-elec-rate")?.addEventListener("input", recalculateCommercial);
+    document.getElementById("calc-power-watts")?.addEventListener("input", recalculateCommercial);
     document.getElementById("calc-client-order")?.addEventListener("input", recalculateCommercial);
 
     // Preset Modal handlers

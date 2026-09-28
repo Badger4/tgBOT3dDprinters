@@ -2381,6 +2381,63 @@ body {
     color: #0f172a;
 }
 
+/* Light Spool Contrast Enhancement */
+.visual-spool-container.light-spool .visual-spool-svg {
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.45));
+}
+
+/* AMS Humidity Badges */
+.cockpit-ams-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted, #94a3b8);
+}
+
+.badge-ams-humidity {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.badge-ams-humidity.hum-dry {
+    color: #38bdf8;
+    border-color: rgba(56, 189, 248, 0.35);
+}
+
+.badge-ams-humidity.hum-ok {
+    color: #4ade80;
+    border-color: rgba(74, 222, 128, 0.35);
+}
+
+.badge-ams-humidity.hum-warn {
+    color: #fbbf24;
+    border-color: rgba(251, 191, 36, 0.4);
+    background: rgba(251, 191, 36, 0.12);
+}
+
+.badge-ams-humidity.hum-danger {
+    color: #f87171;
+    border-color: rgba(248, 113, 113, 0.5);
+    background: rgba(239, 68, 68, 0.18);
+    animation: amsHumidPulse 2s infinite;
+}
+
+@keyframes amsHumidPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    50% { box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.6); }
+}
+
 
 
 

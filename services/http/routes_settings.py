@@ -236,6 +236,18 @@ async def handle_calculate_commercial(request: web.Request) -> web.Response:
         if not preset:
             preset = list(presets.values())[0] if presets else DEFAULT_PRESETS["default_pla"]
 
+        preset = dict(preset)
+        if "electricity_rate_uah" in data and data["electricity_rate_uah"] is not None:
+            try:
+                preset["electricity_rate_uah"] = float(data["electricity_rate_uah"])
+            except (ValueError, TypeError):
+                pass
+        if "power_watts" in data and data["power_watts"] is not None:
+            try:
+                preset["power_watts"] = float(data["power_watts"])
+            except (ValueError, TypeError):
+                pass
+
         calc = calculate_commercial_price(preset, weight_g, time_mins)
         client_order = str(data.get("client_order", "")).strip()
         if client_order:
@@ -424,6 +436,18 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
             preset = list(presets.values())[0]
         elif not preset:
             preset = DEFAULT_PRESETS.get("default_pla", {})
+
+        preset = dict(preset)
+        if "electricity_rate_uah" in request.query and request.query["electricity_rate_uah"]:
+            try:
+                preset["electricity_rate_uah"] = float(request.query["electricity_rate_uah"])
+            except (ValueError, TypeError):
+                pass
+        if "power_watts" in request.query and request.query["power_watts"]:
+            try:
+                preset["power_watts"] = float(request.query["power_watts"])
+            except (ValueError, TypeError):
+                pass
 
         calc = calculate_commercial_price(preset, weight_g, time_mins)
         client_order = str(request.query.get("client_order", "")).strip()

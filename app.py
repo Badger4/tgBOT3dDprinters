@@ -337,6 +337,7 @@ class PrinterBotApp:
                 "pauseErrorStartTime": None,
                 "notifiedPauseErrorRepeat": False,
                 "lastErrorCodes": set(),
+                "lastAmsHumidityAlert": 0.0,
             }
 
         last_live_status_check = 0.0
@@ -725,6 +726,27 @@ class PrinterBotApp:
                                 st[notif_key] = True
                         else:
                             st[notif_key] = False
+
+                    # 7. AMS Humidity Alert (Desiccant alert when humidity >= 4)
+                    if getattr(p, "has_ams", False) and getattr(p, "notify", True):
+                        h_idx = int(getattr(p, "ams_humidity_idx", 0) or 0)
+                        if h_idx >= 4:
+                            last_hum_alert = float(st.get("lastAmsHumidityAlert", 0.0) or 0.0)
+                            now_ts = time.time()
+                            # Cooldown: 12 hours (43200s)
+                            if (now_ts - last_hum_alert) > 43200.0:
+                                hum_state_str = "🟡 Підвищена (Рівень 4/5)" if h_idx == 4 else "🔴 Критична (Рівень 5/5, волого!)"
+                                hum_msg = (
+                                    f"💧 <b>Увага: Підвищена вологість в AMS!</b>\n"
+                                    f"🖨️ Принтер: <b>{html.escape(p.name)}</b>\n"
+                                    f"📊 Стан осушувача: <b>{hum_state_str}</b>\n\n"
+                                    f"<i>Силікагель у відсіку AMS наситився вологою! Не дай пластику сиріти — заміни або просуши осушувач, Бака! 😤📦</i>"
+                                )
+                                await self.send_notification("error", hum_msg, printer=p, parse_mode=ParseMode.HTML)
+                                st["lastAmsHumidityAlert"] = now_ts
+                                logger.info(f"💧 Sent AMS humidity alert for [{p.name}] (idx={h_idx})")
+                        elif h_idx <= 2:
+                            st["lastAmsHumidityAlert"] = 0.0
 
                     st["lastState"] = curr_state
 
