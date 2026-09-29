@@ -2,6 +2,7 @@
 Unit tests for Standalone Web Login, Session Management, and First-Launch Setup Wizard.
 """
 
+import json
 import pytest
 from aiohttp import web
 from pathlib import Path
@@ -44,8 +45,14 @@ class TestRoutesAuth:
         env_file = Path(temp_dir.name) / ".env"
         env_file.write_text("", encoding="utf-8")
 
-        with patch("config.ENV_PATH", env_file):
+        with patch("config.ENV_PATH", env_file), \
+             patch("config.TELEGRAM_BOT_TOKEN", ""), \
+             patch("config.WEB_ADMIN_PASSWORD", ""), \
+             patch("config.API_SECRET_KEY", ""):
             setup_req = MagicMock(spec=web.Request)
+            setup_req.cookies = {}
+            setup_req.headers = {}
+            setup_req.query = {}
             async def mock_setup_json():
                 return {"admin_password": "MasterPass123!", "telegram_bot_token": "", "admin_chat_id": ""}
             setup_req.json = mock_setup_json
@@ -54,6 +61,9 @@ class TestRoutesAuth:
 
             # Test login with wrong password
             login_bad = MagicMock(spec=web.Request)
+            login_bad.cookies = {}
+            login_bad.headers = {}
+            login_bad.query = {}
             async def mock_bad_json():
                 return {"password": "WrongPassword"}
             login_bad.json = mock_bad_json
@@ -62,6 +72,9 @@ class TestRoutesAuth:
 
             # Test login with correct password
             login_good = MagicMock(spec=web.Request)
+            login_good.cookies = {}
+            login_good.headers = {}
+            login_good.query = {}
             async def mock_good_json():
                 return {"password": "MasterPass123!"}
             login_good.json = mock_good_json
@@ -69,6 +82,47 @@ class TestRoutesAuth:
             assert res_login_good.status == 200
 
         temp_dir.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_post_setup_locked_when_completed(self):
+        """Verifies that once setup is completed, POST /api/setup rejects unauthenticated calls with 403."""
+        with patch("config.TELEGRAM_BOT_TOKEN", "123456789:ABCDEF"), \
+             patch("config.WEB_ADMIN_PASSWORD", "Secret123"), \
+             patch("config.API_SECRET_KEY", "Secret123"):
+
+            # 1. Unauthenticated request without admin session
+            unauth_req = MagicMock(spec=web.Request)
+            unauth_req.cookies = {}
+            unauth_req.headers = {}
+            unauth_req.query = {}
+            unauth_req.remote = "1.2.3.4"
+            async def mock_json():
+                return {"admin_password": "HackedPassword!"}
+            unauth_req.json = mock_json
+
+            res_unauth = await handle_post_setup(unauth_req)
+            assert res_unauth.status == 403
+            err_data = json.loads(res_unauth.text)
+            assert "Forbidden" in err_data.get("error", "")
+
+            # 2. Authenticated admin request with active web session
+            token = create_web_session(expiry_seconds=300)
+            admin_req = MagicMock(spec=web.Request)
+            admin_req.cookies = {"3d_farm_session": token}
+            admin_req.headers = {}
+            admin_req.query = {}
+            admin_req.remote = "1.2.3.4"
+            async def mock_admin_json():
+                return {"admin_password": "NewAdminPassword123!"}
+            admin_req.json = mock_admin_json
+
+            temp_dir = TemporaryDirectory()
+            env_file = Path(temp_dir.name) / ".env"
+            env_file.write_text("", encoding="utf-8")
+            with patch("config.ENV_PATH", env_file):
+                res_admin = await handle_post_setup(admin_req)
+                assert res_admin.status == 200
+            temp_dir.cleanup()
 
     @pytest.mark.asyncio
     async def test_serve_login_and_setup_pages(self):
@@ -84,6 +138,7 @@ class TestRoutesAuth:
         req = MagicMock(spec=web.Request)
         req.cookies = {"3d_farm_session": token}
         req.headers = {}
+        req.query = {}
 
         res_sess = await handle_get_session(req)
         assert res_sess.status == 200
@@ -94,22 +149,34 @@ class TestRoutesAuth:
 
     @pytest.mark.asyncio
     async def test_invalid_json_handling(self):
-        req_bad = MagicMock(spec=web.Request)
-        async def mock_raise():
-            raise ValueError("Invalid JSON")
-        req_bad.json = mock_raise
+        with patch("config.TELEGRAM_BOT_TOKEN", ""), \
+             patch("config.WEB_ADMIN_PASSWORD", ""), \
+             patch("config.API_SECRET_KEY", ""):
+            req_bad = MagicMock(spec=web.Request)
+            req_bad.cookies = {}
+            req_bad.headers = {}
+            req_bad.query = {}
+            async def mock_raise():
+                raise ValueError("Invalid JSON")
+            req_bad.json = mock_raise
 
-        res_setup = await handle_post_setup(req_bad)
-        assert res_setup.status == 400
+            res_setup = await handle_post_setup(req_bad)
+            assert res_setup.status == 400
 
-        res_login = await handle_post_login(req_bad)
-        assert res_login.status == 400
+            res_login = await handle_post_login(req_bad)
+            assert res_login.status == 400
 
     @pytest.mark.asyncio
     async def test_setup_validation_errors(self):
-        req_empty = MagicMock(spec=web.Request)
-        async def mock_empty_json():
-            return {"admin_password": ""}
-        req_empty.json = mock_empty_json
-        res_setup = await handle_post_setup(req_empty)
-        assert res_setup.status == 400
+        with patch("config.TELEGRAM_BOT_TOKEN", ""), \
+             patch("config.WEB_ADMIN_PASSWORD", ""), \
+             patch("config.API_SECRET_KEY", ""):
+            req_empty = MagicMock(spec=web.Request)
+            req_empty.cookies = {}
+            req_empty.headers = {}
+            req_empty.query = {}
+            async def mock_empty_json():
+                return {"admin_password": ""}
+            req_empty.json = mock_empty_json
+            res_setup = await handle_post_setup(req_empty)
+            assert res_setup.status == 400

@@ -83,6 +83,11 @@ cp .env.example .env
 
 
 | `ELECTRICITY_COST_PER_KWH` | 🟢 No | `4.32` | Electricity rate (UAH/kWh) for commercial price calculation |
+| `TRUSTED_PROXIES` | 🟢 No | `127.0.0.1,::1` | Comma-separated list of trusted reverse proxy IPs/CIDRs for `X-Forwarded-For` verification |
+| `COOKIE_SECURE` | 🟢 No | auto | Force `Secure` flag on session cookies (`true`/`false`, auto-detected when HTTPS) |
+| `COOKIE_SAMESITE` | 🟢 No | `Lax` | SameSite cookie policy (`Lax`, `Strict`, `None`) |
+| `SSL_CERT_FILE` | 🟢 No | empty | Path to SSL certificate PEM file for native HTTPS termination |
+| `SSL_KEY_FILE` | 🟢 No | empty | Path to SSL private key file for native HTTPS termination |
 | `LOG_LEVEL` | 🟢 No | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 
 ### 5. Run the Application
@@ -103,9 +108,23 @@ All pushes and pull requests to `main` are automatically verified by [GitHub Act
 
 ---
 
-## 🔒 Security & Rate Limiting
+## 🔒 Security, RBAC & Reverse Proxy Trust
 
-The WebApp REST API enforces strict multi-tier IP rate limiting and security headers to protect physical 3D printers and server infrastructure from unauthorized abuse or flooding:
+The WebApp REST API enforces strict multi-tier IP rate limiting, server-side RBAC, and security headers:
+
+### Role-Based Access Control (RBAC)
+- **👑 ADMIN**: Exclusive access to team management (`/api/users`, `/api/users/access`, `/api/users/delete`), global farm settings modification (`POST /api/settings`), history purging (`DELETE /api/history`), and setup reconfiguration (`POST /api/setup`).
+- **👤 USER (Operator)**: Approved team members. Can monitor printers, dispatch print jobs, manage warehouse spools and printed parts. Direct calls to admin endpoints return `403 Forbidden`.
+- **🚫 UNAPPROVED**: Unauthenticated or revoked accounts receive `401 Unauthorized`.
+
+### One-Time Setup Lock
+`POST /api/setup` is open for first-launch master password creation only. Once configured, subsequent calls without an active administrator session are rejected with `403 Forbidden`.
+
+### Cookie Security & HTTPS
+Session cookies (`3d_farm_session`) strictly enforce `HttpOnly` (XSS prevention), `SameSite=Lax` (CSRF prevention), and `Secure` (encrypted HTTPS transit only). Direct HTTPS is supported via `SSL_CERT_FILE` and `SSL_KEY_FILE` in addition to reverse proxies.
+
+### Trusted Reverse Proxy Validation
+`X-Forwarded-For` is **only** trusted when requests originate from verified reverse proxies defined in `TRUSTED_PROXIES` (`127.0.0.1,::1` by default). Direct client connections cannot forge headers to bypass rate limits.
 
 | Category | Endpoints / Methods | Rate Limit | Response Header | Status Code |
 | :--- | :--- | :--- | :--- | :--- |
@@ -118,6 +137,7 @@ Security headers included on all responses:
 - `Access-Control-Allow-Origin`: Strict whitelist origin validation (Telegram WebApp, `WEBAPP_URL`, localhost)
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: strict-origin-when-cross-origin`
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains`
 
 ### 📢 Reporting Vulnerabilities
 If you discover a security vulnerability, please do **NOT** open a public issue. Instead, submit a private report via [GitHub Security Advisories](https://github.com/Badger4/tgBOT3dDprinters/security/advisories) or contact the repository maintainer directly. All security reports are reviewed promptly.

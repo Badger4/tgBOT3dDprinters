@@ -7,7 +7,14 @@ from aiohttp import web
 
 import config
 from config import update_env_key
-from services.http.auth import create_web_session, is_valid_web_session, revoke_web_session
+from services.http.auth import (
+    create_web_session,
+    delete_session_cookie,
+    is_admin_request,
+    is_valid_web_session,
+    revoke_web_session,
+    set_session_cookie,
+)
 
 WEBAPP_DIR = Path(__file__).parent.parent.parent / "webapp"
 
@@ -48,7 +55,15 @@ async def handle_post_setup(request: web.Request) -> web.Response:
     """
     POST /api/setup - Processes first-launch interactive setup wizard.
     Saves admin password, telegram bot token, admin chat ID, and farm settings to .env dynamically.
+    Rejects requests without an active admin session if setup has already been completed.
     """
+    if _is_setup_completed():
+        if not await is_admin_request(request):
+            return web.json_response(
+                {"error": "Forbidden: Система вже налаштована. Повторне налаштування вимагає чинної сесії адміністратора."},
+                status=403,
+            )
+
     try:
         data = await request.json()
     except Exception:
@@ -91,7 +106,7 @@ async def handle_post_setup(request: web.Request) -> web.Response:
         "message": "Налаштування успішно збережено!",
         "token": session_token,
     })
-    response.set_cookie("3d_farm_session", session_token, max_age=86400 * 7, httponly=True)
+    set_session_cookie(response, session_token, request)
     return response
 
 
@@ -120,7 +135,7 @@ async def handle_post_login(request: web.Request) -> web.Response:
         "message": "Успішний вхід у систему!",
         "token": session_token,
     })
-    response.set_cookie("3d_farm_session", session_token, max_age=86400 * 7, httponly=True)
+    set_session_cookie(response, session_token, request)
     return response
 
 
@@ -130,7 +145,7 @@ async def handle_post_logout(request: web.Request) -> web.Response:
     revoke_web_session(token)
 
     response = web.json_response({"status": "ok", "message": "Ви вийшли з системи"})
-    response.del_cookie("3d_farm_session")
+    delete_session_cookie(response)
     return response
 
 

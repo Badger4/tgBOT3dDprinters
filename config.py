@@ -72,6 +72,19 @@ SSE_INTERVAL_SECONDS = _get_env_float("SSE_INTERVAL_SECONDS", 5.0)
 NGROK_AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "").strip()
 NGROK_DOMAIN = os.getenv("NGROK_DOMAIN", "").strip()
 ELECTRICITY_COST_PER_KWH = _get_env_float("ELECTRICITY_COST_PER_KWH", 4.32)
+TRUSTED_PROXIES_STR = os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").strip()
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "").strip()
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax").strip()
+SSL_CERT_FILE = os.getenv("SSL_CERT_FILE", "").strip()
+SSL_KEY_FILE = os.getenv("SSL_KEY_FILE", "").strip()
+
+
+def get_trusted_proxies() -> list[str]:
+    """Returns list of trusted reverse proxy IP addresses and CIDR networks."""
+    raw = os.getenv("TRUSTED_PROXIES", TRUSTED_PROXIES_STR).strip()
+    if not raw:
+        return ["127.0.0.1", "::1"]
+    return [p.strip() for p in raw.split(",") if p.strip()]
 
 
 

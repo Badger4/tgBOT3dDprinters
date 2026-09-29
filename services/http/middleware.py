@@ -1,13 +1,51 @@
-"""
-HTTP Security Headers, CORS, and IP Rate Limiting middleware.
-"""
-
+import ipaddress
 import time
 from typing import Any
 
 from aiohttp import web
 
-from config import HTTP_PORT, WEBAPP_URL, logger
+import config
+from config import HTTP_PORT, WEBAPP_URL, get_trusted_proxies, logger
+
+
+def is_trusted_proxy(remote_ip: str | None, trusted_list: list[str]) -> bool:
+    """Checks whether remote_ip matches any trusted proxy IP or CIDR network."""
+    if not remote_ip:
+        return False
+    try:
+        remote_addr = ipaddress.ip_address(remote_ip)
+    except ValueError:
+        return False
+
+    for item in trusted_list:
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            if "/" in item:
+                if remote_addr in ipaddress.ip_network(item, strict=False):
+                    return True
+            else:
+                if remote_addr == ipaddress.ip_address(item):
+                    return True
+        except ValueError:
+            continue
+    return False
+
+
+def get_client_ip(request: web.Request) -> str:
+    """
+    Safely extracts client IP address.
+    X-Forwarded-For is only trusted when the direct connection originates
+    from a verified trusted reverse proxy (e.g. 127.0.0.1, ::1, or TRUSTED_PROXIES).
+    """
+    remote = request.remote or "127.0.0.1"
+    trusted = get_trusted_proxies()
+    if is_trusted_proxy(remote, trusted):
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return remote
 
 # IP Rate Limiting storage: ip -> list of request timestamps
 IP_REQUEST_LOGS: dict[str, list[float]] = {}
@@ -77,8 +115,13 @@ async def security_and_ratelimit_middleware(request: web.Request, handler: Any) 
         _apply_cors_and_security_headers(request, response)
         return response
 
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    client_ip = forwarded.split(",")[0].strip() if forwarded else (request.remote or "127.0.0.1")
+    # 2. Redirect insecure external proxy requests to HTTPS when configured
+    proto = request.headers.get("X-Forwarded-Proto", "").lower()
+    if proto == "http" and getattr(config, "WEBAPP_URL", "").lower().startswith("https://"):
+        host = request.headers.get("X-Forwarded-Host") or request.host
+        return web.HTTPMovedPermanently(f"https://{host}{request.rel_url}")
+
+    client_ip = get_client_ip(request)
     now = time.time()
 
     is_upload = request.path == "/api/files/upload"

@@ -12,7 +12,7 @@ from aiohttp import web
 import config
 from config import ADMIN_CHAT_ID, TELEGRAM_BOT_TOKEN, __version__, logger
 from models.commercial import calculate_commercial_price, validate_val_or_percent
-from services.http.auth import check_auth, verify_telegram_init_data
+from services.http.auth import check_auth, is_admin_request, verify_telegram_init_data
 
 START_TIME = time.time()
 WEBAPP_DIR = Path(__file__).parent.parent.parent / "webapp"
@@ -372,6 +372,8 @@ async def handle_delete_history(request: web.Request) -> web.Response:
     """DELETE /api/history - Clears history or deletes a specific entry by timestamp."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     ts_param = request.query.get("timestamp")
@@ -1049,6 +1051,8 @@ async def handle_update_settings(request: web.Request) -> web.Response:
     """POST /api/settings - Save global settings."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     try:
@@ -1063,7 +1067,8 @@ async def handle_update_settings(request: web.Request) -> web.Response:
 def get_authenticated_user_id(request: web.Request) -> str | None:
     init_data = request.headers.get("X-Telegram-Init-Data") or request.query.get("initData", "")
     if init_data:
-        t_user = verify_telegram_init_data(init_data, TELEGRAM_BOT_TOKEN)
+        bot_token = getattr(config, "TELEGRAM_BOT_TOKEN", "") or TELEGRAM_BOT_TOKEN
+        t_user = verify_telegram_init_data(init_data, bot_token)
         if t_user and isinstance(t_user, dict):
             u_id = str(t_user.get("id") or "")
             if u_id:
@@ -1141,14 +1146,8 @@ async def handle_get_users(request: web.Request) -> web.Response:
     """GET /api/users - Admin list of registered Telegram users."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
-
-    app_obj = request.app["app_obj"]
-    u_id = get_authenticated_user_id(request)
-    if u_id and hasattr(app_obj, "storage"):
-        u_data = await app_obj.storage.load_user(u_id)
-        is_caller_admin = (str(u_id) == str(ADMIN_CHAT_ID)) or bool(u_data.get("admin", {}).get("access_admin")) or u_data.get("role") == "ADMIN"
-        if not is_caller_admin:
-            return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     users = {}
@@ -1192,6 +1191,8 @@ async def handle_update_user_access(request: web.Request) -> web.Response:
     """POST /api/users/access - Admin update user approval or role."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     try:
@@ -1222,6 +1223,8 @@ async def handle_delete_user(request: web.Request) -> web.Response:
     """POST /api/users/delete or DELETE /api/users/{id} - Admin delete a user/bot account."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     try:

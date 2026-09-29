@@ -130,7 +130,7 @@
 * **`routes_files.py`**: Завантаження `.3mf` файлів через веб-інтерфейс.
 * **`routes_settings.py`**: Збереження параметрів системи та сповіщень.
 * **`routes_sse.py`**: Потокова трансляція оновлень (Server-Sent Events) у реальному часі для фронтенду WebApp.
-* **`auth.py`** / **`middleware.py`** / **`routes_auth.py`**: Авторизація сесій WebApp та валідація Telegram initData.
+* **`auth.py`** / **`middleware.py`** / **`routes_auth.py`**: Авторизація сесій WebApp (валідація Telegram `initData`, пароль адміна, сесійні cookie `HttpOnly`/`SameSite`/`Secure`), серверний контроль доступу (RBAC: `ADMIN` vs `USER`), одноразове блокування початкового налаштування (`POST /api/setup`) та фільтрація `X-Forwarded-For` через довірені проксі (`TRUSTED_PROXIES`).
 
 ---
 
@@ -179,6 +179,7 @@
 * **`tests/test_filament_hardware_sync.py`**: Тести апаратної синхронізації та переміщень котушок.
 * **`tests/test_filament_comprehensive_workflow.py`**: Повні сценарні тести життєвого циклу котушок (додавання, встановлення, друк, списання, зняття).
 * **`tests/test_http_routes_printers.py`**: Тести REST API ендпоінтів для принтерів.
+* **`tests/test_security_rbac_and_proxy.py`**: Тести серверного RBAC (403 Forbidden для USER), захисту `POST /api/setup`, безпеки cookie (`HttpOnly`/`SameSite`/`Secure`) та валідації довірених проксі (`TRUSTED_PROXIES`).
 
 ---
 

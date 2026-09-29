@@ -194,10 +194,25 @@ def create_http_app(app_obj: Any) -> web.Application:
 
 
 async def start_http_server(app_obj: Any, host: str = "0.0.0.0", port: int = HTTP_PORT) -> None:
-    """Starts async HTTP REST API server on specified port."""
+    """Starts async HTTP/HTTPS REST API server on specified port."""
     web_app = create_http_app(app_obj)
     runner = web.AppRunner(web_app)
     await runner.setup()
-    site = web.TCPSite(runner, host, port)
+
+    ssl_context = None
+    import config
+    from pathlib import Path
+
+    cert_file = getattr(config, "SSL_CERT_FILE", "")
+    key_file = getattr(config, "SSL_KEY_FILE", "")
+    if cert_file and key_file and Path(cert_file).exists() and Path(key_file).exists():
+        import ssl
+
+        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ssl_context.load_cert_chain(cert_file, key_file)
+        logger.info(f"🔒 [HTTPS] Loaded SSL certificate from {cert_file}")
+
+    site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
     await site.start()
-    logger.info(f"🌐 [WebApp & REST API] Server started at http://{host}:{port} (WebApp: http://{host}:{port}/webapp)")
+    proto = "https" if ssl_context else "http"
+    logger.info(f"🌐 [WebApp & REST API] Server started at {proto}://{host}:{port} (WebApp: {proto}://{host}:{port}/webapp)")
