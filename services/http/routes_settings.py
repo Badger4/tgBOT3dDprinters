@@ -248,7 +248,9 @@ async def handle_calculate_commercial(request: web.Request) -> web.Response:
             except (ValueError, TypeError):
                 pass
 
-        calc = calculate_commercial_price(preset, weight_g, time_mins)
+        # Forward all extended options from data to calculate_commercial_price
+        calc_kwargs = {k: v for k, v in data.items() if k not in ("preset", "preset_id", "weight_g", "time_mins")}
+        calc = calculate_commercial_price(preset, weight_g, time_mins, **calc_kwargs)
         client_order = str(data.get("client_order", "")).strip()
         if client_order:
             calc["client_order"] = client_order
@@ -451,7 +453,35 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
             except (ValueError, TypeError):
                 pass
 
-        calc = calculate_commercial_price(preset, weight_g, time_mins)
+        calc_kwargs = {}
+        for k, v in request.query.items():
+            if k in ("weight_g", "time_mins", "preset_id", "send_telegram", "format", "inline", "initData", "token"):
+                continue
+            if k == "hardware_items":
+                import json
+                try:
+                    calc_kwargs["hardware_items"] = json.loads(v)
+                except Exception:
+                    pass
+            elif k in (
+                "waste_pct", "elec_day_rate", "elec_night_rate", "elec_day_hours", "elec_night_hours",
+                "printer_cost", "printer_life_hours", "labor_rate_uah", "prep_time_mins", "post_time_mins",
+                "packaging_cost", "shipping_cost", "serial_post_mins", "serial_pack_cost", "price_per_gram",
+                "margin_pct", "price_per_g"
+            ):
+                try:
+                    calc_kwargs[k] = float(v)
+                except (ValueError, TypeError):
+                    pass
+            elif k in ("serial_qty", "serial_per_plate"):
+                try:
+                    calc_kwargs[k] = int(v)
+                except (ValueError, TypeError):
+                    pass
+            else:
+                calc_kwargs[k] = v
+
+        calc = calculate_commercial_price(preset, weight_g, time_mins, **calc_kwargs)
         client_order = str(request.query.get("client_order", "")).strip()
         if client_order:
             calc["client_order"] = client_order
@@ -542,6 +572,74 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
         else:
             cons_model = f"Час: {time_hours:.2f} год"
             cons_preset = f"{cons_str} ₴/год" if not cons_str.endswith("₴/год") and not cons_str.endswith("грн") else cons_str
+        hw_items = calc.get("hardware_items", [])
+        hw_cost = float(calc.get("hardware_cost", 0.0))
+        if hw_cost > 0:
+            hw_desc = ", ".join([f"{item.get('name')} x{item.get('qty', 1)}" for item in hw_items[:3]])
+            if len(hw_items) > 3:
+                hw_desc += f" (+ще {len(hw_items)-3})"
+            hw_row_html = f"""
+                <tr>
+                    <td>🔩 Фурнітура та компоненти</td>
+                    <td>{html.escape(hw_desc)}</td>
+                    <td>{len(hw_items)} позицій</td>
+                    <td style="text-align:right;">{hw_cost:.2f} ₴</td>
+                </tr>"""
+        else:
+            hw_row_html = ""
+
+        labor_cost = float(calc.get("labor_cost", 0.0))
+        labor_rate = float(calc.get("labor_rate_uah", 0.0))
+        prep_m = float(calc.get("prep_time_mins", 0.0))
+        post_m = float(calc.get("post_time_mins", 0.0))
+        if labor_cost > 0:
+            labor_row_html = f"""
+                <tr>
+                    <td>👷 Праця оператора</td>
+                    <td>Підготовка: {prep_m:.0f} хв | Постобробка: {post_m:.0f} хв</td>
+                    <td>{labor_rate:.0f} ₴/год</td>
+                    <td style="text-align:right;">{labor_cost:.2f} ₴</td>
+                </tr>"""
+        else:
+            labor_row_html = ""
+
+        pack_cost = float(calc.get("pack_cost", 0.0))
+        if pack_cost > 0:
+            pack_row_html = f"""
+                <tr>
+                    <td>📦 Пакування та логістика</td>
+                    <td>Пакування: {calc.get('packaging_cost', 0):.2f} ₴ | Доставка: {calc.get('shipping_cost', 0):.2f} ₴</td>
+                    <td>Фіксовано</td>
+                    <td style="text-align:right;">{pack_cost:.2f} ₴</td>
+                </tr>"""
+        else:
+            pack_row_html = ""
+
+        mode = calc.get("mode", "single")
+        serial_html = ""
+        if mode == "serial":
+            sqty = calc.get("serial_qty", 10)
+            stot = calc.get("total_batch_price", 0.0)
+            ssave = calc.get("serial_saving", 0.0)
+            save_text = f" (🔥 Економія серії: −{ssave:.2f} ₴)" if ssave > 0 else ""
+            serial_html = f"""
+            <div style="margin-top: 10px; background: #fef3c7; border: 1.5px solid #f59e0b; border-radius: 6px; padding: 10px; font-size: 13px; font-weight: bold; color: #b45309; text-align: right;">
+                📦 Вся партія ({sqty} шт): {stot:.2f} ₴{save_text}
+            </div>"""
+
+        verdict_html = ""
+        v_main = calc.get("verdict_main")
+        if v_main:
+            v_status = calc.get("verdict_status", "success")
+            v_det = calc.get("verdict_detail", "")
+            bg = "#ecfdf5" if v_status == "success" else "#fffbeb" if v_status == "warning" else "#fef2f2"
+            bd = "#10b981" if v_status == "success" else "#f59e0b" if v_status == "warning" else "#ef4444"
+            fg = "#065f46" if v_status == "success" else "#92400e" if v_status == "warning" else "#991b1b"
+            verdict_html = f"""
+            <div style="margin-top: 10px; background: {bg}; border: 1px solid {bd}; color: {fg}; border-radius: 6px; padding: 10px; font-size: 11px;">
+                <strong>📊 Оцінка рентабельності: {html.escape(v_main)}</strong><br>
+                <span>{html.escape(v_det)}</span>
+            </div>"""
 
         html_content = f"""<!DOCTYPE html>
 <html lang="uk">
@@ -624,10 +722,11 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
             <tbody>
                 <tr>
                     <td>🧵 Пластик (матеріал)</td>
-                    <td>Вага: {weight_g:.1f} г</td>
+                    <td>Вага: {weight_g:.1f} г (з відходом: {calc.get('total_weight_g', weight_g):.1f} г)</td>
                     <td>{pr_g:.2f} ₴/г ({pr_kg:.0f} ₴/кг)</td>
                     <td style="text-align:right;">{calc.get("filament_cost", 0):.2f} ₴</td>
                 </tr>
+                {hw_row_html}
                 <tr>
                     <td>⚡ Електроенергія</td>
                     <td>Час: ~{time_mins} хв ({time_hours:.2f} год)</td>
@@ -646,15 +745,17 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
                     <td>{cons_preset}</td>
                     <td style="text-align:right;">{calc.get("consumables_cost", 0):.2f} ₴</td>
                 </tr>
+                {labor_row_html}
+                {pack_row_html}
                 <tr style="font-weight:bold; background:#f8fafc;">
-                    <td>💵 Собівартість (прямі витрати)</td>
+                    <td>💵 Собівартість ({'1 шт' if mode == 'serial' else 'прямі витрати'})</td>
                     <td>{weight_g:.1f} г | ~{time_mins} хв</td>
-                    <td>Прямі витрати + амортизація</td>
-                    <td style="text-align:right;">{calc.get("cost_before_profit", 0):.2f} ₴</td>
+                    <td>Повна собівартість одиниці</td>
+                    <td style="text-align:right;">{calc.get("cost_per_unit", calc.get("cost_before_profit", 0)):.2f} ₴</td>
                 </tr>
                 <tr style="font-weight:bold; color:#16a34a; background:#f8fafc;">
                     <td>💼 Прибуток (Маржа)</td>
-                    <td>База: {calc.get("cost_before_profit", 0):.2f} ₴</td>
+                    <td>База: {calc.get("cost_per_unit", calc.get("cost_before_profit", 0)):.2f} ₴</td>
                     <td>Націнка: {formatted_profit}</td>
                     <td style="text-align:right; color:#16a34a;">{calc.get("profit_cost", 0):.2f} ₴</td>
                 </tr>
@@ -662,8 +763,10 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
         </table>
     </div>
     <div class="total-box">
-        Підсумкова ціна: {calc.get("total_price", 0):.2f} ₴
+        Підсумкова ціна ({'за 1 шт' if mode == 'serial' else 'для клієнта'}): {calc.get("total_price", 0):.2f} ₴
     </div>
+    {serial_html}
+    {verdict_html}
 </div>
 <script>
 function showToast(text, isError) {{

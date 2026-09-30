@@ -1769,6 +1769,104 @@ def generate_commercial_calc_pdf(
     )
     story.append(t)
 
+    # Hardware row if present
+    hw_cost = float(calc.get("hardware_cost", 0.0) or 0.0)
+    hw_items = calc.get("hardware_items", [])
+    if hw_cost > 0:
+        hw_desc = f"{len(hw_items)} найм." if not is_en else f"{len(hw_items)} items"
+        table_data.insert(2, [
+            Paragraph("🔩 Фурнітура та метизи" if not is_en else "🔩 Hardware Components", cell_style),
+            Paragraph(hw_desc, cell_style),
+            Paragraph("-", cell_style),
+            Paragraph(f"{hw_cost:.2f} грн" if not is_en else f"{hw_cost:.2f} UAH", bold_cell_style),
+        ])
+
+    # Operator labor row if present
+    labor_cost = float(calc.get("labor_cost", 0.0) or 0.0)
+    labor_rate = float(calc.get("labor_rate_uah", 0.0) or 0.0)
+    prep_time = float(calc.get("prep_time_mins", 0.0) or 0.0)
+    post_time = float(calc.get("post_time_mins", 0.0) or 0.0)
+    if labor_cost > 0:
+        lab_model = f"Підг.+пост: {prep_time+post_time:.0f} хв" if not is_en else f"Prep+post: {prep_time+post_time:.0f} min"
+        lab_preset = f"Ставка: {labor_rate:.0f} грн/год" if not is_en else f"Rate: {labor_rate:.0f} UAH/h"
+        table_data.insert(-2, [
+            Paragraph("👷 Праця оператора" if not is_en else "👷 Operator Labor", cell_style),
+            Paragraph(lab_model, cell_style),
+            Paragraph(lab_preset, cell_style),
+            Paragraph(f"{labor_cost:.2f} грн" if not is_en else f"{labor_cost:.2f} UAH", bold_cell_style),
+        ])
+
+    # Packaging & Shipping row if present
+    pack_cost = float(calc.get("pack_cost", 0.0) or 0.0)
+    if pack_cost > 0:
+        table_data.insert(-2, [
+            Paragraph("📦 Пакування & Доставка" if not is_en else "📦 Packaging & Shipping", cell_style),
+            Paragraph(f"Пакування: {calc.get('packaging_cost', 0):.2f} грн" if not is_en else f"Pack: {calc.get('packaging_cost', 0):.2f} UAH", cell_style),
+            Paragraph(f"Доставка: {calc.get('shipping_cost', 0):.2f} грн" if not is_en else f"Shipping: {calc.get('shipping_cost', 0):.2f} UAH", cell_style),
+            Paragraph(f"{pack_cost:.2f} грн" if not is_en else f"{pack_cost:.2f} UAH", bold_cell_style),
+        ])
+
+    # Adjust last row if serial mode
+    if calc.get("mode") == "serial":
+        sqty = calc.get("serial_qty", 10)
+        tot_batch = calc.get("total_batch_price", total_price * sqty)
+        table_data[-1] = [
+            Paragraph("<b>🏷️ РАЗОМ ЗА 1 ШТ</b>" if not is_en else "<b>🏷️ PRICE PER 1 PC</b>", header_cell_style),
+            Paragraph(f"<b>Партія: {sqty} шт</b>" if not is_en else f"<b>Batch: {sqty} pcs</b>", header_cell_style),
+            Paragraph(f"<b>Вся партія: {tot_batch:.2f} грн</b>" if not is_en else f"<b>Total batch: {tot_batch:.2f} UAH</b>", header_cell_style),
+            Paragraph(f"<b>{total_price:.2f} грн</b>" if not is_en else f"<b>{total_price:.2f} UAH</b>", header_cell_style),
+        ]
+
+    # Re-create table with dynamic rows
+    story.pop()
+    t = Table(table_data, colWidths=col_widths)
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#0f766e")),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#f8fafc")]),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    story.append(t)
+
+    # Verdict callout card
+    if calc.get("verdict_main"):
+        story.append(Spacer(1, 10))
+        v_status = calc.get("verdict_status", "success")
+        v_main = str(calc.get("verdict_main", ""))
+        v_desc = str(calc.get("verdict_detail", ""))
+        v_color = "#15803d" if v_status == "success" else "#b45309" if v_status == "warning" else "#b91c1c"
+        v_bg = "#ecfdf5" if v_status == "success" else "#fef3c7" if v_status == "warning" else "#fef2f2"
+        v_border = "#10b981" if v_status == "success" else "#f59e0b" if v_status == "warning" else "#ef4444"
+
+        v_card_data = [
+            [Paragraph(f"<font color='{v_color}'><b>📊 Оцінка рентабельності: {html.escape(v_main)}</b></font>", bold_cell_style)],
+            [Paragraph(f"<font color='{v_color}' size='8'>{html.escape(v_desc)}</font>", cell_style)],
+        ]
+        v_card = Table(v_card_data, colWidths=[545])
+        v_card.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(v_bg)),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor(v_border)),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        story.append(v_card)
+
     doc.build(story, canvasmaker=NumberedCanvas)
     return buf.getvalue()
 
