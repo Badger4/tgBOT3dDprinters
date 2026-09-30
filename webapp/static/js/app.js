@@ -3828,7 +3828,12 @@ document.addEventListener("DOMContentLoaded", () => {
     async function loadCommercialPresets() {
         try {
             const res = await fetch("/api/commercial/presets");
-            currentPresets = await res.json();
+            if (res.ok) {
+                const data = await res.json();
+                if (data && typeof data === "object" && !data.error) {
+                    currentPresets = data;
+                }
+            }
 
             const selectEl = document.getElementById("calc-preset-select");
             const listEl = document.getElementById("presets-list");
@@ -3836,6 +3841,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const presetList = [];
             const seenKeys = new Set();
             for (const p of Object.values(currentPresets || {})) {
+                if (!p || typeof p !== "object" || !p.name) continue;
                 const key = (p.name || p.id || "").trim();
                 if (key && !seenKeys.has(key)) {
                     seenKeys.add(key);
@@ -3844,38 +3850,48 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             if (presetList.length === 0) {
-                if (selectEl) selectEl.innerHTML = `<option value="">(Пресети відсутні)</option>`;
-                if (listEl) listEl.innerHTML = `<p class="text-muted text-center p-3">Список пресетів порожній. Натисніть "+ Новий пресет", щоб додати.</p>`;
-            } else {
-                if (selectEl) {
-                    selectEl.innerHTML = presetList.map(p =>
-                        `<option value="${p.id}">${escapeHtml(p.name)}</option>`
-                    ).join("");
-                    if (!selectEl.value) selectEl.value = presetList[0].id;
-                    syncPresetToInputs(selectEl.value);
-                }
+                const def = {
+                    id: "default_pla",
+                    name: "PLA (850 ₴/кг, +100%)",
+                    price_per_g: 0.85,
+                    electricity_rate_uah: 4.32,
+                    power_watts: 120,
+                    depreciation_val: "10",
+                    consumables_val: "5",
+                    profit_val: "100%"
+                };
+                currentPresets["default_pla"] = def;
+                presetList.push(def);
+            }
 
-                if (listEl) {
-                    listEl.innerHTML = presetList.map(p => `
-                        <div class="spool-item">
-                            <div class="spool-left">
-                                <i class="fa-solid fa-calculator color-orange" style="font-size:20px;"></i>
-                                <div class="spool-details">
-                                    <h4>${escapeHtml(p.name)}</h4>
-                                    <p>Пластик: ${p.price_per_g} грн/г | Світло: ${p.electricity_rate_uah || 4.32} ₴/кВт·год (${p.power_watts || 120} Вт) | Маржа: ${p.profit_val}</p>
-                                </div>
-                            </div>
-                            <div class="preset-actions-wrap" style="display:flex; gap:6px;">
-                                <button class="btn btn-xs btn-outline-warning btn-edit-preset" data-id="${p.id}" title="Редагувати">
-                                    <i class="fa-solid fa-pen-to-square"></i>
-                                </button>
-                                <button class="btn btn-xs btn-outline-danger btn-delete-preset" data-id="${p.id}" title="Видалити">
-                                    <i class="fa-solid fa-trash"></i>
-                                </button>
+            if (selectEl) {
+                selectEl.innerHTML = presetList.map(p =>
+                    `<option value="${p.id}">${escapeHtml(p.name)}</option>`
+                ).join("");
+                if (!selectEl.value && presetList[0]) selectEl.value = presetList[0].id;
+                syncPresetToInputs(selectEl.value);
+            }
+
+            if (listEl) {
+                listEl.innerHTML = presetList.map(p => `
+                    <div class="spool-item">
+                        <div class="spool-left">
+                            <i class="fa-solid fa-calculator color-orange" style="font-size:20px;"></i>
+                            <div class="spool-details">
+                                <h4>${escapeHtml(p.name)}</h4>
+                                <p>Пластик: ${p.price_per_g} грн/г | Світло: ${p.electricity_rate_uah || 4.32} ₴/кВт·год (${p.power_watts || 120} Вт) | Маржа: ${p.profit_val || '100%'}</p>
                             </div>
                         </div>
-                    `).join("");
-                }
+                        <div class="preset-actions-wrap" style="display:flex; gap:6px;">
+                            <button class="btn btn-xs btn-outline-warning btn-edit-preset" data-id="${p.id}" title="Редагувати">
+                                <i class="fa-solid fa-pen-to-square"></i>
+                            </button>
+                            <button class="btn btn-xs btn-outline-danger btn-delete-preset" data-id="${p.id}" title="Видалити">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join("");
             }
 
             document.querySelectorAll(".btn-edit-preset").forEach(btn => {
@@ -3917,164 +3933,307 @@ document.addEventListener("DOMContentLoaded", () => {
             recalculateCommercial();
         } catch (e) {
             console.error("Failed loading commercial presets:", e);
+            recalculateCommercial();
         }
     }
 
-    async function recalculateCommercial() {
+    function calculateCommercialLocal() {
         const weight_g = parseFloat(document.getElementById("calc-weight-g")?.value) || 80;
-        const time_mins = parseInt(document.getElementById("calc-time-mins")?.value) || 120;
-        const preset_id = document.getElementById("calc-preset-select")?.value || "";
-        const client_order = (document.getElementById("calc-client-order")?.value || "").trim();
-
+        const h = parseInt(document.getElementById("calc-time-hours")?.value || 0, 10);
+        const m = parseInt(document.getElementById("calc-time-minutes")?.value || 0, 10);
+        const time_mins = Math.max(1, (h * 60) + m);
+        const hours = Math.max(0.05, time_mins / 60.0);
         const waste_pct = parseFloat(document.getElementById("calc-waste-pct")?.value) || 0;
         const price_per_g = parseFloat(document.getElementById("calc-price-per-g")?.value) || 0.85;
-
-        const electricity_rate_uah = parseFloat(document.getElementById("calc-elec-rate")?.value) || 4.32;
         const power_watts = parseFloat(document.getElementById("calc-power-watts")?.value) || 120;
-        const elec_day_rate = parseFloat(document.getElementById("calc-elec-day-rate")?.value) || 4.32;
-        const elec_night_rate = parseFloat(document.getElementById("calc-elec-night-rate")?.value) || 2.16;
-        const elec_day_hours = parseFloat(document.getElementById("calc-elec-day-hours")?.value) || 0;
-        const elec_night_hours = parseFloat(document.getElementById("calc-elec-night-hours")?.value) || 0;
 
-        const printer_cost = parseFloat(document.getElementById("calc-printer-cost")?.value) || 0;
-        const printer_life_hours = parseFloat(document.getElementById("calc-printer-life")?.value) || 5000;
-        const consumables_val = document.getElementById("calc-consumables-rate")?.value || "5";
-        const labor_rate_uah = parseFloat(document.getElementById("calc-labor-rate")?.value) || 0;
-        const prep_time_mins = parseFloat(document.getElementById("calc-prep-time")?.value) || 0;
-        const post_time_mins = parseFloat(document.getElementById("calc-post-time")?.value) || 0;
-        const packaging_cost = parseFloat(document.getElementById("calc-packaging-cost")?.value) || 0;
-        const shipping_cost = parseFloat(document.getElementById("calc-shipping-cost")?.value) || 0;
+        const total_weight_g = weight_g * (1.0 + Math.max(0, waste_pct) / 100.0);
+        const filament_cost = total_weight_g * price_per_g;
 
-        const serial_qty = parseInt(document.getElementById("calc-serial-qty")?.value) || 10;
-        const serial_per_plate = parseInt(document.getElementById("calc-serial-per-plate")?.value) || 1;
-        const serial_post_mins = parseFloat(document.getElementById("calc-serial-post")?.value) || 0;
-        const serial_pack_cost = parseFloat(document.getElementById("calc-serial-pack")?.value) || 0;
+        let electricity_cost = 0;
+        if (commercialTariffMode === "daynight") {
+            const elec_day_rate = parseFloat(document.getElementById("calc-elec-day-rate")?.value) || 4.32;
+            const elec_night_rate = parseFloat(document.getElementById("calc-elec-night-rate")?.value) || 2.16;
+            const elec_day_hours = parseFloat(document.getElementById("calc-elec-day-hours")?.value) || 0;
+            const elec_night_hours = parseFloat(document.getElementById("calc-elec-night-hours")?.value) || 0;
+            const day_h = Math.min(elec_day_hours, hours);
+            const night_h = Math.min(elec_night_hours, hours);
+            const rest_h = Math.max(0, hours - day_h - night_h);
+            const avg_rate = rest_h > 0 ? (elec_day_rate + elec_night_rate) / 2 : elec_day_rate;
+            electricity_cost = (power_watts / 1000.0) * (day_h * elec_day_rate + night_h * elec_night_rate + rest_h * avg_rate);
+        } else {
+            const elec_rate = parseFloat(document.getElementById("calc-elec-rate")?.value) || 4.32;
+            electricity_cost = (power_watts / 1000.0) * hours * elec_rate;
+        }
+
+        const printer_cost = parseFloat(document.getElementById("calc-printer-cost")?.value) || 18000;
+        const printer_life = parseFloat(document.getElementById("calc-printer-life")?.value) || 5000;
+        const depr_cost = (printer_cost / Math.max(100, printer_life)) * hours;
+
+        const consumables_rate = parseFloat(document.getElementById("calc-consumables-rate")?.value) || 5;
+        const consumables_cost = consumables_rate * hours;
+
+        const validHardware = commercialHardwareItems.filter(i => (i.name || '').trim() || (parseFloat(i.price) || 0) > 0);
+        const hw_cost = validHardware.reduce((acc, item) => {
+            return acc + (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 1);
+        }, 0);
+
+        const labor_rate = parseFloat(document.getElementById("calc-labor-rate")?.value) || 150;
+        const prep_mins = parseFloat(document.getElementById("calc-prep-time")?.value) || 0;
+        const post_mins = parseFloat(document.getElementById("calc-post-time")?.value) || 0;
+        const labor_cost = ((prep_mins + post_mins) / 60.0) * labor_rate;
+
+        const pack_cost = (parseFloat(document.getElementById("calc-packaging-cost")?.value) || 0) +
+                          (parseFloat(document.getElementById("calc-shipping-cost")?.value) || 0);
+
+        const direct_cost = filament_cost + electricity_cost;
+        const base_cost = direct_cost + depr_cost + consumables_cost + hw_cost + labor_cost + pack_cost;
+
+        let cost_per_unit = base_cost;
+        let labor_display = labor_cost;
+        let serial_qty = 1;
+        let serial_saving = 0;
+        let total_batch_price = 0;
+
+        if (commercialMode === "serial") {
+            serial_qty = Math.max(2, parseInt(document.getElementById("calc-serial-qty")?.value) || 10);
+            const serial_per_plate = Math.max(1, parseInt(document.getElementById("calc-serial-per-plate")?.value) || 1);
+            const serial_post = parseFloat(document.getElementById("calc-serial-post")?.value) || 0;
+            const serial_pack = parseFloat(document.getElementById("calc-serial-pack")?.value) || 0;
+
+            const labor_s = ((prep_mins / 60.0) / serial_qty + (serial_post / 60.0)) * labor_rate;
+            const elec_per = electricity_cost / serial_per_plate;
+            const depr_per = depr_cost / serial_per_plate;
+            const cons_per = consumables_cost / serial_per_plate;
+            const mat_per = filament_cost + hw_cost;
+            const mach_per = elec_per + depr_per + cons_per;
+
+            cost_per_unit = mat_per + mach_per + labor_s + serial_pack;
+            labor_display = labor_s;
+            serial_saving = Math.max(0, (base_cost - cost_per_unit) * serial_qty);
+        } else if (commercialMode === "test") {
+            const extra_labor = labor_cost * 0.5;
+            cost_per_unit = base_cost + extra_labor;
+            labor_display = labor_cost + extra_labor;
+        }
 
         const margin_pct = parseFloat(marginSlider?.value) || 100;
         const price_per_gram = parseFloat(inputPricePerGram?.value) || 3.5;
 
-        const validHardware = commercialHardwareItems.filter(i => (i.name || '').trim() || (i.price || 0) > 0);
+        let total_price = 0;
+        let profit_per_unit = 0;
+        let eff_margin = 0;
 
-        const payload = {
-            weight_g,
-            time_mins,
-            preset_id,
-            client_order,
+        if (commercialPricingMode === "ppg" && price_per_gram > 0) {
+            total_price = weight_g * price_per_gram;
+            profit_per_unit = total_price - cost_per_unit;
+            eff_margin = cost_per_unit > 0 ? (profit_per_unit / cost_per_unit) * 100 : 0;
+        } else {
+            total_price = cost_per_unit * (1.0 + margin_pct / 100.0);
+            profit_per_unit = total_price - cost_per_unit;
+            eff_margin = margin_pct;
+        }
+
+        if (commercialMode === "serial") {
+            total_batch_price = total_price * serial_qty;
+        } else {
+            total_batch_price = total_price;
+        }
+
+        const costDrivers = [
+            { name: "матеріал", cost: filament_cost },
+            { name: "робота принтера", cost: electricity_cost + depr_cost + consumables_cost },
+            { name: "робота оператора", cost: labor_display },
+            { name: "фурнітура", cost: hw_cost },
+            { name: "пакування", cost: pack_cost }
+        ].sort((a, b) => b.cost - a.cost);
+
+        const biggest = costDrivers[0];
+        const biggestPct = cost_per_unit > 0 ? Math.round((biggest.cost / cost_per_unit) * 100) : 0;
+
+        let verdict_status = "success";
+        let verdict_main = "Здорова маржа";
+        let verdict_detail = `Розрахунок є рентабельним. Найбільша стаття витрат — «${biggest.name}» (${biggestPct}%).`;
+
+        if (profit_per_unit < 0) {
+            verdict_status = "danger";
+            verdict_main = `Збиток −${Math.abs(profit_per_unit).toFixed(2)} ₴ з кожної деталі`;
+            verdict_detail = `Ціна продажу нижча за собівартість! Найбільша стаття витрат — «${biggest.name}» (${biggestPct}%). Підніміть націнку або тариф.`;
+        } else if (eff_margin < 20) {
+            verdict_status = "warning";
+            verdict_main = `Низька маржа (${Math.round(eff_margin)}%)`;
+            verdict_detail = `Прибуток ${profit_per_unit.toFixed(2)} ₴/шт. Найбільше з'їдає «${biggest.name}» (${biggestPct}%). Рекомендується націнка від 50%.`;
+        } else {
+            verdict_status = "success";
+            verdict_main = `Здорова маржа (${Math.round(eff_margin)}%)`;
+            verdict_detail = `Прибуток ${profit_per_unit.toFixed(2)} ₴/шт. Головна стаття — «${biggest.name}» (${biggestPct}% собівартості).`;
+        }
+
+        return {
             mode: commercialMode,
             tariff_mode: commercialTariffMode,
             pricing_mode: commercialPricingMode,
-            waste_pct,
-            price_per_g,
-            hardware_items: validHardware,
-            electricity_rate_uah,
-            power_watts,
-            elec_day_rate,
-            elec_night_rate,
-            elec_day_hours,
-            elec_night_hours,
-            printer_cost,
-            printer_life_hours,
-            consumables_val,
-            labor_rate_uah,
-            prep_time_mins,
-            post_time_mins,
-            packaging_cost,
-            shipping_cost,
-            serial_qty,
-            serial_per_plate,
-            serial_post_mins,
-            serial_pack_cost,
+            weight_g,
+            time_mins,
+            total_price,
+            total_batch_price,
+            cost_per_unit,
+            cost_before_profit: cost_per_unit,
+            profit_per_unit,
+            profit_cost: profit_per_unit,
+            effective_margin_pct: eff_margin,
             margin_pct,
-            price_per_gram,
+            filament_cost,
+            electricity_cost,
+            depreciation_cost: depr_cost,
+            consumables_cost,
+            hardware_cost: hw_cost,
+            hardware_items: validHardware,
+            labor_cost,
+            labor_display,
+            pack_cost,
+            serial_qty,
+            serial_saving,
+            verdict_status,
+            verdict_main,
+            verdict_detail,
         };
+    }
 
-        try {
-            const res = await fetch("/api/commercial/calculate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
-            const data = await res.json();
-            if (data.status === "ok" && data.calculation) {
-                const c = data.calculation;
-                window._lastCommercialCalc = c;
+    function renderCommercialResults(c) {
+        const resTotalEl = document.getElementById("res-total-price");
+        if (resTotalEl) resTotalEl.textContent = `${c.total_price.toFixed(2)} ₴`;
 
-                const resTotalEl = document.getElementById("res-total-price");
-                if (resTotalEl) resTotalEl.textContent = `${c.total_price.toFixed(2)} ₴`;
+        const batchSaleRow = document.getElementById("res-batch-sale-row");
+        const batchLabel = document.getElementById("res-batch-label");
+        const batchTotal = document.getElementById("res-batch-total-price");
+        const savingRow = document.getElementById("res-saving-row");
+        const savingBadge = document.getElementById("res-serial-saving-badge");
 
-                const batchSaleRow = document.getElementById("res-batch-sale-row");
-                const batchLabel = document.getElementById("res-batch-label");
-                const batchTotal = document.getElementById("res-batch-total-price");
-                const savingRow = document.getElementById("res-saving-row");
-                const savingBadge = document.getElementById("res-serial-saving-badge");
+        if (commercialMode === "serial") {
+            if (batchSaleRow) batchSaleRow.style.display = "flex";
+            if (batchLabel) batchLabel.textContent = `Вся партія (${c.serial_qty} шт):`;
+            if (batchTotal) batchTotal.textContent = `${(c.total_batch_price || (c.total_price * c.serial_qty)).toFixed(2)} ₴`;
 
-                if (commercialMode === "serial") {
-                    if (batchSaleRow) batchSaleRow.style.display = "flex";
-                    if (batchLabel) batchLabel.textContent = `Вся партія (${c.serial_qty} шт):`;
-                    if (batchTotal) batchTotal.textContent = `${(c.total_batch_price || (c.total_price * c.serial_qty)).toFixed(2)} ₴`;
-
-                    if (c.serial_saving && c.serial_saving > 0) {
-                        if (savingRow) savingRow.style.display = "flex";
-                        if (savingBadge) savingBadge.textContent = `−${c.serial_saving.toFixed(2)} ₴`;
-                    } else if (savingRow) {
-                        savingRow.style.display = "none";
-                    }
-                } else {
-                    if (batchSaleRow) batchSaleRow.style.display = "none";
-                    if (savingRow) savingRow.style.display = "none";
-                }
-
-                const primeCost = c.cost_per_unit !== undefined ? c.cost_per_unit : c.cost_before_profit;
-                const profitVal = c.profit_per_unit !== undefined ? c.profit_per_unit : c.profit_cost;
-                const effMargin = c.effective_margin_pct !== undefined ? Math.round(c.effective_margin_pct) : Math.round(c.margin_pct || 100);
-
-                const dirEl = document.getElementById("res-direct-cost");
-                if (dirEl) dirEl.textContent = `${primeCost.toFixed(2)} ₴`;
-
-                const profEl = document.getElementById("res-profit-cost");
-                if (profEl) profEl.textContent = `${profitVal.toFixed(2)} ₴ (${effMargin}%)`;
-
-                const filEl = document.getElementById("res-filament-cost");
-                if (filEl) filEl.textContent = `${c.filament_cost.toFixed(2)} ₴`;
-
-                const elecEl = document.getElementById("res-elec-cost");
-                if (elecEl) elecEl.textContent = `${c.electricity_cost.toFixed(2)} ₴`;
-
-                const deprEl = document.getElementById("res-depr-cost");
-                if (deprEl) deprEl.textContent = `${c.depreciation_cost.toFixed(2)} ₴`;
-
-                const consEl = document.getElementById("res-cons-cost");
-                if (consEl) consEl.textContent = `${c.consumables_cost.toFixed(2)} ₴`;
-
-                const hwRow = document.getElementById("row-hardware-cost");
-                const hwEl = document.getElementById("res-hw-cost");
-                if (hwRow && hwEl) {
-                    if (c.hardware_cost && c.hardware_cost > 0) {
-                        hwRow.style.display = "block";
-                        hwEl.textContent = `${c.hardware_cost.toFixed(2)} ₴`;
-                    } else {
-                        hwRow.style.display = "none";
-                    }
-                }
-
-                const laborEl = document.getElementById("res-labor-cost");
-                if (laborEl) laborEl.textContent = `${(c.labor_display !== undefined ? c.labor_display : c.labor_cost || 0).toFixed(2)} ₴`;
-
-                const verdictBox = document.getElementById("res-verdict-box");
-                const verdictTitle = document.getElementById("res-verdict-title");
-                const verdictDesc = document.getElementById("res-verdict-desc");
-
-                if (verdictBox && verdictTitle && verdictDesc) {
-                    const st = c.verdict_status || "success";
-                    verdictBox.className = `verdict-box ${st} mt-3`;
-                    const icon = st === "danger" ? "fa-triangle-exclamation" : (st === "warning" ? "fa-circle-exclamation" : "fa-circle-check");
-                    verdictTitle.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${escapeHtml(c.verdict_main || "Здорова маржа")}</span>`;
-                    verdictDesc.textContent = c.verdict_detail || "Розрахунок є рентабельним.";
-                }
+            if (c.serial_saving && c.serial_saving > 0) {
+                if (savingRow) savingRow.style.display = "flex";
+                if (savingBadge) savingBadge.textContent = `−${c.serial_saving.toFixed(2)} ₴`;
+            } else if (savingRow) {
+                savingRow.style.display = "none";
             }
-        } catch (e) {
-            console.error("Failed calculating commercial price:", e);
+        } else {
+            if (batchSaleRow) batchSaleRow.style.display = "none";
+            if (savingRow) savingRow.style.display = "none";
         }
+
+        const primeCost = c.cost_per_unit !== undefined ? c.cost_per_unit : c.cost_before_profit;
+        const profitVal = c.profit_per_unit !== undefined ? c.profit_per_unit : c.profit_cost;
+        const effMargin = c.effective_margin_pct !== undefined ? Math.round(c.effective_margin_pct) : Math.round(c.margin_pct || 100);
+
+        const dirEl = document.getElementById("res-direct-cost");
+        if (dirEl) dirEl.textContent = `${primeCost.toFixed(2)} ₴`;
+
+        const profEl = document.getElementById("res-profit-cost");
+        if (profEl) profEl.textContent = `${profitVal.toFixed(2)} ₴ (${effMargin}%)`;
+
+        const filEl = document.getElementById("res-filament-cost");
+        if (filEl) filEl.textContent = `${c.filament_cost.toFixed(2)} ₴`;
+
+        const elecEl = document.getElementById("res-elec-cost");
+        if (elecEl) elecEl.textContent = `${c.electricity_cost.toFixed(2)} ₴`;
+
+        const deprEl = document.getElementById("res-depr-cost");
+        if (deprEl) deprEl.textContent = `${c.depreciation_cost.toFixed(2)} ₴`;
+
+        const consEl = document.getElementById("res-cons-cost");
+        if (consEl) consEl.textContent = `${c.consumables_cost.toFixed(2)} ₴`;
+
+        const hwRow = document.getElementById("row-hardware-cost");
+        const hwEl = document.getElementById("res-hw-cost");
+        if (hwRow && hwEl) {
+            if (c.hardware_cost && c.hardware_cost > 0) {
+                hwRow.style.display = "block";
+                hwEl.textContent = `${c.hardware_cost.toFixed(2)} ₴`;
+            } else {
+                hwRow.style.display = "none";
+            }
+        }
+
+        const laborEl = document.getElementById("res-labor-cost");
+        if (laborEl) laborEl.textContent = `${(c.labor_display !== undefined ? c.labor_display : c.labor_cost || 0).toFixed(2)} ₴`;
+
+        const verdictBox = document.getElementById("res-verdict-box");
+        const verdictTitle = document.getElementById("res-verdict-title");
+        const verdictDesc = document.getElementById("res-verdict-desc");
+
+        if (verdictBox && verdictTitle && verdictDesc) {
+            const st = c.verdict_status || "success";
+            verdictBox.className = `verdict-box ${st} mt-3`;
+            const icon = st === "danger" ? "fa-triangle-exclamation" : (st === "warning" ? "fa-circle-exclamation" : "fa-circle-check");
+            verdictTitle.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${escapeHtml(c.verdict_main || "Здорова маржа")}</span>`;
+            verdictDesc.textContent = c.verdict_detail || "Розрахунок є рентабельним.";
+        }
+    }
+
+    let _calcDebounceTimer = null;
+    function recalculateCommercial() {
+        // 1. Instant local calculation (0ms latency)
+        const localCalc = calculateCommercialLocal();
+        window._lastCommercialCalc = localCalc;
+        renderCommercialResults(localCalc);
+
+        // 2. Debounced background sync with server
+        clearTimeout(_calcDebounceTimer);
+        _calcDebounceTimer = setTimeout(async () => {
+            try {
+                const payload = {
+                    weight_g: localCalc.weight_g,
+                    time_mins: localCalc.time_mins,
+                    preset_id: document.getElementById("calc-preset-select")?.value || "",
+                    client_order: (document.getElementById("calc-client-order")?.value || "").trim(),
+                    mode: commercialMode,
+                    tariff_mode: commercialTariffMode,
+                    pricing_mode: commercialPricingMode,
+                    waste_pct: parseFloat(document.getElementById("calc-waste-pct")?.value) || 0,
+                    price_per_g: parseFloat(document.getElementById("calc-price-per-g")?.value) || 0.85,
+                    hardware_items: localCalc.hardware_items,
+                    electricity_rate_uah: parseFloat(document.getElementById("calc-elec-rate")?.value) || 4.32,
+                    power_watts: parseFloat(document.getElementById("calc-power-watts")?.value) || 120,
+                    elec_day_rate: parseFloat(document.getElementById("calc-elec-day-rate")?.value) || 4.32,
+                    elec_night_rate: parseFloat(document.getElementById("calc-elec-night-rate")?.value) || 2.16,
+                    elec_day_hours: parseFloat(document.getElementById("calc-elec-day-hours")?.value) || 0,
+                    elec_night_hours: parseFloat(document.getElementById("calc-elec-night-hours")?.value) || 0,
+                    printer_cost: parseFloat(document.getElementById("calc-printer-cost")?.value) || 0,
+                    printer_life_hours: parseFloat(document.getElementById("calc-printer-life")?.value) || 5000,
+                    consumables_val: document.getElementById("calc-consumables-rate")?.value || "5",
+                    labor_rate_uah: parseFloat(document.getElementById("calc-labor-rate")?.value) || 0,
+                    prep_time_mins: parseFloat(document.getElementById("calc-prep-time")?.value) || 0,
+                    post_time_mins: parseFloat(document.getElementById("calc-post-time")?.value) || 0,
+                    packaging_cost: parseFloat(document.getElementById("calc-packaging-cost")?.value) || 0,
+                    shipping_cost: parseFloat(document.getElementById("calc-shipping-cost")?.value) || 0,
+                    serial_qty: parseInt(document.getElementById("calc-serial-qty")?.value) || 10,
+                    serial_per_plate: parseInt(document.getElementById("calc-serial-per-plate")?.value) || 1,
+                    serial_post_mins: parseFloat(document.getElementById("calc-serial-post")?.value) || 0,
+                    serial_pack_cost: parseFloat(document.getElementById("calc-serial-pack")?.value) || 0,
+                    margin_pct: parseFloat(marginSlider?.value) || 100,
+                    price_per_gram: parseFloat(inputPricePerGram?.value) || 3.5,
+                };
+                const res = await fetch("/api/commercial/calculate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.status === "ok" && data.calculation) {
+                        window._lastCommercialCalc = data.calculation;
+                        renderCommercialResults(data.calculation);
+                    }
+                }
+            } catch (err) {
+                // Keep local calculation on error
+            }
+        }, 200);
     }
 
     // Quotation Copy Functions
@@ -4307,6 +4466,65 @@ document.addEventListener("DOMContentLoaded", () => {
         "calc-client-order"
     ].forEach(id => {
         document.getElementById(id)?.addEventListener("input", recalculateCommercial);
+    });
+
+    // Reset Commercial Calculator to standard defaults
+    document.getElementById("btn-reset-commercial")?.addEventListener("click", () => {
+        triggerHaptic("medium");
+        const wInp = document.getElementById("calc-weight-g");
+        if (wInp) wInp.value = 80;
+        const wasteInp = document.getElementById("calc-waste-pct");
+        if (wasteInp) wasteInp.value = 10;
+        const hInp = document.getElementById("calc-time-hours");
+        if (hInp) hInp.value = 2;
+        const mInp = document.getElementById("calc-time-minutes");
+        if (mInp) mInp.value = 0;
+        const minsHidden = document.getElementById("calc-time-mins");
+        if (minsHidden) minsHidden.value = 120;
+        const powInp = document.getElementById("calc-power-watts");
+        if (powInp) powInp.value = 120;
+        const elecInp = document.getElementById("calc-elec-rate");
+        if (elecInp) elecInp.value = 4.32;
+        const printerCostInp = document.getElementById("calc-printer-cost");
+        if (printerCostInp) printerCostInp.value = 18000;
+        const printerLifeInp = document.getElementById("calc-printer-life");
+        if (printerLifeInp) printerLifeInp.value = 5000;
+        const consInp = document.getElementById("calc-consumables-rate");
+        if (consInp) consInp.value = 5;
+        const laborInp = document.getElementById("calc-labor-rate");
+        if (laborInp) laborInp.value = 150;
+        const prepInp = document.getElementById("calc-prep-time");
+        if (prepInp) prepInp.value = 15;
+        const postInp = document.getElementById("calc-post-time");
+        if (postInp) postInp.value = 10;
+        const packInp = document.getElementById("calc-packaging-cost");
+        if (packInp) packInp.value = 15;
+        const shipInp = document.getElementById("calc-shipping-cost");
+        if (shipInp) shipInp.value = 0;
+        const orderInp = document.getElementById("calc-client-order");
+        if (orderInp) orderInp.value = "";
+
+        setCommercialMode("single");
+        ttSingleBtn?.click();
+        pricingMarginBtn?.click();
+        if (marginSlider) {
+            marginSlider.value = 100;
+            if (marginValBadge) marginValBadge.textContent = "100%";
+        }
+
+        const plaChip = document.querySelector("#filament-chips .calc-chip[data-type='PLA']");
+        if (plaChip) {
+            plaChip.click();
+        } else {
+            if (inputFilamentKg) inputFilamentKg.value = 850;
+            if (inputFilamentG) inputFilamentG.value = "0.85";
+        }
+
+        commercialHardwareItems = [];
+        renderHardwareList();
+
+        recalculateCommercial();
+        showCommercialToast("🔄 Калькулятор скинуто до стандартних значень");
     });
 
     // Preset Modal handlers
@@ -5929,8 +6147,10 @@ document.addEventListener("DOMContentLoaded", () => {
         fetchPrinters();
     });
 
-    // Initial Load: fetch printers immediately; history loads on-demand on History tab
+    // Initial Load: fetch printers immediately; load commercial presets and calculate immediately
     fetchPrinters();
+    loadCommercialPresets();
+    recalculateCommercial();
     pollInterval = setInterval(fetchPrinters, 4000);
     initSSEStream();
 });

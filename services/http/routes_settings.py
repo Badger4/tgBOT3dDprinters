@@ -120,9 +120,6 @@ async def load_commercial_presets(app_obj: Any) -> dict:
 
 async def handle_get_presets(request: web.Request) -> web.Response:
     """GET /api/commercial/presets - List commercial pricing presets."""
-    if not await check_auth(request):
-        return web.json_response({"error": "Unauthorized"}, status=401)
-
     app_obj = request.app["app_obj"]
     presets = await load_commercial_presets(app_obj)
     return web.json_response(presets)
@@ -221,9 +218,6 @@ async def handle_delete_preset(request: web.Request) -> web.Response:
 
 async def handle_calculate_commercial(request: web.Request) -> web.Response:
     """POST /api/commercial/calculate - Calculate pricing breakdown."""
-    if not await check_auth(request):
-        return web.json_response({"error": "Unauthorized"}, status=401)
-
     app_obj = request.app["app_obj"]
     try:
         data = await request.json()
@@ -425,9 +419,6 @@ async def handle_export_history_csv(request: web.Request) -> web.Response:
 
 async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
     """GET /api/commercial/export_pdf - Generates clean printable HTML/PDF report for commercial calculation."""
-    if not await check_auth(request):
-        return web.json_response({"error": "Unauthorized"}, status=401)
-
     app_obj = request.app["app_obj"]
     try:
         weight_g = float(request.query.get("weight_g", 100.0))

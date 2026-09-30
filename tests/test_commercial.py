@@ -102,6 +102,52 @@ class TestCommercialCalculator(unittest.TestCase):
         ok, res = validate_val_or_percent("inf")
         self.assertFalse(ok)
 
+    def test_drugarnya_serial_mode_and_savings(self):
+        preset = {"name": "Test Preset", "price_per_g": 0.85, "electricity_rate_uah": 4.32, "power_watts": 120.0}
+        res = calculate_commercial_price(
+            preset,
+            weight_g=80.0,
+            time_mins=120,
+            mode="serial",
+            serial_qty=10,
+            serial_per_plate=2,
+            prep_time_mins=20,
+            serial_post_mins=5,
+            labor_rate_uah=150.0,
+            serial_pack_cost=10.0,
+            margin_pct=100.0,
+        )
+        self.assertEqual(res["mode"], "serial")
+        self.assertEqual(res["serial_qty"], 10)
+        self.assertGreater(res["serial_saving"], 0)
+        self.assertIn("total_batch_price", res)
+        self.assertIn("verdict_status", res)
+        self.assertIn("verdict_main", res)
+
+    def test_drugarnya_test_prototype_mode(self):
+        preset = {"name": "Test Preset", "price_per_g": 0.85, "electricity_rate_uah": 4.32, "power_watts": 120.0}
+        res_single = calculate_commercial_price(preset, weight_g=80.0, time_mins=120, prep_time_mins=20, labor_rate_uah=150.0)
+        res_test = calculate_commercial_price(preset, weight_g=80.0, time_mins=120, mode="test", prep_time_mins=20, labor_rate_uah=150.0)
+        # Test mode should include extra labor risk allowance
+        self.assertGreater(res_test["cost_per_unit"], res_single["cost_per_unit"])
+        self.assertEqual(res_test["mode"], "test")
+
+    def test_drugarnya_day_night_tariff(self):
+        preset = {"name": "Test Preset", "price_per_g": 0.85, "power_watts": 1000.0} # 1 kW
+        res = calculate_commercial_price(
+            preset,
+            weight_g=10.0,
+            time_mins=120, # 2 hours
+            tariff_mode="daynight",
+            elec_day_rate=4.0,
+            elec_night_rate=2.0,
+            elec_day_hours=1.0,
+            elec_night_hours=1.0,
+        )
+        # 1 kW * (1h * 4 + 1h * 2) = 6 грн
+        self.assertEqual(res["electricity_cost"], 6.0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
