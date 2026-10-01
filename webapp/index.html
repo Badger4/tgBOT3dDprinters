@@ -15,7 +15,7 @@
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- WebApp CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=1060">
+    <link rel="stylesheet" href="/static/css/style.css?v=1070">
 </head>
 <body>
     <div id="app" class="app-container">
@@ -95,34 +95,31 @@
                 <div class="section-header">
                     <h2><i class="fa-solid fa-calculator color-orange"></i> <span data-i18n="commercial_title">Комерція & Калькулятор</span></h2>
                     <div class="d-flex gap-2 flex-wrap">
-                        <button type="button" id="btn-import-active-print" class="btn btn-outline btn-sm" title="Підставити параметри з активного друку чи файлу">
-                            <i class="fa-solid fa-file-import"></i> <span>З принтера / 3MF</span>
+                        <button type="button" id="btn-import-active-print" class="btn btn-outline btn-sm" title="Підставити параметри з 3MF або активного друку принтера">
+                            <i class="fa-solid fa-file-import"></i> <span>3MF / Принтер</span>
                         </button>
                         <button type="button" id="btn-reset-commercial" class="btn btn-outline btn-sm" title="Скинути до стандартних значень">
                             <i class="fa-solid fa-rotate-left"></i> <span>Скинути</span>
                         </button>
-                        <button type="button" id="btn-copy-client-quote" class="btn btn-outline btn-sm" title="Скопіювати розрахунок для відправки замовнику в чат">
-                            <i class="fa-solid fa-copy"></i> <span>Для клієнта</span>
-                        </button>
-                        <button type="button" id="btn-export-calc-pdf" class="btn btn-primary btn-sm">
-                            <i class="fa-solid fa-file-pdf"></i> <span data-i18n="export_pdf_btn">Звіт (PDF)</span>
-                        </button>
                         <button id="add-preset-btn" class="btn btn-primary btn-sm">
-                            <i class="fa-solid fa-plus"></i> <span data-i18n="new_preset_btn">Новий пресет</span>
+                            <i class="fa-solid fa-plus"></i> <span data-i18n="new_preset_btn">Пресет</span>
                         </button>
+                        <!-- Fallback buttons for event listeners -->
+                        <button type="button" id="btn-copy-client-quote" style="display:none;"></button>
+                        <button type="button" id="btn-export-calc-pdf" style="display:none;"></button>
                     </div>
                 </div>
 
-                <!-- Mode Bar (Одна деталь / Серійне виробництво / Тестовий зразок) -->
+                <!-- Mode Bar (Поштучно / Серія / Тест) -->
                 <div class="calc-mode-bar">
                     <button type="button" class="calc-mode-btn active" data-mode="single" id="calc-mode-single">
-                        <i class="fa-solid fa-cube"></i> Одна деталь
+                        <i class="fa-solid fa-cube"></i> <span>Поштучно</span>
                     </button>
                     <button type="button" class="calc-mode-btn" data-mode="serial" id="calc-mode-serial">
-                        <i class="fa-solid fa-boxes-stacked"></i> Серійне виробництво
+                        <i class="fa-solid fa-boxes-stacked"></i> <span>Серія</span>
                     </button>
                     <button type="button" class="calc-mode-btn" data-mode="test" id="calc-mode-test">
-                        <i class="fa-solid fa-flask"></i> Тестова деталь
+                        <i class="fa-solid fa-flask"></i> <span>Тест</span>
                     </button>
                 </div>
 
@@ -148,41 +145,53 @@
                         <!-- Card 1: Material & Hardware -->
                         <div class="calc-section-card mb-3">
                             <div class="calc-section-header">
-                                <h4><i class="fa-solid fa-spool color-purple"></i> Матеріал & Фурнітура</h4>
+                                <h4><i class="fa-solid fa-spool color-purple"></i> Матеріал та витрати</h4>
                             </div>
 
                             <!-- Filament Chips -->
                             <label style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display: block;">Швидкий вибір пластику:</label>
                             <div class="calc-chips" id="filament-chips">
-                                <button type="button" class="calc-chip active" data-type="PLA" data-price="850">PLA 850₴</button>
-                                <button type="button" class="calc-chip" data-type="PLA+" data-price="900">PLA+ 900₴</button>
-                                <button type="button" class="calc-chip" data-type="PETG" data-price="950">PETG 950₴</button>
-                                <button type="button" class="calc-chip" data-type="ABS" data-price="850">ABS 850₴</button>
-                                <button type="button" class="calc-chip" data-type="ASA" data-price="1100">ASA 1100₴</button>
-                                <button type="button" class="calc-chip" data-type="TPU" data-price="1300">TPU 1300₴</button>
-                                <button type="button" class="calc-chip" data-type="PA" data-price="1800">PA/Nylon 1800₴</button>
+                                <button type="button" class="calc-chip active" data-type="PLA" data-price="850">PLA</button>
+                                <button type="button" class="calc-chip" data-type="PLA+" data-price="900">PLA+</button>
+                                <button type="button" class="calc-chip" data-type="PETG" data-price="950">PETG</button>
+                                <button type="button" class="calc-chip" data-type="ABS" data-price="850">ABS</button>
+                                <button type="button" class="calc-chip" data-type="ASA" data-price="1100">ASA</button>
+                                <button type="button" class="calc-chip" data-type="TPU" data-price="1300">TPU</button>
+                                <button type="button" class="calc-chip" data-type="PA" data-price="1800">PA/Nylon</button>
                                 <button type="button" class="calc-chip" data-type="CUSTOM" data-price="">Свій</button>
                             </div>
 
-                            <div class="form-row mb-3">
-                                <div class="form-group col">
-                                    <label data-i18n="filament_weight_g_label">Вага деталі (г)</label>
-                                    <input type="number" id="calc-weight-g" class="form-control" value="80" min="1" step="1">
+                            <div class="calc-row-2">
+                                <div class="calc-fi">
+                                    <label data-i18n="filament_weight_g_label">Вага деталі</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-weight-g" class="form-control" value="80" min="1" step="1">
+                                        <span class="calc-unit">г</span>
+                                    </div>
                                 </div>
-                                <div class="form-group col">
-                                    <label>Відхід / брак (%)</label>
-                                    <input type="number" id="calc-waste-pct" class="form-control" value="10" min="0" max="100" step="1" title="Технологічний відхід на підтримки, калібрування, чистку">
+                                <div class="calc-fi">
+                                    <label>Відхід / брак</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-waste-pct" class="form-control" value="10" min="0" max="100" step="1" title="Технологічний відхід на підтримки, калібрування, чистку">
+                                        <span class="calc-unit">%</span>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="form-row mb-3">
-                                <div class="form-group col">
-                                    <label>Ціна пластику (грн/кг)</label>
-                                    <input type="number" id="calc-filament-price-kg" class="form-control" value="850" min="50" step="10">
+                            <div class="calc-row-2">
+                                <div class="calc-fi">
+                                    <label>Ціна пластику</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-filament-price-kg" class="form-control" value="850" min="50" step="10">
+                                        <span class="calc-unit">₴/кг</span>
+                                    </div>
                                 </div>
-                                <div class="form-group col">
-                                    <label>Тариф пластику (грн/г)</label>
-                                    <input type="number" id="calc-price-per-g" class="form-control" value="0.85" min="0.05" step="0.01">
+                                <div class="calc-fi">
+                                    <label>Тариф за грам</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-price-per-g" class="form-control" value="0.85" min="0.05" step="0.01">
+                                        <span class="calc-unit">₴/г</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -192,7 +201,7 @@
                                 <label style="font-size: 11px; font-weight: 600; color: var(--text-main); margin: 0;">
                                     <i class="fa-solid fa-screwdriver-wrench color-cyan"></i> Додаткова фурнітура / метизи
                                 </label>
-                                <button type="button" id="btn-add-hardware" class="btn btn-outline btn-sm" style="padding: 2px 8px; font-size: 11px;">
+                                <button type="button" id="btn-add-hardware" class="btn btn-outline btn-xs" style="padding: 2px 8px; font-size: 11px;">
                                     <i class="fa-solid fa-plus"></i> Додати
                                 </button>
                             </div>
@@ -204,115 +213,164 @@
                         <!-- Card 2: Print Time & Electricity -->
                         <div class="calc-section-card mb-3">
                             <div class="calc-section-header">
-                                <h4><i class="fa-solid fa-bolt color-amber"></i> Час друку & Електроенергія</h4>
+                                <h4><i class="fa-solid fa-bolt color-amber"></i> Час друку та електроенергія</h4>
                             </div>
 
-                            <div class="form-row mb-3">
-                                <div class="form-group col">
+                            <div class="calc-row-3 mb-2">
+                                <div class="calc-fi">
                                     <label>Години</label>
-                                    <input type="number" id="calc-time-hours" class="form-control" value="2" min="0" step="1">
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-time-hours" class="form-control" value="2" min="0" step="1">
+                                        <span class="calc-unit">год</span>
+                                    </div>
                                 </div>
-                                <div class="form-group col">
+                                <div class="calc-fi">
                                     <label>Хвилини</label>
-                                    <input type="number" id="calc-time-minutes" class="form-control" value="0" min="0" max="59" step="5">
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-time-minutes" class="form-control" value="0" min="0" max="59" step="5">
+                                        <span class="calc-unit">хв</span>
+                                    </div>
+                                </div>
+                                <div class="calc-fi">
+                                    <label>Потужність</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-power-watts" class="form-control" value="120" min="0" step="10">
+                                        <span class="calc-unit">Вт</span>
+                                    </div>
                                 </div>
                                 <input type="hidden" id="calc-time-mins" value="120">
                             </div>
 
-                            <div class="form-row mb-3">
-                                <div class="form-group col">
-                                    <label><i class="fa-solid fa-plug color-cyan"></i> Потужність принтера (Вт)</label>
-                                    <input type="number" id="calc-power-watts" class="form-control" value="120" min="0" step="10">
-                                </div>
-                                <div class="form-group col">
-                                    <label>Режим тарифу</label>
-                                    <div class="calc-segmented-toggle w-100">
-                                        <button type="button" class="calc-toggle-btn active flex-1" id="tt-single-btn">Єдиний</button>
-                                        <button type="button" class="calc-toggle-btn flex-1" id="tt-dn-btn">День / Ніч</button>
-                                    </div>
-                                </div>
+                            <div class="calc-segmented-toggle w-100 mb-2">
+                                <button type="button" class="calc-toggle-btn active flex-1" id="tt-single-btn">Єдиний тариф</button>
+                                <button type="button" class="calc-toggle-btn flex-1" id="tt-dn-btn">День / Ніч</button>
                             </div>
 
                             <!-- Single Tariff Block -->
                             <div id="tariff-single-block">
-                                <div class="form-group mb-0">
-                                    <label>Тариф електроенергії (грн/кВт·год)</label>
-                                    <input type="number" id="calc-elec-rate" class="form-control" value="4.32" min="0" step="0.01">
+                                <div class="calc-fi">
+                                    <label>Тариф електроенергії</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-elec-rate" class="form-control" value="4.32" min="0" step="0.01">
+                                        <span class="calc-unit">₴/кВт·год</span>
+                                    </div>
                                 </div>
                             </div>
 
                             <!-- Day/Night Tariff Block -->
                             <div id="tariff-dn-block" style="display: none;">
-                                <div class="form-row mb-2">
-                                    <div class="form-group col">
-                                        <label>Денний тариф (грн)</label>
-                                        <input type="number" id="calc-elec-day-rate" class="form-control" value="4.32" min="0" step="0.01">
+                                <div class="calc-row-2 mb-2">
+                                    <div class="calc-fi">
+                                        <label>Денний тариф</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-elec-day-rate" class="form-control" value="4.32" min="0" step="0.01">
+                                            <span class="calc-unit">₴</span>
+                                        </div>
                                     </div>
-                                    <div class="form-group col">
-                                        <label>Нічний тариф (грн)</label>
-                                        <input type="number" id="calc-elec-night-rate" class="form-control" value="2.16" min="0" step="0.01">
+                                    <div class="calc-fi">
+                                        <label>Нічний тариф</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-elec-night-rate" class="form-control" value="2.16" min="0" step="0.01">
+                                            <span class="calc-unit">₴</span>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="form-row">
-                                    <div class="form-group col">
+                                <div class="calc-row-2">
+                                    <div class="calc-fi">
                                         <label>Годин вдень</label>
-                                        <input type="number" id="calc-elec-day-hours" class="form-control" value="2" min="0" step="0.5">
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-elec-day-hours" class="form-control" value="2" min="0" step="0.5">
+                                            <span class="calc-unit">год</span>
+                                        </div>
                                     </div>
-                                    <div class="form-group col">
+                                    <div class="calc-fi">
                                         <label>Годин вночі</label>
-                                        <input type="number" id="calc-elec-night-hours" class="form-control" value="0" min="0" step="0.5">
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-elec-night-hours" class="form-control" value="0" min="0" step="0.5">
+                                            <span class="calc-unit">год</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Card 3: Depreciation & Labor -->
-                        <div class="calc-section-card mb-3">
-                            <div class="calc-section-header">
-                                <h4><i class="fa-solid fa-gears color-blue"></i> Амортизація & Праця оператора</h4>
-                            </div>
-
-                            <div class="form-row mb-3">
-                                <div class="form-group col">
-                                    <label>Вартість принтера (грн)</label>
-                                    <input type="number" id="calc-printer-cost" class="form-control" value="18000" min="0" step="500">
-                                </div>
-                                <div class="form-group col">
-                                    <label>Ресурс (годин)</label>
-                                    <input type="number" id="calc-printer-life" class="form-control" value="5000" min="100" step="500">
+                        <!-- Card 3: Depreciation & Labor (Collapsible Accordion) -->
+                        <div class="calc-section-card mb-3" id="card-depr-labor">
+                            <div class="calc-section-header" style="cursor: pointer; user-select: none;" id="btn-toggle-depr-accordion">
+                                <h4><i class="fa-solid fa-gears color-blue"></i> Амортизація & Праця</h4>
+                                <div class="d-flex align-items-center gap-1" style="font-size: 11px; color: var(--text-muted);">
+                                    <span id="depr-badge-summary">Деталі витрат</span>
+                                    <i class="fa-solid fa-chevron-down" id="depr-chevron" style="transition: transform 0.2s;"></i>
                                 </div>
                             </div>
 
-                            <div class="form-row mb-3">
-                                <div class="form-group col">
-                                    <label>Витратні матеріали / ТО (грн/год)</label>
-                                    <input type="number" id="calc-consumables-rate" class="form-control" value="5" min="0" step="1">
+                            <div id="depr-accordion-body" style="display: none;">
+                                <div class="calc-row-2 mb-2">
+                                    <div class="calc-fi">
+                                        <label>Вартість принтера</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-printer-cost" class="form-control" value="18000" min="0" step="500">
+                                            <span class="calc-unit">₴</span>
+                                        </div>
+                                    </div>
+                                    <div class="calc-fi">
+                                        <label>Ресурс принтера</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-printer-life" class="form-control" value="5000" min="100" step="500">
+                                            <span class="calc-unit">год</span>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="form-group col">
-                                    <label>Ставка оператора (грн/год)</label>
-                                    <input type="number" id="calc-labor-rate" class="form-control" value="150" min="0" step="10">
-                                </div>
-                            </div>
 
-                            <div class="form-row mb-3">
-                                <div class="form-group col">
-                                    <label>Підготовка (хв)</label>
-                                    <input type="number" id="calc-prep-time" class="form-control" value="15" min="0" step="5" title="Слайсинг, чистка столу, запуск">
+                                <div class="calc-row-2 mb-2">
+                                    <div class="calc-fi">
+                                        <label>Витратні матеріали / ТО</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-consumables-rate" class="form-control" value="5" min="0" step="1">
+                                            <span class="calc-unit">₴/год</span>
+                                        </div>
+                                    </div>
+                                    <div class="calc-fi">
+                                        <label>Ставка оператора</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-labor-rate" class="form-control" value="150" min="0" step="10">
+                                            <span class="calc-unit">₴/год</span>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="form-group col">
-                                    <label>Постобробка (хв)</label>
-                                    <input type="number" id="calc-post-time" class="form-control" value="10" min="0" step="5" title="Зняття підтримок, шліфування, продувка">
-                                </div>
-                            </div>
 
-                            <div class="form-row">
-                                <div class="form-group col">
-                                    <label>Пакування (грн)</label>
-                                    <input type="number" id="calc-packaging-cost" class="form-control" value="15" min="0" step="5">
+                                <div class="calc-row-2 mb-2">
+                                    <div class="calc-fi">
+                                        <label title="Слайсинг, чистка столу, запуск">Підготовка</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-prep-time" class="form-control" value="15" min="0" step="5">
+                                            <span class="calc-unit">хв</span>
+                                        </div>
+                                    </div>
+                                    <div class="calc-fi">
+                                        <label title="Зняття підтримок, шліфування, продувка">Постобробка</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-post-time" class="form-control" value="10" min="0" step="5">
+                                            <span class="calc-unit">хв</span>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="form-group col">
-                                    <label>Доставка / логістика (грн)</label>
-                                    <input type="number" id="calc-shipping-cost" class="form-control" value="0" min="0" step="5">
+
+                                <div class="calc-row-2">
+                                    <div class="calc-fi">
+                                        <label>Пакування</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-packaging-cost" class="form-control" value="15" min="0" step="5">
+                                            <span class="calc-unit">₴</span>
+                                        </div>
+                                    </div>
+                                    <div class="calc-fi">
+                                        <label>Доставка / логістика</label>
+                                        <div class="calc-iw">
+                                            <input type="number" id="calc-shipping-cost" class="form-control" value="0" min="0" step="5">
+                                            <span class="calc-unit">₴</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -320,26 +378,38 @@
                         <!-- Card 4: Serial Mode Settings (Visible only when in Serial Mode) -->
                         <div class="calc-section-card mb-3" id="block-serial-params" style="display: none;">
                             <div class="calc-section-header">
-                                <h4><i class="fa-solid fa-boxes-packing color-emerald"></i> Параметри серійного виробництва</h4>
+                                <h4><i class="fa-solid fa-boxes-packing color-emerald"></i> Параметри серії</h4>
                             </div>
-                            <div class="form-row mb-3">
-                                <div class="form-group col">
-                                    <label>Кількість у тиражі (шт)</label>
-                                    <input type="number" id="calc-serial-qty" class="form-control" value="10" min="2" step="1">
+                            <div class="calc-row-2 mb-2">
+                                <div class="calc-fi">
+                                    <label>Кількість у тиражі</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-serial-qty" class="form-control" value="10" min="2" step="1">
+                                        <span class="calc-unit">шт</span>
+                                    </div>
                                 </div>
-                                <div class="form-group col">
-                                    <label>Штук на 1 пластині (за 1 друк)</label>
-                                    <input type="number" id="calc-serial-per-plate" class="form-control" value="2" min="1" step="1">
+                                <div class="calc-fi">
+                                    <label>Штук на 1 пластині</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-serial-per-plate" class="form-control" value="2" min="1" step="1">
+                                        <span class="calc-unit">шт</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="form-row">
-                                <div class="form-group col">
-                                    <label>Постобробка на 1 шт (хв)</label>
-                                    <input type="number" id="calc-serial-post" class="form-control" value="5" min="0" step="1">
+                            <div class="calc-row-2">
+                                <div class="calc-fi">
+                                    <label>Постобробка 1 шт</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-serial-post" class="form-control" value="5" min="0" step="1">
+                                        <span class="calc-unit">хв</span>
+                                    </div>
                                 </div>
-                                <div class="form-group col">
-                                    <label>Пакування на 1 шт (грн)</label>
-                                    <input type="number" id="calc-serial-pack" class="form-control" value="10" min="0" step="1">
+                                <div class="calc-fi">
+                                    <label>Пакування 1 шт</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-serial-pack" class="form-control" value="10" min="0" step="1">
+                                        <span class="calc-unit">₴</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -347,14 +417,14 @@
                         <!-- Card 5: Pricing Mode & Client Tag -->
                         <div class="calc-section-card mb-3">
                             <div class="calc-section-header">
-                                <h4><i class="fa-solid fa-coins color-amber"></i> Ціноутворення & Клієнт</h4>
+                                <h4><i class="fa-solid fa-coins color-amber"></i> Ціноутворення</h4>
                             </div>
 
-                            <div class="calc-segmented-toggle mb-3">
-                                <button type="button" class="calc-toggle-btn active" id="pricing-mode-margin-btn">
-                                    % Маржа / Націнка
+                            <div class="calc-segmented-toggle w-100 mb-3">
+                                <button type="button" class="calc-toggle-btn active flex-1" id="pricing-mode-margin-btn">
+                                    % Маржа (Націнка)
                                 </button>
-                                <button type="button" class="calc-toggle-btn" id="pricing-mode-ppg-btn">
+                                <button type="button" class="calc-toggle-btn flex-1" id="pricing-mode-ppg-btn">
                                     ₴/г Ціна за грам
                                 </button>
                             </div>
@@ -362,19 +432,29 @@
                             <!-- Margin Slider Block -->
                             <div id="pricing-margin-block" class="mb-3">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <label style="font-size: 11px; color: var(--text-muted); margin: 0;">Націнка (Маржа):</label>
-                                    <strong id="calc-margin-val" style="color: var(--amber); font-size: 15px;">100%</strong>
+                                    <label style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin: 0;">Націнка (Маржа):</label>
+                                    <strong id="calc-margin-val" style="color: var(--amber); font-size: 15px; font-weight: 800; background: rgba(245, 158, 11, 0.15); padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.3);">100%</strong>
                                 </div>
-                                <input type="range" id="calc-margin-slider" class="w-100" min="0" max="300" step="5" value="100" style="accent-color: var(--amber);">
+                                <input type="range" id="calc-margin-slider" class="custom-calc-slider w-100" min="0" max="300" step="5" value="100">
+                                <div class="d-flex justify-content-between text-muted" style="font-size: 9px; font-weight: 600;">
+                                    <span>0%</span>
+                                    <span>50%</span>
+                                    <span>100%</span>
+                                    <span>200%</span>
+                                    <span>300%</span>
+                                </div>
                             </div>
 
                             <!-- Price Per Gram Block -->
                             <div id="pricing-ppg-block" style="display: none;" class="mb-3">
-                                <div class="form-group mb-1">
-                                    <label>Встановити ціну за 1 грам (грн/г)</label>
-                                    <input type="number" id="calc-price-per-gram-input" class="form-control" value="3.5" min="0.5" step="0.1">
+                                <div class="calc-fi mb-1">
+                                    <label>Встановити ціну за 1 грам</label>
+                                    <div class="calc-iw">
+                                        <input type="number" id="calc-price-per-gram-input" class="form-control" value="3.5" min="0.5" step="0.1">
+                                        <span class="calc-unit">₴/г</span>
+                                    </div>
                                 </div>
-                                <small class="text-muted" style="font-size: 11px;">Розрахує ціну продажу від ваги моделі та покаже реальний % маржі.</small>
+                                <small class="text-muted" style="font-size: 11px;">Розрахує ціну продажу прямо від ваги моделі.</small>
                             </div>
 
                             <div class="form-group mb-0">
@@ -393,13 +473,13 @@
                             </div>
 
                             <!-- Serial Batch Badge (if serial mode) -->
-                            <div id="res-batch-sale-row" class="d-flex justify-content-between align-items-center mt-2 mb-2 p-2" style="background: rgba(245, 158, 11, 0.1); border-radius: var(--radius-sm); border: 1px solid rgba(245, 158, 11, 0.25); display: none;">
+                            <div id="res-batch-sale-row" class="justify-content-between align-items-center mt-2 mb-2 p-2 hidden" style="background: rgba(245, 158, 11, 0.1); border-radius: var(--radius-sm); border: 1px solid rgba(245, 158, 11, 0.25);">
                                 <span style="font-size: 12px; color: var(--amber); font-weight: 600;" id="res-batch-label">Вся партія (10 шт):</span>
                                 <strong id="res-batch-total-price" style="color: var(--amber); font-size: 16px;">0.00 ₴</strong>
                             </div>
 
                             <!-- Saving Badge (Serial Mode) -->
-                            <div id="res-saving-row" class="d-flex justify-content-between align-items-center mt-2 mb-2 p-2" style="background: rgba(16, 185, 129, 0.1); border-radius: var(--radius-sm); border: 1px solid rgba(16, 185, 129, 0.25); display: none;">
+                            <div id="res-saving-row" class="justify-content-between align-items-center mt-2 mb-2 p-2 hidden" style="background: rgba(16, 185, 129, 0.1); border-radius: var(--radius-sm); border: 1px solid rgba(16, 185, 129, 0.25);">
                                 <span style="font-size: 12px; color: #34d399; font-weight: 600;">💰 Економія серії:</span>
                                 <span id="res-serial-saving-badge" class="calc-badge-saving">−0.00 ₴</span>
                             </div>
@@ -452,18 +532,35 @@
 
                             <!-- Action Buttons -->
                             <div class="d-flex flex-column gap-2 mt-3">
-                                <button type="button" id="btn-copy-quote-summary" class="btn btn-primary w-100" style="padding: 10px 14px;">
+                                <button type="button" id="btn-copy-quote-summary" class="btn btn-primary w-100" style="padding: 10px 14px; font-weight: 700;">
                                     <i class="fa-solid fa-copy"></i> Скопіювати пропозицію клієнту
                                 </button>
-                                <button type="button" id="btn-export-pdf-summary" class="btn btn-outline w-100" style="padding: 9px 14px;">
-                                    <i class="fa-solid fa-file-pdf"></i> Завантажити PDF кошторис
-                                </button>
-                                <button type="button" id="btn-save-as-preset" class="btn btn-outline w-100" style="padding: 8px 14px; font-size: 11px;">
-                                    <i class="fa-solid fa-floppy-disk"></i> Зберегти як пресет
-                                </button>
+                                <div class="d-flex gap-2">
+                                    <button type="button" id="btn-export-pdf-summary" class="btn btn-outline flex-1" style="padding: 8px 10px; font-size: 11px;">
+                                        <i class="fa-solid fa-file-pdf"></i> Звіт (PDF)
+                                    </button>
+                                    <button type="button" id="btn-save-as-preset" class="btn btn-outline flex-1" style="padding: 8px 10px; font-size: 11px;">
+                                        <i class="fa-solid fa-floppy-disk"></i> Зберегти як пресет
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- Mobile Floating Sticky Mini-Bar for Commercial Calculator -->
+                <div id="calc-mobile-bar" class="calc-mobile-bar">
+                    <div class="calc-mob-info">
+                        <span class="calc-mob-label">Ціна:</span>
+                        <strong id="calc-mob-price" class="calc-mob-val">0.00 ₴</strong>
+                    </div>
+                    <div class="calc-mob-meta">
+                        <span>Собів: <b id="calc-mob-cost">0.00 ₴</b></span>
+                        <span id="calc-mob-verdict-badge" class="badge-mini success">Рентабельно</span>
+                    </div>
+                    <button type="button" class="btn btn-xs btn-primary" onclick="document.getElementById('calc-result-box').scrollIntoView({behavior:'smooth'})">
+                        <i class="fa-solid fa-receipt"></i> Деталі
+                    </button>
                 </div>
 
                 <!-- Presets Management Card (Kept right below for easy access) -->
@@ -1717,6 +1814,6 @@
     <!-- html2pdf Library for PDF exports (deferred background load) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp Application JS -->
-    <script src="/static/js/app.js?v=1120"></script>
+    <script src="/static/js/app.js?v=1130"></script>
 </body>
 </html>

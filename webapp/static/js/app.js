@@ -4111,19 +4111,32 @@ document.addEventListener("DOMContentLoaded", () => {
         const savingBadge = document.getElementById("res-serial-saving-badge");
 
         if (commercialMode === "serial") {
-            if (batchSaleRow) batchSaleRow.style.display = "flex";
+            if (batchSaleRow) {
+                batchSaleRow.classList.remove("hidden");
+                batchSaleRow.style.display = "flex";
+            }
             if (batchLabel) batchLabel.textContent = `Вся партія (${c.serial_qty} шт):`;
             if (batchTotal) batchTotal.textContent = `${(c.total_batch_price || (c.total_price * c.serial_qty)).toFixed(2)} ₴`;
 
             if (c.serial_saving && c.serial_saving > 0) {
-                if (savingRow) savingRow.style.display = "flex";
+                if (savingRow) {
+                    savingRow.classList.remove("hidden");
+                    savingRow.style.display = "flex";
+                }
                 if (savingBadge) savingBadge.textContent = `−${c.serial_saving.toFixed(2)} ₴`;
             } else if (savingRow) {
+                savingRow.classList.add("hidden");
                 savingRow.style.display = "none";
             }
         } else {
-            if (batchSaleRow) batchSaleRow.style.display = "none";
-            if (savingRow) savingRow.style.display = "none";
+            if (batchSaleRow) {
+                batchSaleRow.classList.add("hidden");
+                batchSaleRow.style.display = "none";
+            }
+            if (savingRow) {
+                savingRow.classList.add("hidden");
+                savingRow.style.display = "none";
+            }
         }
 
         const primeCost = c.cost_per_unit !== undefined ? c.cost_per_unit : c.cost_before_profit;
@@ -4172,6 +4185,27 @@ document.addEventListener("DOMContentLoaded", () => {
             const icon = st === "danger" ? "fa-triangle-exclamation" : (st === "warning" ? "fa-circle-exclamation" : "fa-circle-check");
             verdictTitle.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${escapeHtml(c.verdict_main || "Здорова маржа")}</span>`;
             verdictDesc.textContent = c.verdict_detail || "Розрахунок є рентабельним.";
+        }
+
+        // Mobile floating bar live updates
+        const mobPrice = document.getElementById("calc-mob-price");
+        const mobCost = document.getElementById("calc-mob-cost");
+        const mobBadge = document.getElementById("calc-mob-verdict-badge");
+        if (mobPrice) mobPrice.textContent = `${c.total_price.toFixed(2)} ₴`;
+        if (mobCost) mobCost.textContent = `${primeCost.toFixed(2)} ₴`;
+        if (mobBadge) {
+            const st = c.verdict_status || "success";
+            mobBadge.className = `badge-mini ${st}`;
+            mobBadge.textContent = st === "danger" ? "Збиток" : (st === "warning" ? `Маржа ${effMargin}%` : `Маржа ${effMargin}%`);
+        }
+
+        // Depreciation summary badge
+        const deprSummary = document.getElementById("depr-badge-summary");
+        if (deprSummary) {
+            const pCost = parseFloat(document.getElementById("calc-printer-cost")?.value) || 18000;
+            const lRate = parseFloat(document.getElementById("calc-labor-rate")?.value) || 150;
+            const kCost = pCost >= 1000 ? `${Math.round(pCost / 1000)}k₴` : `${pCost}₴`;
+            deprSummary.textContent = `${kCost} · ${lRate}₴/год`;
         }
     }
 
@@ -4466,6 +4500,17 @@ document.addEventListener("DOMContentLoaded", () => {
         "calc-client-order"
     ].forEach(id => {
         document.getElementById(id)?.addEventListener("input", recalculateCommercial);
+    });
+
+    // Toggle Depreciation & Labor Accordion
+    document.getElementById("btn-toggle-depr-accordion")?.addEventListener("click", () => {
+        const body = document.getElementById("depr-accordion-body");
+        const chevron = document.getElementById("depr-chevron");
+        if (!body) return;
+        const isClosed = body.style.display === "none";
+        body.style.display = isClosed ? "block" : "none";
+        if (chevron) chevron.style.transform = isClosed ? "rotate(180deg)" : "rotate(0deg)";
+        triggerHaptic("light");
     });
 
     // Reset Commercial Calculator to standard defaults
