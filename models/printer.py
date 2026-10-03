@@ -1,4 +1,4 @@
-﻿"""
+"""
 Bambu Lab 3D Printer MQTT client and domain model.
 """
 
@@ -891,7 +891,7 @@ class BambuPrinter:
                 if not filament and str(self.active_ams_tray) in self.ams_trays_info:
                     tray_info = self.ams_trays_info[str(self.active_ams_tray)]
                     filament = tray_info.get("type") or tray_info.get("tray_type")
-            if filament:
+            if filament and filament not in ["", "None", "Unknown", "Empty", "Невизначено"]:
                 self.filament_type = filament
 
             # Subtask change & calibration tracking
