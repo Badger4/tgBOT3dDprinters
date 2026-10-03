@@ -14,7 +14,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 _FONTS_INITIALIZED = False
 _FONT_REGULAR = "Helvetica"
@@ -854,7 +854,7 @@ def generate_parts_pdf_report(parts: dict[str, Any]) -> bytes:
     col_widths = [65, 230, 155, 95, 80, 75, 100]
     table_data = [
         [
-            Paragraph("ID", header_cell_style),
+            Paragraph("Фото / ID", header_cell_style),
             Paragraph("Назва деталі", header_cell_style),
             Paragraph("Модель принтера", header_cell_style),
             Paragraph("Тип пластику", header_cell_style),
@@ -889,9 +889,23 @@ def generate_parts_pdf_report(parts: dict[str, Any]) -> bytes:
                 else:
                     item_tot_str = "-"
 
+                import config
+                img_col = None
+                img_url = str(p.get("image", "")).strip()
+                if img_url.startswith("/uploads/"):
+                    local_filename = img_url.replace("/uploads/", "")
+                    cand = config.STORAGE_DIR / "uploads" / local_filename
+                    if cand.exists():
+                        try:
+                            img_col = Image(str(cand), width=50, height=50, kind='proportional')
+                        except Exception:
+                            pass
+                
+                first_col = img_col if img_col else Paragraph(part_id, cell_style)
+
                 table_data.append(
                     [
-                        Paragraph(part_id, cell_style),
+                        first_col,
                         Paragraph(p_name, cell_style),
                         Paragraph(p_model, cell_style),
                         Paragraph(p_fil, cell_style),
@@ -1121,7 +1135,7 @@ def generate_combined_warehouse_pdf_report(
     part_widths = [65, 230, 155, 95, 80, 75, 100]
     part_table_data = [
         [
-            Paragraph("ID", header_cell_style),
+            Paragraph("Фото / ID", header_cell_style),
             Paragraph("Назва деталі", header_cell_style),
             Paragraph("Модель принтера", header_cell_style),
             Paragraph("Тип пластику", header_cell_style),
@@ -1156,9 +1170,23 @@ def generate_combined_warehouse_pdf_report(
                 else:
                     item_tot_str = "-"
 
+                import config
+                img_col = None
+                img_url = str(p.get("image", "")).strip()
+                if img_url.startswith("/uploads/"):
+                    local_filename = img_url.replace("/uploads/", "")
+                    cand = config.STORAGE_DIR / "uploads" / local_filename
+                    if cand.exists():
+                        try:
+                            img_col = Image(str(cand), width=50, height=50, kind='proportional')
+                        except Exception:
+                            pass
+                
+                first_col = img_col if img_col else Paragraph(part_id, cell_style)
+
                 part_table_data.append(
                     [
-                        Paragraph(part_id, cell_style),
+                        first_col,
                         Paragraph(p_name, cell_style),
                         Paragraph(p_model, cell_style),
                         Paragraph(p_fil, cell_style),
