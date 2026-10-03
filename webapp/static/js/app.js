@@ -4382,6 +4382,65 @@ document.addEventListener("DOMContentLoaded", () => {
         if (presetModal) presetModal.classList.add("active");
     });
 
+    // Update Current Preset Directly
+    document.getElementById("btn-update-preset")?.addEventListener("click", async () => {
+        const pId = document.getElementById("calc-preset-select")?.value;
+        const p = currentPresets[pId];
+        if (!p) {
+            alert("Оберіть пресет для оновлення!");
+            return;
+        }
+
+        triggerHaptic("medium");
+        const btn = document.getElementById("btn-update-preset");
+        const oldHTML = btn.innerHTML;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i>`;
+        
+        const marginVal = marginSlider?.value || "100";
+        const payload = {
+            id: p.id,
+            name: p.name,
+            price_per_g: parseFloat(document.getElementById("calc-price-per-g")?.value) || 0.85,
+            electricity_rate_uah: parseFloat(document.getElementById("calc-elec-rate")?.value) || 4.32,
+            power_watts: parseFloat(document.getElementById("calc-power-watts")?.value) || 120.0,
+            depreciation_val: "10",
+            consumables_val: document.getElementById("calc-consumables-rate")?.value || "5",
+            profit_val: `${marginVal}%`
+        };
+
+        try {
+            const res = await fetch("/api/commercial/presets", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.status === "ok") {
+                await loadCommercialPresets();
+                // Select it back since loadCommercialPresets resets selection
+                const selectEl = document.getElementById("calc-preset-select");
+                if (selectEl && currentPresets[p.id]) {
+                    selectEl.value = p.id;
+                }
+                btn.innerHTML = `<i class="fa-solid fa-check"></i> Оновлено!`;
+                btn.classList.add("btn-success");
+                btn.classList.remove("btn-primary");
+                setTimeout(() => {
+                    btn.innerHTML = oldHTML;
+                    btn.classList.remove("btn-success");
+                    btn.classList.add("btn-primary");
+                }, 2000);
+            } else {
+                alert(`Помилка: ${data.error || "невідома"}`);
+                btn.innerHTML = oldHTML;
+            }
+        } catch (e) {
+            console.error(e);
+            alert(`Помилка збереження: ${e.message || e}`);
+            btn.innerHTML = oldHTML;
+        }
+    });
+
     // Save As Preset
     document.getElementById("btn-save-as-preset")?.addEventListener("click", () => {
         editingPresetId = null;

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Filament warehouse view & RFID sync handlers.
 """
 
@@ -120,7 +120,7 @@ async def handle_filament_menu(message: Message, app, state: FSMContext | None =
             is_empty_tray = tray_info.get("empty", True) if tray_info else True
             raw_g = float(assigned.get("remaining_grams", slots.get(k, 1000.0))) if assigned else float(slots.get(k, 0.0 if is_empty_tray else 1000.0))
 
-            has_filament = (raw_g > 0.0) and (bool(assigned) or (not is_empty_tray and bool(tray_info.get("type"))))
+            has_filament = (raw_g > 0.0) and (bool(assigned) or not is_empty_tray)
 
             if has_filament:
                 if assigned:
@@ -191,7 +191,7 @@ async def handle_filament_menu(message: Message, app, state: FSMContext | None =
                 is_empty_tray = tray_info.get("empty", True) if tray_info else True
                 raw_g = float(assigned.get("remaining_grams", slots.get(k, 1000.0))) if assigned else float(slots.get(k, 0.0 if is_empty_tray else 1000.0))
 
-                has_filament = (raw_g > 0.0) and (bool(assigned) or (not is_empty_tray and bool(tray_info.get("type"))))
+                has_filament = (raw_g > 0.0) and (bool(assigned) or not is_empty_tray)
 
                 if has_filament:
                     if assigned:

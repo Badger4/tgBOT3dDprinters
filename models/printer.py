@@ -1,4 +1,4 @@
-"""
+﻿"""
 Bambu Lab 3D Printer MQTT client and domain model.
 """
 
@@ -519,13 +519,13 @@ class BambuPrinter:
         if key is not None:
             return key
         curr_job = getattr(self, "_current_job_slot_key", None)
-        if curr_job is not None and str(curr_job) in self.ams_slots:
+        if curr_job is not None:
             return str(curr_job)
         last = getattr(self, "last_active_slot", None)
-        if last is not None and str(last) in self.ams_slots:
+        if last is not None:
             return str(last)
         if getattr(self, "has_ams", False):
-            return "0" if "0" in self.ams_slots else AMSSlot.EXTERNAL.value
+            return "0"
         return AMSSlot.EXTERNAL.value
 
     def get_slot_grams(self, slot_id: Any | None = None) -> float:
@@ -1024,7 +1024,7 @@ class BambuPrinter:
                     and self._current_job_grams > 0
                     and not self._job_deducted
                 ):
-                    active_key = getattr(self, "_current_job_slot_key", None) or self.get_active_spool_key()
+                    active_key = getattr(self, "_current_job_slot_key", None) or self.get_active_spool_key() or getattr(self, "last_active_slot", None)
                     if active_key is None and not getattr(self, "has_ams", False):
                         active_key = AMSSlot.EXTERNAL.value
                     if active_key is None:

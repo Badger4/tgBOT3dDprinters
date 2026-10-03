@@ -1,4 +1,4 @@
-"""
+﻿"""
 Filament mounting and unmounting handlers.
 """
 
@@ -82,7 +82,7 @@ def get_mounted_spools_or_trays(app, spools: dict[str, Any]) -> list[dict[str, A
             except (ValueError, TypeError, AttributeError):
                 slot_g = 0.0
 
-            if slot_g > 0:
+            if not is_empty and slot_g > 0:
                 s_label = slot_names.get(str(k), f"Слот {k}")
                 t_sub = str(tray_info.get("sub_brands") or "").strip()
                 mat_type = tray_type.upper() if tray_type else getattr(p, "filament_type", "PLA")

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Main Application orchestrating Telegram bot, storage, and printer monitoring.
 """
 
@@ -252,7 +252,7 @@ class PrinterBotApp:
                     f"📦 Котушку <b>{html.escape(assigned_spool.get('name', 'Котушка'))}</b> ({assigned_spool.get('type', 'PLA')}) "
                     f"автоматично знято зі слоту та повернено на Склад ({res_desc})."
                 )
-                await self.send_notification("finish", notif_text, parse_mode=ParseMode.HTML)
+                await self.send_notification("finish", notif_text, printer=printer, parse_mode=ParseMode.HTML)
                 logger.info(f"🔓 [Auto Unmount] Spool {assigned_spool['id']} auto-returned to warehouse from {printer.name} slot {slot_id}")
 
         elif event_type == "tray_loaded":
@@ -283,7 +283,7 @@ class PrinterBotApp:
                     ],
                 ]
             )
-            await self.send_notification("start", prompt_text, reply_markup=kb, parse_mode=ParseMode.HTML)
+            await self.send_notification("start", prompt_text, printer=printer, reply_markup=kb, parse_mode=ParseMode.HTML)
             logger.info(f"📥 [Auto Load] Sent assignment prompt for {printer.name} slot {slot_id} ({fil_type})")
 
     async def monitoring_loop(self) -> None:
@@ -436,7 +436,7 @@ class PrinterBotApp:
                                 st["notifiedInsufficentWarning"] = True
 
                             await self.send_notification(
-                                "start", start_txt, reply_markup=get_notification_inline_keyboard(p.id)
+                                "start", start_txt, printer=p, reply_markup=get_notification_inline_keyboard(p.id)
                             )
                             st["notifiedStart"] = True
                             st["notifiedFinish"] = False
@@ -473,7 +473,7 @@ class PrinterBotApp:
                                         f"⚖️ **Вага моделі:** `{used_w}g` | 📦 **Залишок:** `{spool_before}g`\n"
                                         f"⚠️ Не вистачає ~*{deficit}g* пластику! Іди міняй котушку, Бака! 😤"
                                     )
-                            await self.send_notification("start", warn_txt)
+                            await self.send_notification("start", warn_txt, printer=p)
                             st["notifiedInsufficentWarning"] = True
 
                         # Advance Time Notification
@@ -552,6 +552,7 @@ class PrinterBotApp:
                             await self.send_notification(
                                 "pause",
                                 f"⏸️ *Гей! Принтер {p.name} поставлено на паузу!* Іди перевір, що там сталося, Бака! 😤",
+                                printer=p,
                                 reply_markup=get_error_notification_inline_keyboard(p.id),
                                 printer=p,
                             )
@@ -570,7 +571,7 @@ class PrinterBotApp:
                                 finish_txt += f"⚖️ **Списано:** `{used_w}g`\n"
                             finish_txt += f"📦 **Залишок на бабіні:** *{p.get_slot_grams()}g*\nІди й негайно зніми деталь зі столу, скільки можна чекати?! 😤🧹"
 
-                            await self.send_notification("finish", finish_txt)
+                            await self.send_notification("finish", finish_txt, printer=p)
                             st["notifiedFinish"] = True
                             st["notifiedStart"] = False
                             st["notifiedPause"] = False
@@ -633,7 +634,7 @@ class PrinterBotApp:
                         if 15.0 <= mins_passed <= 30.0:
                             if not st.get("notifiedClearReminder"):
                                 rem_txt = f"🔔 *Скільки можна чекати, Бака?!*\nДрук на {p.name} закінчився 15 хв тому!\nНегайно зніми готову деталь зі столу, щоб звільнити принтер! 🧼😤"
-                                await self.send_notification("finish", rem_txt)
+                                await self.send_notification("remind_clear", rem_txt, printer=p)
                                 st["notifiedClearReminder"] = True
                         elif mins_passed > 30.0:
                             st["notifiedClearReminder"] = True
@@ -649,6 +650,7 @@ class PrinterBotApp:
                     # Track change in errors: if new errors appeared, re-arm alerts
                     if has_error:
                         if not curr_err_set.issubset(last_err_set):
+                            st['errorFirstSeen'] = time.time()
                             st["notifiedHMS"] = False
                             st["notifiedPauseErrorRepeat"] = False
                             if curr_state == "PAUSE":
@@ -661,7 +663,7 @@ class PrinterBotApp:
                         st["notifiedPauseErrorRepeat"] = False
 
                     # 5a. Initial Error Alert
-                    if has_error and not st.get("notifiedHMS"):
+                    if has_error and not st.get("notifiedHMS") and time.time() - st.get("errorFirstSeen", time.time()) >= 15.0:
                         err_lines = "\n".join([f"• <code>{html.escape(str(h))}</code>" for h in active_errors])
                         err_title = "⚡ <b>HMS Помилка на принтері" if getattr(p, "hms_errors", None) else "⚡ <b>Помилка на принтері"
                         err_txt = (
@@ -672,7 +674,8 @@ class PrinterBotApp:
                         await self.send_notification(
                             "pause",
                             err_txt,
-                            reply_markup=get_error_notification_inline_keyboard(p.id),
+                            printer=p,
+                                    reply_markup=get_error_notification_inline_keyboard(p.id),
                             printer=p,
                         )
                         st["notifiedHMS"] = True
@@ -695,6 +698,7 @@ class PrinterBotApp:
                                 await self.send_notification(
                                     "pause",
                                     rem_err_txt,
+                                    printer=p,
                                     reply_markup=get_error_notification_inline_keyboard(p.id),
                                     printer=p,
                                 )
@@ -721,6 +725,7 @@ class PrinterBotApp:
                                 await self.send_notification(
                                     "pause",
                                     maint_txt,
+                                    printer=p,
                                     reply_markup=get_maintenance_inline_keyboard(p.id, item_k, item_name),
                                 )
                                 st[notif_key] = True

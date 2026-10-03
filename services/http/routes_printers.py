@@ -408,7 +408,7 @@ async def handle_update_printer_settings(request: web.Request) -> web.Response:
             if new_ac != p.access_code:
                 p.access_code = new_ac
                 reconnect_mqtt = True
-        if "serialNumber" in data and str(data["serialNumber"]).strip():
+        if "serialNumber" in data:
             new_sn = str(data["serialNumber"]).strip()
             if new_sn != p.serial_number:
                 p.serial_number = new_sn

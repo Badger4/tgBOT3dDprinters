@@ -1,4 +1,4 @@
-"""
+﻿"""
 Commercial Pricing Calculator and Preset Management Handlers.
 """
 
@@ -296,6 +296,35 @@ async def start_quick_calc(message: Message, app):
     )
 
 
+
+async def show_preset_edit_menu(message, app, target: dict):
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    import html
+    p_name = target.get("name", "??????")
+    p_pr = target.get("price_per_g", 0.85)
+    p_el = target.get("electricity_rate_uah", 4.32)
+    p_depr = target.get("depreciation_val", "10")
+    p_cons = target.get("consumables_val", "5")
+    p_prof = target.get("profit_val", "100%")
+    p_id = target.get("id", "")
+    inline_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"?? ????? ({p_name})", callback_data=f"edit_p_field_name_{p_id}")],
+            [InlineKeyboardButton(text=f"?? ???? ???????? ({p_pr}???/?)", callback_data=f"edit_p_field_price_{p_id}")],
+            [InlineKeyboardButton(text=f"? ?????? ({p_el}???)", callback_data=f"edit_p_field_elec_{p_id}")],
+            [InlineKeyboardButton(text=f"?? ??????????? ({p_depr})", callback_data=f"edit_p_field_depr_{p_id}")],
+            [InlineKeyboardButton(text=f"?? ?????????? ({p_cons})", callback_data=f"edit_p_field_cons_{p_id}")],
+            [InlineKeyboardButton(text=f"?? ???????? ({p_prof})", callback_data=f"edit_p_field_profit_{p_id}")],
+            [InlineKeyboardButton(text=f"? ?????? (????????)", callback_data=f"edit_p_done")]
+        ]
+    )
+    from aiogram.enums import ParseMode
+    await message.answer(
+        f"?? <b>??????????? ???????: {html.escape(p_name)}</b>\n??????? ???????? ??? ?????:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=inline_kb,
+    )
+
 COMMERCIAL_STATES = {
     "add_preset_name",
     "add_preset_price",
@@ -313,6 +342,32 @@ COMMERCIAL_STATES = {
     "calc_select_preset",
     "edit_preset_field_value",
 }
+
+
+async def show_preset_edit_menu(message_or_callback, draft):
+    p_name = draft.get("name", "Пресет")
+    p_pr = draft.get("price_per_g", 0.85)
+    p_el = draft.get("electricity_rate_uah", 4.32)
+    p_depr = draft.get("depreciation_val", "10")
+    p_cons = draft.get("consumables_val", "5")
+    p_prof = draft.get("profit_val", "100%")
+    p_id = draft.get("id", "")
+    inline_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"🏷️ Назва ({p_name})", callback_data=f"edit_p_field_name_{p_id}")],
+            [InlineKeyboardButton(text=f"🧵 Ціна пластику ({p_pr}грн/г)", callback_data=f"edit_p_field_price_{p_id}")],
+            [InlineKeyboardButton(text=f"⚡ Світло ({p_el}грн)", callback_data=f"edit_p_field_elec_{p_id}")],
+            [InlineKeyboardButton(text=f"🔧 Амортизація ({p_depr})", callback_data=f"edit_p_field_depr_{p_id}")],
+            [InlineKeyboardButton(text=f"🧼 Витратники ({p_cons})", callback_data=f"edit_p_field_cons_{p_id}")],
+            [InlineKeyboardButton(text=f"💼 Прибуток ({p_prof})", callback_data=f"edit_p_field_profit_{p_id}")],
+            [InlineKeyboardButton(text=f"💾 Зберегти зміни", callback_data=f"save_draft_preset_{p_id}")],
+        ]
+    )
+    text = f"✏️ <b>Редагування пресету: {html.escape(p_name)}</b>\nОберіть параметр для зміни, а потім натисніть «Зберегти зміни»:"
+    if hasattr(message_or_callback, "message"):
+        await message_or_callback.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=inline_kb)
+    else:
+        await message_or_callback.answer(text, parse_mode=ParseMode.HTML, reply_markup=inline_kb)
 
 
 async def is_commercial_wizard_state(message: Message, app) -> bool:
@@ -508,61 +563,11 @@ async def handle_commercial_wizard(message: Message, app):
             await message.answer("⚠️ Пресет не знайдено, оберіть зі списку.")
             return True
         c_data["edit_preset_id"] = target["id"]
+        c_data["draft_preset"] = target.copy()
         user["state"] = "edit_preset_field_choice"
         await app.storage.save_user(user)
 
-        p_name = target.get("name", "Пресет")
-        p_pr = target.get("price_per_g", 0.85)
-        p_el = target.get("electricity_rate_uah", 4.32)
-        p_depr = target.get("depreciation_val", "10")
-        p_cons = target.get("consumables_val", "5")
-        p_prof = target.get("profit_val", "100%")
-        p_id = target.get("id", "")
-        inline_kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=f"🏷️ Назва ({p_name})",
-                        callback_data=f"edit_p_field_name_{p_id}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=f"🧵 Ціна пластику ({p_pr}грн/г)",
-                        callback_data=f"edit_p_field_price_{p_id}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=f"⚡ Світло ({p_el}грн)",
-                        callback_data=f"edit_p_field_elec_{p_id}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=f"🔧 Амортизація ({p_depr})",
-                        callback_data=f"edit_p_field_depr_{p_id}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=f"🧼 Витратники ({p_cons})",
-                        callback_data=f"edit_p_field_cons_{p_id}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=f"💼 Прибуток ({p_prof})",
-                        callback_data=f"edit_p_field_profit_{p_id}",
-                    )
-                ],
-            ]
-        )
-        await message.answer(
-            f"✏️ <b>Редагування пресету: {html.escape(p_name)}</b>\nОберіть параметр для зміни:",
-            parse_mode=ParseMode.HTML,
-            reply_markup=inline_kb,
-        )
+        await show_preset_edit_menu(message, c_data["draft_preset"])
         return True
 
     # 4. DELETE PRESET
@@ -694,7 +699,7 @@ async def handle_commercial_wizard(message: Message, app):
     elif st == "edit_preset_field_value":
         pid = c_data.get("edit_preset_id")
         field = c_data.get("edit_preset_field")
-        p = presets.get(pid)
+        p = c_data.get("draft_preset")
         if not p or not field:
             user["state"] = "idle"
             await app.storage.save_user(user)
@@ -740,17 +745,52 @@ async def handle_commercial_wizard(message: Message, app):
                 return True
             p[field] = res
 
-        presets[pid] = p
-        await app.storage.save_json(get_presets_path(app), presets)
-        user["state"] = "idle"
+        c_data["draft_preset"] = p
+        user["state"] = "edit_preset_field_choice"
         await app.storage.save_user(user)
-        await message.answer(
-            f"✅ <b>Параметр успішно оновлено для «{html.escape(p['name'])}»!</b>", parse_mode=ParseMode.HTML
-        )
-        await handle_commercial_menu(message, app)
+        
+        await message.answer("✅ <b>Значення оновлено в чернетці.</b>", parse_mode=ParseMode.HTML)
+        await show_preset_edit_menu(message, p)
         return True
 
     return False
+
+
+@router.callback_query(F.data.startswith("save_draft_preset_"))
+async def handle_save_draft_preset_callback(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    draft = user.get("context_data", {}).get("draft_preset")
+    
+    if not draft:
+        await callback.answer("⚠️ Немає даних для збереження.", show_alert=True)
+        return
+        
+    presets = await get_user_presets(app)
+    pid = draft.get("id")
+    if pid:
+        presets[pid] = draft
+        await app.storage.save_json(get_presets_path(app), presets)
+        
+    user["state"] = "idle"
+    user["context_data"].pop("draft_preset", None)
+    user["context_data"].pop("edit_preset_id", None)
+    user["context_data"].pop("edit_preset_field", None)
+    await app.storage.save_user(user)
+    
+    await callback.answer("✅ Зміни успішно збережено!", show_alert=True)
+    
+    # Delete the inline keyboard message to clean up chat
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+        
+    await callback.message.answer(
+        f"✅ <b>Всі зміни для пресету «{html.escape(draft.get('name', ''))}» успішно збережено!</b>", 
+        parse_mode=ParseMode.HTML
+    )
+    await handle_commercial_menu(callback.message, app)
 
 
 @router.callback_query(F.data.startswith("edit_p_field_"))
@@ -843,3 +883,17 @@ async def handle_commercial_quote_pdf_callback(callback: CallbackQuery, app):
             await callback.answer("⚠️ Помилка формування PDF розрахунку.", show_alert=True)
         except Exception:
             pass
+
+
+@router.callback_query(F.data == "edit_p_done")
+async def handle_edit_preset_done(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    user["state"] = "idle"
+    user["context_data"] = {}
+    await app.storage.save_user(user)
+    await callback.message.answer("? ??? ????? ?????????!")
+    from bot.handlers.commercial import handle_commercial_menu
+    await handle_commercial_menu(callback.message, app)
+    await callback.answer()
+
