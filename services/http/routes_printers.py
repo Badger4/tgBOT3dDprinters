@@ -396,21 +396,21 @@ async def handle_update_printer_settings(request: web.Request) -> web.Response:
         data = await request.json()
         reconnect_mqtt = False
 
-        if "name" in data and str(data["name"]).strip():
+        if "name" in data:
             p.name = str(data["name"]).strip()
-        if "ip" in data and str(data["ip"]).strip():
+        if "ip" in data:
             new_ip = str(data["ip"]).strip()
             if new_ip != p.ip:
                 p.ip = new_ip
                 reconnect_mqtt = True
-        if "accessCode" in data and str(data["accessCode"]).strip():
+        if "accessCode" in data:
             new_ac = str(data["accessCode"]).strip()
             if new_ac != p.access_code:
                 p.access_code = new_ac
                 reconnect_mqtt = True
         if "serialNumber" in data:
             new_sn = str(data["serialNumber"]).strip()
-            if new_sn != p.serial_number:
+            if new_sn and new_sn != p.serial_number:
                 p.serial_number = new_sn
                 reconnect_mqtt = True
         if "printer_model" in data:
@@ -439,7 +439,7 @@ async def handle_update_printer_settings(request: web.Request) -> web.Response:
                 p.notify = bool(raw_n)
         if "spd_lvl" in data:
             p.spd_lvl = int(data["spd_lvl"])
-        if "nozzle_diameter" in data and str(data["nozzle_diameter"]).strip():
+        if "nozzle_diameter" in data:
             p.nozzle_diameter = str(data["nozzle_diameter"]).strip()
         if "maintenance_interval_hours" in data:
             p.maintenance_interval_hours = int(data["maintenance_interval_hours"])

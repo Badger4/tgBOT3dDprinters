@@ -69,6 +69,8 @@ API_SECRET_KEY = os.getenv("API_SECRET_KEY", "").strip()
 WEB_ADMIN_PASSWORD = os.getenv("WEB_ADMIN_PASSWORD", os.getenv("API_SECRET_KEY", "")).strip()
 WEBAPP_URL = os.getenv("WEBAPP_URL", f"http://localhost:{HTTP_PORT}").strip()
 SSE_INTERVAL_SECONDS = _get_env_float("SSE_INTERVAL_SECONDS", 5.0)
+CLOUDFLARE_TUNNEL_TOKEN = os.getenv("CLOUDFLARE_TUNNEL_TOKEN", "").strip()
+# Kept only for the legacy manual helper; the application no longer starts Ngrok.
 NGROK_AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "").strip()
 NGROK_DOMAIN = os.getenv("NGROK_DOMAIN", "").strip()
 ELECTRICITY_COST_PER_KWH = _get_env_float("ELECTRICITY_COST_PER_KWH", 4.32)
@@ -136,8 +138,11 @@ class SensitiveDataFilter(logging.Filter):
             text = text.replace(TELEGRAM_BOT_TOKEN, "[TELEGRAM_BOT_TOKEN_MASKED]")
         if API_SECRET_KEY and len(API_SECRET_KEY) > 3 and API_SECRET_KEY in text:
             text = text.replace(API_SECRET_KEY, "[API_SECRET_KEY_MASKED]")
+        if CLOUDFLARE_TUNNEL_TOKEN and CLOUDFLARE_TUNNEL_TOKEN in text:
+            text = text.replace(CLOUDFLARE_TUNNEL_TOKEN, "[CLOUDFLARE_TUNNEL_TOKEN_MASKED]")
+        text = re.sub(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "[CLOUDFLARE_TUNNEL_TOKEN_MASKED]", text)
         if NGROK_AUTHTOKEN and len(NGROK_AUTHTOKEN) > 5 and NGROK_AUTHTOKEN in text:
-            text = text.replace(NGROK_AUTHTOKEN, "[NGROK_AUTHTOKEN_MASKED]")
+            text = text.replace(NGROK_AUTHTOKEN, "[LEGACY_TUNNEL_TOKEN_MASKED]")
 
         text = re.sub(
             r'(access[_-]?code["\']?\s*[:=]\s*["\']?)([^"\'\s,}{&]+)', r"\1••••••••", text, flags=re.IGNORECASE

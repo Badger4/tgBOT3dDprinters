@@ -43,6 +43,19 @@
 
         <!-- Main Content Area -->
         <main class="app-content">
+            <!-- TAB 0: DASHBOARD (COMPACT GRID) -->
+            <section id="tab-dashboard" class="tab-page">
+                <div class="section-header">
+                    <h2><i class="fa-solid fa-border-all"></i> <span data-i18n="dashboard_title">Дашборд</span></h2>
+                </div>
+                <div id="dashboard-grid" class="printers-grid" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;">
+                    <div class="loading-spinner">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                        <p data-i18n="loading_dashboard">Завантаження...</p>
+                    </div>
+                </div>
+            </section>
+
             <!-- TAB 1: PRINTERS DASHBOARD -->
             <section id="tab-printers" class="tab-page active">
                 <div class="section-header">
@@ -730,18 +743,71 @@
                     <h2><i class="fa-solid fa-sliders"></i> <span data-i18n="settings_title">Налаштування та сповіщення</span></h2>
                 </div>
 
-                <!-- 1. Interface Language Card -->
+                
+
+                
+                <!-- 1. Global Notifications Settings -->
                 <div class="glass-card mb-4">
-                    <h3><i class="fa-solid fa-globe color-blue"></i> <span data-i18n="lang_select_label">Мова інтерфейсу / Language</span></h3>
-                    <div class="form-group mb-0">
-                        <select id="setting-app-language" class="form-control font-weight-bold">
-                            <option value="uk">🇺🇦 Українська</option>
-                            <option value="en">🇬🇧 English</option>
-                        </select>
+                    <h3><i class="fa-solid fa-globe color-purple"></i> <span>Загальні сповіщення</span></h3>
+                    <p class="text-muted small mb-3">Застосувати однакові налаштування сповіщень одразу для всіх принтерів.</p>
+
+                    <div class="p-3 mb-3 rounded" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);">
+                        <div class="settings-group">
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-play color-green"></i> Сповіщення про старт друку</span>
+                                <input type="checkbox" id="global-notify-start" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-flag-checkered color-blue"></i> Сповіщення про завершення друку</span>
+                                <input type="checkbox" id="global-notify-finish" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-pause color-amber"></i> Сповіщення про паузу друку</span>
+                                <input type="checkbox" id="global-notify-pause" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-triangle-exclamation color-red"></i> HMS помилки (збій)</span>
+                                <input type="checkbox" id="global-notify-hms" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <label class="switch-row mb-2">
+                                <span><i class="fa-solid fa-hand-holding-hand color-purple"></i> Нагадування зняти деталь з платформи</span>
+                                <input type="checkbox" id="global-notify-remind-clear" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="form-row mt-3">
+                            <div class="form-group col-md-6 mb-2">
+                                <label><i class="fa-solid fa-hourglass-half"></i> Увага з часом до завершення</label>
+                                <select id="global-notify-min-time" class="form-control">
+                                    <option value="0">❌ Вимкнути ліміт</option>
+                                    <option value="5">📦 Менше 5 хвилин до завершення</option>
+                                    <option value="10">📦 Менше 10 хвилин до завершення</option>
+                                    <option value="15">📦 Менше 15 хвилин до завершення</option>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-6 mb-2">
+                                <label><i class="fa-solid fa-weight-hanging"></i> Увага з залишком нитки</label>
+                                <select id="global-notify-min-filament" class="form-control">
+                                    <option value="0">❌ Вимкнути ліміт</option>
+                                    <option value="50">📦 Менше 50г</option>
+                                    <option value="100">📦 Менше 100г</option>
+                                    <option value="200">📦 Менше 200г</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
+                    
+                    <button id="apply-global-settings-btn" class="btn btn-primary w-100">
+                        <i class="fa-solid fa-check-double"></i> Застосувати для всіх принтерів
+                    </button>
                 </div>
 
-                <!-- 2. Per-Printer Individual Settings Card -->
+<!-- 2. Per-Printer Individual Settings Card -->
                 <div class="glass-card mb-4">
                     <h3><i class="fa-solid fa-print color-blue"></i> <span>Окремі налаштування принтерів</span></h3>
                     <p class="text-muted small mb-3">Оберіть принтер зі списку для перегляду та редагування його персональних параметрів.</p>
@@ -1666,6 +1732,10 @@
 
         <!-- Bottom Navigation Bar -->
         <nav class="app-nav">
+            <button class="nav-btn" data-tab="tab-dashboard">
+                <i class="fa-solid fa-border-all"></i>
+                <span data-i18n="nav_dashboard">Дашборд</span>
+            </button>
             <button class="nav-btn active" data-tab="tab-printers">
                 <i class="fa-solid fa-print"></i>
                 <span data-i18n="nav_printers">Принтери</span>

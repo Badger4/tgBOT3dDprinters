@@ -188,13 +188,10 @@ async def check_auth(request: web.Request) -> bool:
     is_tunnel_req = bool(
         _safe_header(request, "X-Forwarded-For")
         or _safe_header(request, "X-Forwarded-Host")
-        or _safe_header(request, "Bypass-Tunnel-Reminder")
     )
     remote = getattr(request, "remote", None)
-    if not API_SECRET_KEY and not admin_pass and not is_tunnel_req and remote in ("127.0.0.1", "::1", None):
-        return True
-
-    if not API_SECRET_KEY and not admin_pass and _safe_header(request, "Bypass-Tunnel-Reminder") == "true":
+    local_dev = not config.WEBAPP_URL.lower().startswith("https://")
+    if not API_SECRET_KEY and not admin_pass and local_dev and not is_tunnel_req and remote in ("127.0.0.1", "::1"):
         return True
 
     return False
@@ -256,10 +253,10 @@ async def is_admin_request(request: web.Request) -> bool:
     is_tunnel_req = bool(
         _safe_header(request, "X-Forwarded-For")
         or _safe_header(request, "X-Forwarded-Host")
-        or _safe_header(request, "Bypass-Tunnel-Reminder")
     )
     remote = getattr(request, "remote", None)
-    if not API_SECRET_KEY and not admin_pass and not is_tunnel_req and remote in ("127.0.0.1", "::1", None):
+    local_dev = not config.WEBAPP_URL.lower().startswith("https://")
+    if not API_SECRET_KEY and not admin_pass and local_dev and not is_tunnel_req and remote in ("127.0.0.1", "::1"):
         return True
 
     return False

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Main Application orchestrating Telegram bot, storage, and printer monitoring.
 """
 
@@ -401,8 +401,19 @@ class PrinterBotApp:
 
                     # 1. Start Notification & Filament Warning
                     if curr_state == "RUNNING":
+                        active_slot = p.get_active_spool_key() if hasattr(p, "get_active_spool_key") else None
+                        if getattr(p, "has_ams", False) and active_slot is None:
+                            continue  # Wait for printer to report active AMS slot before calculating deficit and sending alerts
+
+                        if active_slot is None:
+                            active_slot = "254" if not getattr(p, "has_ams", True) else "0"
+                            
+                        slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "Зовнішня (VT)"}
+                        slot_label = slot_names.get(str(active_slot), str(active_slot))
+
                         used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
-                        spool_before = round(p.filament_grams + (used_w if p._job_deducted else 0.0), 2)
+                        sp_grams = p.get_slot_grams(active_slot) if hasattr(p, "get_slot_grams") else getattr(p, "filament_grams", 1000.0)
+                        spool_before = round(sp_grams + (used_w if p._job_deducted else 0.0), 2)
                         is_insufficient = used_w > 0 and used_w > spool_before
 
                         if st["lastState"] != "RUNNING" and p.notify and not st["notifiedStart"]:
@@ -451,7 +462,7 @@ class PrinterBotApp:
                             if total_avail >= used_w:
                                 backup_names = ", ".join([f"{b['name']} ({b['grams']}g)" for b in backup_slots])
                                 warn_txt = (
-                                    f"ℹ️ *Гей! На активній котушці {p.name} всього {spool_before}g,*\n"
+                                    f"ℹ️ *Гей! На поточній котушці (Слот {slot_label}) всього {spool_before}g,*\n"
                                     f"але в AMS є сумісний резерв: *Слот {backup_names}* (разом: *{total_avail}g* / потрібно: `{used_w}g`).\n"
                                     f"✨ Автозаміна AMS перемкнеться штатно під час друку! Можеш не хвилюватися, Бака! 😉✅"
                                 )
@@ -552,9 +563,7 @@ class PrinterBotApp:
                             await self.send_notification(
                                 "pause",
                                 f"⏸️ *Гей! Принтер {p.name} поставлено на паузу!* Іди перевір, що там сталося, Бака! 😤",
-                                printer=p,
-                                reply_markup=get_error_notification_inline_keyboard(p.id),
-                                printer=p,
+                                printer=p, reply_markup=get_error_notification_inline_keyboard(p.id),
                             )
                             st["notifiedPause"] = True
                     elif curr_state != "PAUSE":
@@ -674,9 +683,7 @@ class PrinterBotApp:
                         await self.send_notification(
                             "pause",
                             err_txt,
-                            printer=p,
-                                    reply_markup=get_error_notification_inline_keyboard(p.id),
-                            printer=p,
+                            printer=p, reply_markup=get_error_notification_inline_keyboard(p.id),
                         )
                         st["notifiedHMS"] = True
 
@@ -698,9 +705,7 @@ class PrinterBotApp:
                                 await self.send_notification(
                                     "pause",
                                     rem_err_txt,
-                                    printer=p,
-                                    reply_markup=get_error_notification_inline_keyboard(p.id),
-                                    printer=p,
+                                    printer=p, reply_markup=get_error_notification_inline_keyboard(p.id),
                                 )
                                 st["notifiedPauseErrorRepeat"] = True
                     elif curr_state != "PAUSE":
@@ -804,26 +809,6 @@ class PrinterBotApp:
 
         await start_http_server(self)
 
-        # Auto-start Ngrok HTTPS tunnel if configured
-        ngrok_tunnel = None
-        from config import HTTP_PORT, NGROK_AUTHTOKEN, NGROK_DOMAIN
-
-        auto_ngrok = os.getenv("AUTO_NGROK", "true").lower() in ("true", "1", "yes")
-        if (NGROK_AUTHTOKEN or auto_ngrok) and not os.getenv("DISABLE_NGROK"):
-            try:
-                from scripts.run_ngrok import start_ngrok_tunnel
-
-                ngrok_tunnel = start_ngrok_tunnel(HTTP_PORT, NGROK_AUTHTOKEN, NGROK_DOMAIN)
-                if ngrok_tunnel:
-                    active_url = str(getattr(ngrok_tunnel, "public_url", "")).replace("http://", "https://")
-                    if active_url:
-                        import config
-
-                        config.WEBAPP_URL = active_url
-                        logger.info(f"🌐 [Ngrok] Auto-started HTTPS Tunnel: {active_url}")
-            except Exception as e:
-                logger.warning(f"⚠️ Could not auto-start Ngrok tunnel: {e}")
-
         try:
             from aiogram.types import MenuButtonWebApp, WebAppInfo
 
@@ -838,17 +823,29 @@ class PrinterBotApp:
             logger.warning(f"Could not set chat menu button: {e}")
 
         try:
-            logger.info("🤖 Starting Telegram Bot polling...")
-            await self.dp.start_polling(self.bot, polling_timeout=20)
-        finally:
-            monitor_task.cancel()
-            if ngrok_tunnel:
-                try:
-                    from scripts.run_ngrok import stop_ngrok_tunnel
+            import config
 
-                    stop_ngrok_tunnel(ngrok_tunnel)
-                except Exception as e:
-                    logger.warning(f"Error stopping ngrok tunnel on bot shutdown: {e}")
+            webhook_url = os.getenv("WEBHOOK_URL", "").strip()
+            if not webhook_url and config.WEBAPP_URL.lower().startswith("https://"):
+                webhook_url = config.WEBAPP_URL.strip()
+
+            if webhook_url:
+                webhook_url = webhook_url.rstrip("/")
+                allowed_updates = self.dp.resolve_used_update_types()
+                await self.bot.set_webhook(f"{webhook_url}/webhook", allowed_updates=allowed_updates)
+                logger.info(f"🤖 Webhook set to {webhook_url}/webhook with updates: {allowed_updates}")
+            else:
+                logger.warning("⚠️ WEBHOOK_URL is not set. Webhook not registered with Telegram.")
+
+            logger.info("🤖 Telegram Bot is running with Webhooks...")
+            await asyncio.Event().wait()
+        finally:
+            if webhook_url:
+                try:
+                    await self.bot.delete_webhook()
+                except Exception:
+                    pass
+            monitor_task.cancel()
             for p in self.printers.values():
                 if hasattr(p, "destroy"):
                     try:

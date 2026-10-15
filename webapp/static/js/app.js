@@ -613,7 +613,37 @@ document.addEventListener("DOMContentLoaded", () => {
         tg.ready();
         tg.expand();
         tg.enableClosingConfirmation();
+
+        if (tg.BackButton) {
+            tg.BackButton.onClick(() => {
+                const activeModals = Array.from(document.querySelectorAll('.modal-backdrop.active, .camera-fullscreen-backdrop.active, [id$="-modal"].active'));
+                if (activeModals.length > 0) {
+                    const lastModal = activeModals[activeModals.length - 1];
+                    lastModal.classList.remove('active');
+                    if (lastModal.style.display === 'flex' || lastModal.style.display === 'block') {
+                        lastModal.style.display = 'none';
+                    }
+                    updateBackButton();
+                }
+            });
+        }
     }
+
+    function updateBackButton() {
+        if (!tg || !tg.BackButton) return;
+        const activeModals = document.querySelectorAll('.modal-backdrop.active, .camera-fullscreen-backdrop.active, [id$="-modal"].active');
+        if (activeModals.length > 0) {
+            tg.BackButton.show();
+        } else {
+            tg.BackButton.hide();
+        }
+    }
+
+    const modalObserver = new MutationObserver(() => {
+        updateBackButton();
+    });
+    modalObserver.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class', 'style'] });
+
 
     function triggerHaptic(type = "medium") {
         if (window.Telegram?.WebApp?.HapticFeedback) {
@@ -1431,12 +1461,67 @@ document.addEventListener("DOMContentLoaded", () => {
         }).join("");
 
         // Attach click listeners to cards & settings gear buttons
-        document.querySelectorAll(".printer-card").forEach(card => {
+        document.querySelectorAll("#printers-grid .printer-card").forEach(card => {
             card.addEventListener("click", () => {
                 const pId = card.getAttribute("data-id");
                 openPrinterModal(pId);
             });
         });
+
+        // Render Dashboard Grid
+        const dashboardGrid = document.getElementById("dashboard-grid");
+        if (dashboardGrid) {
+            dashboardGrid.innerHTML = printers.map(p => {
+                const rawSt = String(p.state || "IDLE").toUpperCase();
+                const statusInfo = getPrinterStatusInfo(rawSt);
+                const isPrinting = statusInfo.code === "RUNNING";
+                const progress = p.progress_pct !== undefined ? p.progress_pct : 0;
+                
+                let timeStr = formatRemainingTime(p.remaining_mins);
+                if (statusInfo.code === "PAUSE") timeStr = "Очікування";
+                else if (statusInfo.code === "IDLE") timeStr = "Готовий";
+                else if (!timeStr && isPrinting) timeStr = "Оцінка...";
+
+                const initDataParam = tg?.initData ? `?initData=${encodeURIComponent(tg.initData)}` : '';
+                let thumbSrc = `/api/printers/${p.id}/stream${initDataParam}`;
+                
+                return `
+                    <div class="glass-card" data-id="${p.id}" style="padding: 10px; cursor: pointer; display: flex; flex-direction: column; position: relative;">
+                        <div style="font-size: 13px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px;">
+                            ${escapeHtml(p.name)}
+                        </div>
+                        <div style="width: 100%; aspect-ratio: 4/3; background: #000; border-radius: var(--radius-sm); overflow: hidden; position: relative; margin-bottom: 8px;">
+                            <img src="${thumbSrc}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                            <div style="display: none; position: absolute; inset: 0; align-items: center; justify-content: center; color: var(--text-dim); background: rgba(0,0,0,0.5);">
+                                <i class="fa-solid fa-camera-slash"></i>
+                            </div>
+                            <div class="status-pill ${statusInfo.badgeClass}" style="position: absolute; top: 4px; right: 4px; font-size: 9px; padding: 2px 6px;">
+                                ${statusInfo.label}
+                            </div>
+                        </div>
+                        <div class="progress-bar-wrap sm w-100">
+                            <div class="progress-bar ${statusInfo.code === 'PAUSE' ? 'amber' : ''}" style="width: ${progress}%"></div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-muted); display: flex; justify-content: space-between; margin-top: 6px;">
+                            <span style="font-weight:600;">${progress.toFixed(1)}%</span>
+                            <span>${timeStr}</span>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-muted); display: flex; justify-content: space-between; margin-top: 4px;">
+                            <span><i class="fa-solid fa-temperature-high color-red"></i> ${p.nozzle_temp || 0}°C</span>
+                            <span><i class="fa-solid fa-hot-tub-person color-orange"></i> ${p.bed_temp || 0}°C</span>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+            
+            // Attach click listeners to dashboard cards
+            document.querySelectorAll("#dashboard-grid .glass-card").forEach(card => {
+                card.addEventListener("click", () => {
+                    const pId = card.getAttribute("data-id");
+                    openPrinterModal(pId);
+                });
+            });
+        }
 
         document.querySelectorAll(".btn-card-gear").forEach(btn => {
             btn.addEventListener("click", (e) => {
@@ -2054,6 +2139,7 @@ document.addEventListener("DOMContentLoaded", () => {
         triggerHaptic("light");
         if (fullscreenCamModal) {
             fullscreenCamModal.classList.remove("active");
+            if (fullscreenCamImg) fullscreenCamImg.src = "";
         }
         if (document.fullscreenElement && document.exitFullscreen) {
             document.exitFullscreen().catch(() => {});
@@ -2094,7 +2180,11 @@ document.addEventListener("DOMContentLoaded", () => {
     closeModalBtn.addEventListener("click", () => {
         triggerHaptic("light");
         printerModal.classList.remove("active");
-        if (fullscreenCamModal) fullscreenCamModal.classList.remove("active");
+        if (cameraImg) cameraImg.src = "";
+        if (fullscreenCamModal) {
+            fullscreenCamModal.classList.remove("active");
+            if (fullscreenCamImg) fullscreenCamImg.src = "";
+        }
         selectedPrinterId = null;
     });
 
@@ -4828,7 +4918,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (elName) elName.value = p.name || "";
             if (elIp) elIp.value = p.ip || "";
             if (elAc) elAc.value = p.accessCode || "";
-            if (elSn) elSn.value = p.serialNumber || "";
+            if (elSn) elSn.value = p.serialNumber || p.serial || p.serial_number || "";
             if (elModel) elModel.value = p.printer_model || "A1";
             if (elAms) elAms.value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");
             if (elMaintInt) elMaintInt.value = p.maintenance_interval_hours || 100;
@@ -5136,7 +5226,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (document.getElementById("p-setting-name")) document.getElementById("p-setting-name").value = p.name || "";
             if (document.getElementById("p-setting-ip")) document.getElementById("p-setting-ip").value = p.ip || "";
             if (document.getElementById("p-setting-access-code")) document.getElementById("p-setting-access-code").value = p.accessCode || "";
-            if (document.getElementById("p-setting-sn")) document.getElementById("p-setting-sn").value = p.serialNumber || "";
+            if (document.getElementById("p-setting-sn")) document.getElementById("p-setting-sn").value = p.serialNumber || p.serial || p.serial_number || "";
             if (document.getElementById("p-setting-model")) document.getElementById("p-setting-model").value = p.printer_model || "A1";
             if (document.getElementById("p-setting-nozzle-diameter")) document.getElementById("p-setting-nozzle-diameter").value = p.nozzle_diameter || "0.4";
             if (document.getElementById("p-setting-ams")) document.getElementById("p-setting-ams").value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");
@@ -5162,6 +5252,82 @@ document.addEventListener("DOMContentLoaded", () => {
     // Per-Printer Individual Settings Event Handlers
     document.getElementById("printer-settings-select")?.addEventListener("change", (e) => {
         loadPrinterSettings(e.target.value);
+    });
+
+    
+    
+
+    
+    // GLOBAL SETTINGS APPLY
+    document.getElementById("apply-global-settings-btn")?.addEventListener("click", async () => {
+        triggerHaptic("medium");
+        
+        if (!printersData || printersData.length === 0) {
+            alert("Немає доступних принтерів для оновлення.");
+            return;
+        }
+
+        if (!confirm(`Ви дійсно хочете застосувати ці налаштування сповіщень до ВСІХ принтерів (${printersData.length} шт)?`)) {
+            return;
+        }
+
+        const globalNotifyObj = {
+            start: document.getElementById("global-notify-start")?.checked ?? true,
+            finish: document.getElementById("global-notify-finish")?.checked ?? true,
+            pause: document.getElementById("global-notify-pause")?.checked ?? true,
+            hms: document.getElementById("global-notify-hms")?.checked ?? true,
+            remind_clear: document.getElementById("global-notify-remind-clear")?.checked ?? true,
+            min_time_to_end: parseInt(document.getElementById("global-notify-min-time")?.value || 0),
+            min_filament: parseInt(document.getElementById("global-notify-min-filament")?.value || 0),
+        };
+
+        const btn = document.getElementById("apply-global-settings-btn");
+        const originalText = btn.innerHTML;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Оновлення...`;
+        btn.disabled = true;
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const p of printersData) {
+            try {
+                const payload = {
+                    name: p.name || "",
+                    ip: p.ip || "",
+                    accessCode: p.accessCode || "",
+                    serialNumber: p.serialNumber || p.serial || p.serial_number || "",
+                    printer_model: p.printer_model || "A1",
+                    nozzle_diameter: p.nozzle_diameter || "0.4",
+                    ams_enabled: p.ams_enabled ?? "auto",
+                    maintenance_interval_hours: p.maintenance_interval_hours || 100,
+                    notify: globalNotifyObj
+                };
+                
+                const res = await fetch(`/api/printers/${p.id}/settings`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (res.ok) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch(e) {
+                failCount++;
+            }
+        }
+
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+
+        alert(`Оновлено принтерів: ${successCount}. Помилок: ${failCount}.`);
+        
+        const currentSelectedId = document.getElementById("printer-settings-select")?.value;
+        if (currentSelectedId) {
+            loadPrinterSettings(currentSelectedId);
+        }
     });
 
     document.getElementById("save-printer-settings-btn")?.addEventListener("click", async () => {
@@ -5247,7 +5413,7 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("ps-modal-name").value = p.name || "";
             document.getElementById("ps-modal-ip").value = p.ip || "";
             document.getElementById("ps-modal-access-code").value = p.accessCode || "";
-            document.getElementById("ps-modal-sn").value = p.serialNumber || "";
+            document.getElementById("ps-modal-sn").value = p.serialNumber || p.serial || p.serial_number || "";
             document.getElementById("ps-modal-model").value = p.printer_model || "A1";
             if (document.getElementById("ps-modal-nozzle-diameter")) document.getElementById("ps-modal-nozzle-diameter").value = p.nozzle_diameter || "0.4";
             document.getElementById("ps-modal-ams").value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");

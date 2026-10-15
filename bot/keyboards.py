@@ -1,4 +1,4 @@
-"""
+﻿"""
 Reply and Inline keyboard builders for Telegram Bot.
 """
 
@@ -478,12 +478,12 @@ def get_ams_slots_keyboard(printer: BambuPrinter, lang: str = "uk") -> ReplyKeyb
         vt_is_act = (active_key in ["254", "255"])
         vt_act = " ⚡" if vt_is_act else ""
 
-        if not vt_type:
+        if not vt_type and vt_is_act:
             f_type = getattr(printer, "filament_type", "")
             if f_type and f_type not in ["Невизначено", "None", "", "Порожньо", "Empty"]:
                 vt_type = f_type
 
-        if vt_empty and not vt_type and vt_grams <= 0 and not vt_is_act:
+        if (vt_empty or not vt_type) and vt_grams <= 0 and not vt_is_act:
             empty_lbl = "Empty" if is_en else "Порожньо"
             return KeyboardButton(text=f"⚪ VT: {empty_lbl}")
 
@@ -547,7 +547,7 @@ def get_notify_keyboard(u_notify: dict, lang: str = "uk") -> ReplyKeyboardMarkup
             [KeyboardButton(text=btn_start), KeyboardButton(text=btn_finish)],
             [KeyboardButton(text=btn_pause), KeyboardButton(text=btn_hms)],
             [KeyboardButton(text=btn_time), KeyboardButton(text=btn_fil)],
-            [KeyboardButton(text=btn_clear), KeyboardButton(text=btn_lang)],
+            [KeyboardButton(text=btn_clear)],
             [KeyboardButton(text="⬅️ Назад" if not is_en else "⬅️ Back")],
         ],
         resize_keyboard=True,

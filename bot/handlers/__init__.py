@@ -16,6 +16,7 @@ from bot.handlers.notifications import router as notifications_router
 from bot.handlers.parts import router as parts_router
 from bot.handlers.printers import router as printers_router
 from bot.handlers.start import router as start_router
+from bot.handlers.inline import router as inline_router
 
 
 def setup_routers() -> Router:
@@ -33,6 +34,7 @@ def setup_routers() -> Router:
         files_router,
         callbacks_router,
         common_router,
+        inline_router,
     ]
     for r in all_routers:
         r._parent_router = None

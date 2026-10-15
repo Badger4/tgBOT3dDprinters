@@ -501,7 +501,6 @@ function sendToTelegram(btn) {{
 
     fetch(targetUrl.toString(), {{
         credentials: 'include',
-        headers: {{ 'ngrok-skip-browser-warning': 'true' }}
     }})
     .then(function(res) {{
         if (!res.ok) {{

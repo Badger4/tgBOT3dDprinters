@@ -574,25 +574,26 @@ class BambuPrinter:
 
             async def _do_deduct() -> None:
                 try:
-                    spools = await self.storage.load_spools()
-                    spool_to_deduct = None
-                    spool_id_to_deduct = None
-                    target_slot_str = str(slot_key)
-                    for s_id, s in spools.items():
-                        if s.get("assigned_printer_id") == self.id and str(s.get("assigned_slot_key")) in [
-                            target_slot_str,
-                            "255" if target_slot_str == "254" else target_slot_str,
-                        ]:
-                            spool_to_deduct = s
-                            spool_id_to_deduct = s_id
-                            break
+                    async with self.storage.transaction_lock("spools"):
+                        spools = await self.storage.load_spools()
+                        spool_to_deduct = None
+                        spool_id_to_deduct = None
+                        target_slot_str = str(slot_key)
+                        for s_id, s in spools.items():
+                            if s.get("assigned_printer_id") == self.id and str(s.get("assigned_slot_key")) in [
+                                target_slot_str,
+                                "255" if target_slot_str == "254" else target_slot_str,
+                            ]:
+                                spool_to_deduct = s
+                                spool_id_to_deduct = s_id
+                                break
 
-                    if spool_to_deduct and spool_id_to_deduct:
-                        prev_w = float(spool_to_deduct.get("remaining_grams", 0.0))
-                        new_w = max(0.0, round(prev_w - deducted_grams, 2))
-                        spool_to_deduct["remaining_grams"] = new_w
-                        spools[spool_id_to_deduct] = spool_to_deduct
-                        await self.storage.save_spools(spools)
+                        if spool_to_deduct and spool_id_to_deduct:
+                            prev_w = float(spool_to_deduct.get("remaining_grams", 0.0))
+                            new_w = max(0.0, round(prev_w - deducted_grams, 2))
+                            spool_to_deduct["remaining_grams"] = new_w
+                            spools[spool_id_to_deduct] = spool_to_deduct
+                            await self.storage.save_spools(spools)
                         await self.storage.record_spool_movement(
                             spool_id=spool_id_to_deduct,
                             spool_name=spool_to_deduct.get("name", "Котушка"),
@@ -741,12 +742,20 @@ class BambuPrinter:
             asyncio.run_coroutine_threadsafe(asyncio.to_thread(_worker), loop_to_use)
 
     def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
+        payload = msg.payload
+        loop_to_use = self._get_active_event_loop()
+        if loop_to_use:
+            loop_to_use.call_soon_threadsafe(self._process_message, payload)
+        else:
+            self._process_message(payload)
+
+    def _process_message(self, payload: bytes) -> None:
         try:
             self.is_mqtt_connected = True
             self.last_mqtt_msg_time = time.time()
             if self.gcode_state in ["OFFLINE", "UNKNOWN", "DISCONNECTED"]:
                 self.gcode_state = "IDLE"
-            parsed = parse_mqtt_payload(msg.payload)
+            parsed = parse_mqtt_payload(payload)
             if not parsed:
                 return
 
@@ -891,7 +900,7 @@ class BambuPrinter:
                 if not filament and str(self.active_ams_tray) in self.ams_trays_info:
                     tray_info = self.ams_trays_info[str(self.active_ams_tray)]
                     filament = tray_info.get("type") or tray_info.get("tray_type")
-            if filament and filament not in ["", "None", "Unknown", "Empty", "Невизначено"]:
+            if filament:
                 self.filament_type = filament
 
             # Subtask change & calibration tracking
@@ -1406,8 +1415,9 @@ class BambuPrinter:
     def _is_tray_loaded(self, t_info: dict) -> bool:
         if not isinstance(t_info, dict):
             return False
-        if t_info.get("empty", False):
-            return False
+        if "empty" in t_info:
+            return not bool(t_info.get("empty"))
+            
         t_type = str(t_info.get("type") or t_info.get("tray_type") or "").strip().lower()
         if not t_type or t_type in ["empty", "null", "none"]:
             return False
@@ -2106,6 +2116,8 @@ class BambuPrinter:
             return []
 
         active_slot = self.get_active_slot_key() or getattr(self, "last_active_slot", None)
+        if str(active_slot) == "254":
+            return []  # AMS cannot auto-replace external spool
         slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT"}
 
         backups: list[dict[str, Any]] = []

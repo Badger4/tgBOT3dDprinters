@@ -76,7 +76,13 @@ def get_finish_time_str(minutes: int, is_en: bool = False) -> str:
         return f"завершиться {date_part} о {time_part}" if not is_en else f"finishes {date_part} at {time_part}"
 
 
-def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False) -> str:
+def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False, hide_sensitive: bool = False) -> str:
+
+    sensitive_block = "" if hide_sensitive else (
+        f"🌐 <b>IP:</b> <tg-spoiler>{target_printer.ip}</tg-spoiler>\n"
+        f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
+        f"🏷 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
+    )
     is_online = getattr(target_printer, "is_online", True)
     mapped_st = getattr(target_printer, "mapped_state", "ONLINE")
 
@@ -227,10 +233,10 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
         vt_is_act = (active_slot_str in ["254", "255"])
         vt_act_icon = " ⚡" if vt_is_act else ""
 
-        if not vt_empty or vt_grams > 0 or vt_is_act:
+        if (not vt_empty and vt_type) or vt_grams > 0 or vt_is_act:
             vt_c_emoji = get_color_emoji(vt_color) if vt_color else "🧵"
             vt_mat = f"{vt_type} {vt_sub}".strip() if (vt_sub and vt_sub.lower() not in vt_type.lower()) else vt_type
-            if not vt_mat:
+            if not vt_mat and vt_is_act:
                 f_type = getattr(target_printer, "filament_type", "")
                 vt_mat = f_type if f_type and f_type not in ["Невизначено", "None", "", "Порожньо", "Empty"] else ("External" if is_en else "Зовнішній")
 
@@ -332,9 +338,7 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             f"<b>📊 Printer Status: {target_printer.name}</b>\n\n"
             f"{state_emoji} <b>State:</b> <code>{state_label}</code>{wifi_str}\n"
             f"{print_info_str}"
-            f"🌐 <b>IP:</b> <tg-spoiler>{target_printer.ip}</tg-spoiler>\n"
-            f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
-            f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
+            f"{sensitive_block}"
             f"🔥 <b>Nozzle:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> (🎯 <code>{noz_d} mm</code>) | 🛏️ <b>Bed:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
             f"{filament_block}"
             f"{hours_str}"
@@ -345,9 +349,7 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False)
             f"<b>📊 Стан принтера: {target_printer.name}</b>\n\n"
             f"{state_emoji} <b>Стан:</b> <code>{state_label}</code>{wifi_str}\n"
             f"{print_info_str}"
-            f"🌐 <b>IP:</b> <tg-spoiler>{target_printer.ip}</tg-spoiler>\n"
-            f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
-            f"🔢 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
+            f"{sensitive_block}"
             f"🔥 <b>Сопло:</b> <code>{target_printer.nozzle_temper}°C{nozzle_target_str}</code> (🎯 <code>{noz_d} мм</code>) | 🛏️ <b>Стіл:</b> <code>{target_printer.bed_temper}°C{bed_target_str}</code>{chamber_str}\n"
             f"{filament_block}"
             f"{hours_str}"

@@ -68,7 +68,7 @@ ALLOWED_ORIGINS.discard("")
 
 STATIC_SECURITY_HEADERS = {
     "Access-Control-Allow-Methods": "GET, POST, DELETE, PUT, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-API-Key, Bypass-Tunnel-Reminder, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-API-Key, Authorization",
     "Access-Control-Max-Age": "86400",
     "X-Content-Type-Options": "nosniff",
     "X-XSS-Protection": "1; mode=block",

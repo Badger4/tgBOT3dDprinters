@@ -127,14 +127,19 @@ async def handle_edit_printer_states(message: Message, app) -> bool:
         await message.answer("⚠️ Принтер не обрано.")
         return True
 
+    needs_reconnect = False
+    
     if state == "edit_p_name":
         target_printer.name = text
     elif state == "edit_p_ip":
         target_printer.ip = text
+        needs_reconnect = True
     elif state == "edit_p_sn":
         target_printer.serial_number = text
+        needs_reconnect = True
     elif state == "edit_p_code":
         target_printer.access_code = text
+        needs_reconnect = True
     elif state == "edit_p_nozzle":
         clean_text = text.replace("🎯", "").replace("мм", "").replace("mm", "").strip()
         try:
@@ -142,6 +147,12 @@ async def handle_edit_printer_states(message: Message, app) -> bool:
             target_printer.nozzle_diameter = f"{val_f:g}"
         except ValueError:
             target_printer.nozzle_diameter = clean_text or "0.4"
+
+    if needs_reconnect:
+        target_printer.destroy()
+        import asyncio
+        loop = asyncio.get_running_loop()
+        asyncio.create_task(asyncio.to_thread(target_printer.init_mqtt, loop))
 
     await app.save_printers_config()
 

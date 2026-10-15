@@ -1,0 +1,21 @@
+[Unit]
+Description=3D Printer Farm Cloudflare Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=host2
+WorkingDirectory=/home/host2/bot_dir
+ExecStart=/usr/local/bin/cloudflared tunnel run --token-file /home/host2/bot_dir/.cloudflared_tunnel_token
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=3dprinter-cloudflared
+LimitNOFILE=4096
+MemoryHigh=150M
+MemoryMax=250M
+
+[Install]
+WantedBy=multi-user.target

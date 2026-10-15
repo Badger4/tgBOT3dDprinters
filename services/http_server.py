@@ -190,6 +190,25 @@ def create_http_app(app_obj: Any) -> web.Application:
     web_app.router.add_post("/api/users/delete", handle_delete_user)
     web_app.router.add_delete("/api/users/{id}", handle_delete_user)
 
+    if getattr(app_obj, "dp", None) and getattr(app_obj, "bot", None):
+        from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+        webhook_handler = SimpleRequestHandler(
+            dispatcher=app_obj.dp,
+            bot=app_obj.bot,
+        )
+        webhook_handler.register(web_app, path="/webhook")
+        setup_application(web_app, app_obj.dp, bot=app_obj.bot)
+        import logging
+        logging.getLogger(__name__).info("Webhook handler registered at /webhook")
+    else:
+        import logging
+        logging.getLogger(__name__).warning("COULD NOT REGISTER WEBHOOK HANDLER: dp or bot missing on app_obj!")
+
+    import logging
+    log = logging.getLogger(__name__)
+    log.error("ROUTES REGISTERED:")
+    for resource in web_app.router.resources():
+        log.error(str(resource))
     return web_app
 
 

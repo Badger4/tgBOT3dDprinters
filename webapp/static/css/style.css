@@ -3,19 +3,19 @@
    ========================================================================== */
 
 :root {
-    --bg-dark: #090d16;
-    --bg-radial: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0f172a 50%, #090d16 100%);
-    --card-glass: rgba(30, 41, 59, 0.65);
-    --card-glass-hover: rgba(51, 65, 85, 0.75);
+    --bg-dark: var(--tg-theme-bg-color, #090d16);
+    --bg-radial: radial-gradient(circle at 50% 0%, var(--tg-theme-secondary-bg-color, #1e1b4b) 0%, var(--tg-theme-bg-color, #090d16) 100%);
+    --card-glass: var(--tg-theme-secondary-bg-color, rgba(30, 41, 59, 0.65));
+    --card-glass-hover: var(--tg-theme-hint-color, rgba(51, 65, 85, 0.75));
     --border-glass: rgba(255, 255, 255, 0.08);
     --border-glow: rgba(99, 102, 241, 0.3);
 
-    --text-main: #f8fafc;
-    --text-muted: #94a3b8;
-    --text-dim: #64748b;
+    --text-main: var(--tg-theme-text-color, #f8fafc);
+    --text-muted: var(--tg-theme-hint-color, #94a3b8);
+    --text-dim: var(--tg-theme-subtitle-text-color, #64748b);
 
-    --primary: #6366f1;
-    --primary-hover: #4f46e5;
+    --primary: var(--tg-theme-button-color, #6366f1);
+    --primary-hover: var(--tg-theme-button-color, #4f46e5);
     --primary-glow: rgba(99, 102, 241, 0.4);
 
     --emerald: #10b981;

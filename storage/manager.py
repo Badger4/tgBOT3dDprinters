@@ -7,6 +7,7 @@ import asyncio
 import json
 import sqlite3
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
 
@@ -33,10 +34,18 @@ class StorageManager:
         self.history_file = self.base_dir / "history.json"
         self.movements_file = self.base_dir / "warehouse_movements.json"
         self._file_locks: dict[Path, asyncio.Lock] = {}
+        self._tx_locks: dict[str, asyncio.Lock] = {}
         self._kv_cache: dict[str, Any] = {}
         self._user_cache: dict[str, Any] = {}
 
         self._init_db()
+
+    @asynccontextmanager
+    async def transaction_lock(self, lock_key: str):
+        if lock_key not in self._tx_locks:
+            self._tx_locks[lock_key] = asyncio.Lock()
+        async with self._tx_locks[lock_key]:
+            yield
 
     def _get_db(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=20.0)
@@ -388,7 +397,6 @@ class StorageManager:
         user: str = "System",
     ) -> dict[str, Any]:
         """Records a spool weight movement / audit log entry."""
-        movements = await self.load_spool_movements()
         now = time.time()
         entry = {
             "id": f"mov_{int(now * 1000)}",
@@ -403,10 +411,12 @@ class StorageManager:
             "reason": reason or action,
             "user": user,
         }
-        movements.append(entry)
-        if len(movements) > 1000:
-            movements = movements[-1000:]
-        await self.save_json(self.movements_file, movements)
+        async with self.transaction_lock("movements"):
+            movements = await self.load_spool_movements()
+            movements.append(entry)
+            if len(movements) > 1000:
+                movements = movements[-1000:]
+            await self.save_json(self.movements_file, movements)
         logger.info(f"📦 Audit Log [{action}] for '{spool_name}' ({spool_id}): {weight_change_g:+.1f}g -> new: {new_weight_g:.1f}g ({reason})")
         return entry
 
@@ -414,23 +424,24 @@ class StorageManager:
         return await self.load_json(self.history_file, [])
 
     async def add_history_entry(self, entry: dict[str, Any]) -> bool:
-        history = await self.load_history()
-        p_name = entry.get("printer_name")
-        sub_name = entry.get("subtask_name")
-        ts = float(entry.get("timestamp", time.time()))
+        async with self.transaction_lock("history"):
+            history = await self.load_history()
+            p_name = entry.get("printer_name")
+            sub_name = entry.get("subtask_name")
+            ts = float(entry.get("timestamp", time.time()))
 
-        for existing in history[-20:]:
-            e_p_name = existing.get("printer_name")
-            e_sub_name = existing.get("subtask_name")
-            e_ts = float(existing.get("timestamp", 0.0))
-            if e_p_name == p_name and e_sub_name == sub_name and abs(ts - e_ts) < 120:
-                logger.info(f"🛡️ Skipped duplicate history entry for [{p_name}] - '{sub_name}'")
-                return True
+            for existing in history[-20:]:
+                e_p_name = existing.get("printer_name")
+                e_sub_name = existing.get("subtask_name")
+                e_ts = float(existing.get("timestamp", 0.0))
+                if e_p_name == p_name and e_sub_name == sub_name and abs(ts - e_ts) < 120:
+                    logger.info(f"🛡️ Skipped duplicate history entry for [{p_name}] - '{sub_name}'")
+                    return True
 
-        history.append(entry)
-        if len(history) > 500:
-            history = history[-500:]
-        return await self.save_json(self.history_file, history)
+            history.append(entry)
+            if len(history) > 500:
+                history = history[-500:]
+            return await self.save_json(self.history_file, history)
 
     async def clear_history(self) -> bool:
         """Clears all print history records."""
@@ -438,9 +449,10 @@ class StorageManager:
 
     async def delete_history_entry(self, timestamp: float) -> bool:
         """Deletes a single history record matching the given timestamp."""
-        history = await self.load_history()
-        filtered = [item for item in history if item.get("timestamp") != timestamp]
-        return await self.save_json(self.history_file, filtered)
+        async with self.transaction_lock("history"):
+            history = await self.load_history()
+            filtered = [item for item in history if item.get("timestamp") != timestamp]
+            return await self.save_json(self.history_file, filtered)
 
     async def mark_history_scrap(
         self,
@@ -456,46 +468,48 @@ class StorageManager:
         Marks an existing history record as scrap/failed, updating wasted weight and note.
         Optionally refunds unprinted grams back to the assigned spool.
         """
-        history = await self.load_history()
         target_entry = None
-        for item in history:
-            try:
-                item_ts = float(item.get("timestamp", 0.0))
-                if abs(item_ts - float(timestamp)) < 0.5:
-                    target_entry = item
-                    break
-            except (ValueError, TypeError):
-                continue
+        async with self.transaction_lock("history"):
+            history = await self.load_history()
+            for item in history:
+                try:
+                    item_ts = float(item.get("timestamp", 0.0))
+                    if abs(item_ts - float(timestamp)) < 0.5:
+                        target_entry = item
+                        break
+                except (ValueError, TypeError):
+                    continue
 
-        if not target_entry:
-            return None
+            if not target_entry:
+                return None
 
-        target_entry["is_scrap"] = True
-        target_entry["scrap_reason"] = reason
-        target_entry["wasted_weight_g"] = round(float(wasted_weight_g), 1)
-        target_entry["refunded_g"] = round(float(refund_grams), 1)
-        target_entry["note"] = f"Брак ❌ ({reason})"
+            target_entry["is_scrap"] = True
+            target_entry["scrap_reason"] = reason
+            target_entry["wasted_weight_g"] = round(float(wasted_weight_g), 1)
+            target_entry["refunded_g"] = round(float(refund_grams), 1)
+            target_entry["note"] = f"Брак ❌ ({reason})"
 
-        await self.save_json(self.history_file, history)
+            await self.save_json(self.history_file, history)
 
         # Handle spool refund if requested
         if refund_grams > 0:
-            spools = await self.load_spools()
-            target_spool = None
-            if spool_id and spool_id in spools:
-                target_spool = spools[spool_id]
-            elif printer_id:
-                for s in spools.values():
-                    if s.get("assigned_printer_id") == printer_id:
-                        if slot_key is None or str(s.get("assigned_slot_key")) == str(slot_key):
-                            target_spool = s
-                            break
+            async with self.transaction_lock("spools"):
+                spools = await self.load_spools()
+                target_spool = None
+                if spool_id and spool_id in spools:
+                    target_spool = spools[spool_id]
+                elif printer_id:
+                    for s in spools.values():
+                        if s.get("assigned_printer_id") == printer_id:
+                            if slot_key is None or str(s.get("assigned_slot_key")) == str(slot_key):
+                                target_spool = s
+                                break
 
-            if target_spool:
-                prev_w = float(target_spool.get("remaining_grams", 0.0))
-                new_w = round(prev_w + refund_grams, 1)
-                target_spool["remaining_grams"] = new_w
-                await self.save_spools(spools)
+                if target_spool:
+                    prev_w = float(target_spool.get("remaining_grams", 0.0))
+                    new_w = round(prev_w + refund_grams, 1)
+                    target_spool["remaining_grams"] = new_w
+                    await self.save_spools(spools)
                 await self.record_spool_movement(
                     spool_id=target_spool["id"],
                     spool_name=target_spool.get("name", "Spool"),

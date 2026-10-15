@@ -37,7 +37,7 @@ flowchart TD
     subgraph Web ["WebApp & REST API Module (Aiohttp)"]
         API["REST API (/api/printers, /api/parts, /api/users, /api/spools)"]
         STATIC["Frontend WebApp (HTML5/CSS3/ES6+ JS)"]
-        NGROK["Ngrok Tunneling (HTTPS)"]
+        CF["Cloudflare Tunnel (HTTPS)"]
     end
 
     Hardware <-->|MQTT Telemetry & Commands| MQTT
@@ -53,7 +53,7 @@ flowchart TD
     H_COMMON & H_PRINTER & H_PARTS & H_COMMERCIAL & H_SPOOLS & H_ADMIN <-->|Telegram API| TG_USER["Telegram User"]
 
     API <--> STATIC
-    STATIC <--> NGROK <-->|Telegram WebApp| TG_WEB["Telegram WebApp Client"]
+    STATIC <--> CF <-->|Telegram WebApp| TG_WEB["Telegram WebApp Client"]
 ```
 
 ---
@@ -133,8 +133,8 @@ Telegram-бот реалізований на фреймворку **Aiogram 3.x
 * **Захист первинного налаштування (Setup Lock)**:
   - Ендпоінт `POST /api/setup` доступний без авторизації лише під час першого запуску для початкового створення майстер-паролю адміністратора. Після завершення налаштування доступ до нього блокується без активної сесії адміністратора (`403 Forbidden`).
 * **Захист Session Cookie та Зовнішній HTTPS**:
-  - Сесійні cookies (`3d_farm_session`) захищені прапорцями `HttpOnly` (захист від XSS), `SameSite=Lax` (захист від CSRF) та `Secure` (передаються виключно через шифроване з'єднання при роботі через HTTPS/Ngrok/Proxy або при `COOKIE_SECURE=true`).
-  - Сервер підтримує нативний HTTPS за наявності сертифікатів (`SSL_CERT_FILE`, `SSL_KEY_FILE`), автоматичний HTTPS тунель через Ngrok, або зовнішній зворотний проксі (Nginx/Caddy) з автоматичним редиректом з незахищеного HTTP на HTTPS.
+  - Сесійні cookies (`3d_farm_session`) використовують прапорці `HttpOnly`, `SameSite=Lax` та `Secure` для HTTPS.
+  - Сервер підтримує нативний HTTPS за наявності сертифікатів (`SSL_CERT_FILE`, `SSL_KEY_FILE`) або зовнішній HTTPS тунель/reverse proxy, зокрема Cloudflare Tunnel.
 * **Захист від підробки X-Forwarded-For (Trusted Reverse Proxies)**:
   - Сервер довіряє клієнтським IP у заголовку `X-Forwarded-For` виключно у випадках, коли пряме з'єднання надійшло від довіреного reverse proxy (налаштованого через `TRUSTED_PROXIES`, за замовчуванням `127.0.0.1,::1`). Якщо клієнт звертається напряму, заголовок ігнорується, що унеможливлює обхід Rate Limiting.
 

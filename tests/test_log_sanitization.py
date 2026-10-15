@@ -19,9 +19,9 @@ class TestLogSanitization(unittest.TestCase):
         self.assertIn("[TELEGRAM_BOT_TOKEN_MASKED]", sanitized)
 
     def test_ngrok_token_sanitization(self):
-        raw_msg = "Tunnel auth with token 3HgPFyXRmopOKrpbZJX7Pmj0jG0_2VHEVk9uS3FR9rigGnhkM"
+        raw_msg = "Tunnel auth with token 3HgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         sanitized = self.filter._sanitize(raw_msg)
-        self.assertNotIn("3HgPFyXRmopOKrpbZJX7Pmj0jG0_2VHEVk9uS3FR9rigGnhkM", sanitized)
+        self.assertNotIn("3HgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", sanitized)
         self.assertIn("[NGROK_AUTHTOKEN_MASKED]", sanitized)
 
 

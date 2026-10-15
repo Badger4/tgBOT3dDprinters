@@ -223,7 +223,10 @@ def parse_mqtt_payload(payload_data: Any) -> dict[str, Any] | None:
                             slot_id = str(tray.get("id", ""))
                             if slot_id != "":
                                 raw_type = str(tray.get("tray_type") or "").strip()
-                                is_empty = bool(tray.get("empty", False)) or (not raw_type) or (raw_type.lower() == "empty")
+                                if "empty" in tray:
+                                    is_empty = bool(tray["empty"])
+                                else:
+                                    is_empty = (not raw_type) or (raw_type.lower() == "empty")
                                 raw_color = str(tray.get("tray_color") or "")
                                 hex_color = f"#{raw_color[:6]}" if len(raw_color) >= 6 else ""
                                 trays_dict[slot_id] = {

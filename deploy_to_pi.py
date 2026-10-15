@@ -1,34 +1,44 @@
 import os
 import paramiko
 import sys
+import subprocess
+from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
+def get_all_project_files():
+    files = []
+    extensions = ('.py', '.html', '.js', '.css', '.md')
+    exclude_dirs = {'.venv', '__pycache__', '.git', 'logs', 'db', '.idea'}
+    tracked_files = subprocess.run(
+        ['git', 'ls-files', '--cached'],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    for file_path in tracked_files:
+        normalized_path = file_path.replace("\\", "/")
+        path_parts = normalized_path.split("/")
+        if Path(normalized_path).suffix.lower() not in extensions:
+            continue
+        if any(part in exclude_dirs for part in path_parts):
+            continue
+        # The deploy helper only uploads files already in Git's index. This
+        # prevents local debug dumps and credential-bearing scratch scripts
+        # from being copied to the Raspberry Pi accidentally.
+        files.append((file_path, normalized_path))
+    return files
+
 def deploy():
     pi_ip = os.environ.get("PI_IP", "192.168.1.47")
     username = os.environ.get("PI_USER", "host2")
-    password = os.environ.get("PI_PASS", "ADM82172")
+    password = os.environ.get("PI_PASS")
     remote_dir = os.environ.get("PI_DIR", "/home/host2/bot_dir")
 
-    files_to_sync = [
-        ("models/printer.py", f"{remote_dir}/models/printer.py"),
-        ("utils/filament_utils.py", f"{remote_dir}/utils/filament_utils.py"),
-        ("bot/handlers/printers/view.py", f"{remote_dir}/bot/handlers/printers/view.py"),
-        ("bot/handlers/filament/view.py", f"{remote_dir}/bot/handlers/filament/view.py"),
-        ("bot/handlers/filament/mount.py", f"{remote_dir}/bot/handlers/filament/mount.py"),
-        ("bot/keyboards.py", f"{remote_dir}/bot/keyboards.py"),
-        ("PROJECT_STRUCTURE.md", f"{remote_dir}/PROJECT_STRUCTURE.md"),
-        ("webapp/index.html", f"{remote_dir}/webapp/index.html"),
-        ("webapp/static/js/app.js", f"{remote_dir}/webapp/static/js/app.js"),
-        ("tests/test_ams_orcaslicer_integration.py", f"{remote_dir}/tests/test_ams_orcaslicer_integration.py"),
-        ("tests/test_printer_status_card.py", f"{remote_dir}/tests/test_printer_status_card.py"),
-        ("tests/test_filament_hardware_sync.py", f"{remote_dir}/tests/test_filament_hardware_sync.py"),
-        ("tests/test_filament_comprehensive_workflow.py", f"{remote_dir}/tests/test_filament_comprehensive_workflow.py"),
-        ("tests/test_ams_auto_detection.py", f"{remote_dir}/tests/test_ams_auto_detection.py"),
-    ]
+    files_to_sync = get_all_project_files()
 
     print(f"Connecting to Raspberry Pi at {pi_ip}...")
     ssh = paramiko.SSHClient()
@@ -36,14 +46,23 @@ def deploy():
     try:
         ssh.connect(pi_ip, username=username, password=password, timeout=10)
     except Exception as e:
-        print(f"❌ Connection failed: {e}")
-        print("💡 Переконайтеся, що ПК підключено до тієї ж Wi-Fi мережі, що й Raspberry Pi (192.168.1.x)!")
+        print(f"Connection failed: {e}")
         sys.exit(1)
 
-    print("Uploading updated files via SFTP...")
+    print(f"Uploading {len(files_to_sync)} updated files via SFTP...")
     sftp = ssh.open_sftp()
-    for local_path, remote_path in files_to_sync:
-        print(f"  -> Uploading {local_path} to {remote_path}...")
+    
+    # Pre-create all necessary directories on the remote
+    dirs_to_create = set(os.path.dirname(remote_path) for _, remote_path in files_to_sync if os.path.dirname(remote_path))
+    for d in sorted(list(dirs_to_create)):
+        if d:
+            try:
+                ssh.exec_command(f"mkdir -p {remote_dir}/{d}")
+            except Exception:
+                pass
+
+    for local_path, relative_remote_path in files_to_sync:
+        remote_path = f"{remote_dir}/{relative_remote_path}"
         sftp.put(local_path, remote_path)
     sftp.close()
     print("[OK] Files uploaded.")
@@ -56,13 +75,6 @@ def deploy():
     else:
         print(f"[WARN] Service restart returned status: {exit_status}")
         print(stderr.read().decode('utf-8', errors='ignore'))
-
-    stdin, stdout, stderr = ssh.exec_command("systemctl status tgbot --no-pager")
-    status_out = stdout.read().decode('utf-8', errors='ignore')
-    try:
-        print(status_out)
-    except UnicodeEncodeError:
-        print(status_out.encode('ascii', errors='replace').decode('ascii'))
 
     ssh.close()
     print("[DONE] Deployment finished successfully!")

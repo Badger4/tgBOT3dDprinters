@@ -69,7 +69,8 @@ cp .env.example .env
 | `ADMIN_CHAT_ID` | 🔴 Так | — | Telegram ID головного адміністратора бота |
 | `STORAGE_DIR` | 🟢 Ні | `./printers_storage` | Шлях до папки збереження БД, логів та конфігурації принтерів |
 | `HTTP_PORT` | 🟢 Ні | `8080` | Порт локального REST API та WebApp сервера |
-| `WEBAPP_URL` | 🟢 Ні | `http://localhost:8080` | HTTPS URL адреса WebApp (Ngrok або домен) |
+| `WEBAPP_URL` | 🟢 Ні | `http://localhost:8080` | Публічна HTTPS-адреса WebApp (hostname, налаштований у Cloudflare Tunnel) |
+| `CLOUDFLARE_TUNNEL_TOKEN` | 🟡 Для Cloudflare Tunnel | порожньо | Секретний Tunnel token з Cloudflare Dashboard; зберігати лише у `.env` на Pi |
 | `API_SECRET_KEY` | 🟢 Ні | порожньо | Ключ авторизації для захисту REST API |
 | `SSE_INTERVAL_SECONDS` | 🟢 Ні | `5.0` | Періодичність оновлення живих даних телеметрії WebApp (сек) |
 
@@ -103,7 +104,16 @@ REST API WebApp використовує багаторівневе обмеже
 `POST /api/setup` відкритий без авторизації виключно під час першого запуску для встановлення пароля адміністратора. Після завершення початкового налаштування будь-які наступні спроби виклику без активної сесії адміністратора відхиляються з кодом `403 Forbidden`.
 
 ### Безпека Cookie та HTTPS
-Сесійні cookie (`3d_farm_session`) строго захищені атрибутами `HttpOnly` (захист від викрадення через XSS), `SameSite=Lax` (захист від CSRF) та `Secure` (передача виключно через зашифроване HTTPS-з'єднання). Підтримується як робота за reverse proxy (Nginx, Caddy, Cloudflare, Ngrok), так і прямий HTTPS через `SSL_CERT_FILE` та `SSL_KEY_FILE`.
+Сесійні cookie (`3d_farm_session`) використовують атрибути `HttpOnly`, `SameSite=Lax` та `Secure` для HTTPS. Підтримується робота за reverse proxy (Nginx, Caddy, Cloudflare Tunnel) і прямий HTTPS через `SSL_CERT_FILE` та `SSL_KEY_FILE`.
+
+### Cloudflare Tunnel на Raspberry Pi
+1. Створіть remotely-managed Tunnel у Cloudflare Zero Trust, задайте public hostname і направте його на `http://localhost:8080`.
+2. Візьміть команду встановлення з Cloudflare Dashboard. Її секретний Tunnel token починається з `eyJ`; Tunnel ID у форматі UUID не замінює цей token.
+3. Встановіть сумісний із моделлю Pi `cloudflared` і скопіюйте `scripts/cloudflared_tunnel.service` у `/etc/systemd/system/`. Цей сервіс читає токен із `.env`; не запускайте паралельно стандартну службу через `cloudflared service install`.
+4. У `/home/host2/bot_dir/.env` на Pi задайте `CLOUDFLARE_TUNNEL_TOKEN=<секретний-token>` і `WEBAPP_URL=https://<ваш-public-hostname>`. Обмежте доступ до `.env` (`chmod 600 /home/host2/bot_dir/.env`).
+5. Якщо старий Ngrok unit встановлено, вимкніть його: `sudo systemctl disable --now ngrok_tunnel`. Якщо раніше встановили стандартну Cloudflare службу, вимкніть її: `sudo systemctl disable --now cloudflared`. Потім запустіть unit із проєкту: `sudo systemctl daemon-reload && sudo systemctl enable --now cloudflared_tunnel`; перевірте `sudo systemctl status cloudflared_tunnel`.
+
+На Raspberry Pi Zero перевірте `cloudflared --version` перед встановленням тунелю. Якщо офіційний пакет не запускається на ARMv6, потрібен сумісний ARMv6-білд; сервіс-файл запускає `cloudflared`, встановлений у системному PATH.
 
 ### Валідація довірених Reverse Proxy
 Заголовок `X-Forwarded-For` враховується **виключно** тоді, коли безпосереднє мережеве з'єднання надійшло від довіреного проксі-сервера з конфігурації `TRUSTED_PROXIES` (`127.0.0.1,::1` за замовчуванням). Прямі клієнтські запити не можуть підробити заголовки для обходу Rate Limit.

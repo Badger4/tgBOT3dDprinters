@@ -1,0 +1,23 @@
+[Unit]
+Description=3D Printer Farm Cloudflare Quick Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=host2
+WorkingDirectory=/home/host2/bot_dir
+ExecStart=/usr/bin/python3 /home/host2/bot_dir/scripts/start_cloudflared_quick_tunnel.py
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=0
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=3dprinter-cloudflared-quick
+LimitNOFILE=4096
+MemoryHigh=150M
+MemoryMax=250M
+
+[Install]
+WantedBy=multi-user.target
