@@ -10,7 +10,7 @@ import sqlite3
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 import aiofiles
 
@@ -43,7 +43,7 @@ class BaseStorage:
         self._init_db()
 
     @asynccontextmanager
-    async def transaction_lock(self, lock_key: str):
+    async def transaction_lock(self, lock_key: str) -> AsyncIterator[None]:
         if lock_key not in self._tx_locks:
             self._tx_locks[lock_key] = asyncio.Lock()
         async with self._tx_locks[lock_key]:

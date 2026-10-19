@@ -61,4 +61,4 @@ jobs:
 
       - name: Audit Dependencies for CVEs
         run: |
-          pip-audit
+          pip-audit -r requirements.txt

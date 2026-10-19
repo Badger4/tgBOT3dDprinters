@@ -549,10 +549,13 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
 
         date_str = time.strftime("%Y-%m-%d %H:%M")
 
-        pr_g = float(calc.get("price_per_g", preset.get("price_per_g", 0.85)))
+        pr_g_val = calc.get("price_per_g") or preset.get("price_per_g") or 0.85
+        pr_g = float(pr_g_val)
         pr_kg = pr_g * 1000.0
-        elec_rate = float(calc.get("electricity_rate_uah", preset.get("electricity_rate_uah", 4.32)))
-        power_w = float(calc.get("power_watts", preset.get("power_watts", 120.0)))
+        elec_val = calc.get("electricity_rate_uah") or preset.get("electricity_rate_uah") or 4.32
+        elec_rate = float(elec_val)
+        power_val = calc.get("power_watts") or preset.get("power_watts") or 120.0
+        power_w = float(power_val)
         time_hours = float(calc.get("time_hours", time_mins / 60.0))
         direct_cost = float(calc.get("direct_cost", 0.0))
         depr_str = str(calc.get("depreciation_str", "-"))
