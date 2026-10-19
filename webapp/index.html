@@ -2,7 +2,7 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>3D Farm WebApp — Bambu Lab Manager</title>
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -693,6 +693,7 @@
                         </div>
                     </div>
                 </div>
+                <div id="scrap-reasons-summary" class="preset-chips mb-3" style="display: none;"></div>
 
                 <!-- History Filters Bar -->
                 <div class="history-filters-card">
@@ -987,6 +988,18 @@
                         <div class="info-item">
                             <span data-i18n="connected_printers_label">Підключені принтери:</span>
                             <strong id="sys-printers-count">0</strong>
+                        </div>
+                        <div class="info-item">
+                            <span>🌡️ Температура CPU (RPi):</span>
+                            <strong id="sys-cpu-temp">-</strong>
+                        </div>
+                        <div class="info-item">
+                            <span>🧠 Оперативна пам'ять (RAM):</span>
+                            <strong id="sys-ram-usage">-</strong>
+                        </div>
+                        <div class="info-item">
+                            <span>💾 Вільне місце (SD/Диск):</span>
+                            <strong id="sys-disk-free">-</strong>
                         </div>
                         <div class="info-item">
                             <span data-i18n="rest_api_status_label">REST API Статус:</span>
@@ -1705,6 +1718,7 @@
                         <label style="font-weight: 600; font-size: 12px; margin-bottom: 6px;"><i class="fa-solid fa-triangle-exclamation color-orange"></i> Причина виникнення браку:</label>
                         <select id="scrap-reason-select" class="form-control">
                             <option value="Відлипання від столу (Warping)">Відлипання від столу (Warping)</option>
+                            <option value="Закінчився пластик (Runout)">Закінчився пластик (Runout)</option>
                             <option value="Забиття сопла / хотенду (Clog)">Забиття сопла / хотенду (Clog)</option>
                             <option value="Зсув шарів (Layer Shift)">Зсув шарів (Layer Shift)</option>
                             <option value="Сплутування нитки на котушці">Сплутування нитки на котушці</option>
@@ -1787,38 +1801,6 @@
         </div>
     </div>
 
-    <!-- PRINTER MODAL (ADD / EDIT PRINTER) -->
-    <div id="add-printer-modal" class="modal-backdrop">
-        <div class="modal-window">
-            <div class="modal-header">
-                <h3><i class="fa-solid fa-print"></i> ➕ Додати принтер</h3>
-                <button id="close-add-printer-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="modal-body">
-                <form id="add-printer-form" onsubmit="return false;">
-                    <div class="form-group">
-                        <label>Назва принтера</label>
-                        <input type="text" id="new-p-name" class="form-control" placeholder="Bambu Lab P1S" autocomplete="off" required>
-                    </div>
-                    <div class="form-group">
-                        <label>IP-адреса локальної мережі</label>
-                        <input type="text" id="new-p-ip" class="form-control" placeholder="192.168.1.100" autocomplete="off" required>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group col">
-                            <label>Access Code</label>
-                            <input type="text" id="new-p-code" class="form-control" placeholder="12345678" autocomplete="off" required>
-                        </div>
-                        <div class="form-group col">
-                            <label>Серійний номер (SN)</label>
-                            <input type="text" id="new-p-sn" class="form-control" placeholder="01P00A123456" autocomplete="off" required>
-                        </div>
-                    </div>
-                    <button id="save-printer-submit" class="btn btn-primary w-100 mt-2">Зберегти принтер</button>
-                </form>
-            </div>
-        </div>
-    </div>
 
     <!-- PART MODAL (ADD / EDIT PART) -->
     <div id="add-part-modal" class="modal-backdrop">

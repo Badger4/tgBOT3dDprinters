@@ -1,6 +1,5 @@
-"""
-Printer deletion handlers.
-"""
+import asyncio
+import html
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -13,6 +12,19 @@ router = Router()
 @router.message(F.text.lower().in_(["🗑️ видалити принтер", "видалити принтер", "🗑️ delete printer", "delete printer"]))
 async def handle_delete_printer_request(message: Message, app):
     chat_id = str(message.chat.id)
+    if hasattr(app, "is_user_admin") and callable(app.is_user_admin):
+        is_adm = app.is_user_admin(chat_id)
+        if asyncio.iscoroutine(is_adm) or asyncio.isfuture(is_adm):
+            is_adm = await is_adm
+        if not is_adm:
+            user = await app.storage.load_user(chat_id)
+            u_lang = user.get("language", "uk")
+            await message.answer(
+                "⛔ <b>У вас немає прав адміністратора для цієї дії!</b>" if u_lang != "en" else "⛔ <b>Admin privileges required!</b>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
     user = await app.storage.load_user(chat_id)
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
@@ -23,10 +35,11 @@ async def handle_delete_printer_request(message: Message, app):
     user["state"] = "confirm_delete_printer"
     await app.storage.save_user(user)
     u_lang = user.get("language", "uk")
+    esc_p_name = html.escape(target_printer.name)
     await message.answer(
-        f"⚠️ <b>Ви дійсно бажаєте видалити принтер {target_printer.name}?</b>"
+        f"⚠️ <b>Ви дійсно бажаєте видалити принтер {esc_p_name}?</b>"
         if u_lang != "en"
-        else f"⚠️ <b>Are you sure you want to delete printer {target_printer.name}?</b>",
+        else f"⚠️ <b>Are you sure you want to delete printer {esc_p_name}?</b>",
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[

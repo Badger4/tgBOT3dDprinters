@@ -332,10 +332,11 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False,
         if lines:
             print_info_str = "\n".join(lines) + "\n"
 
+    safe_pname = html.escape(str(target_printer.name))
     if is_en:
         noz_d = getattr(target_printer, "nozzle_diameter", "0.4")
         status_txt = (
-            f"<b>📊 Printer Status: {target_printer.name}</b>\n\n"
+            f"<b>📊 Printer Status: {safe_pname}</b>\n\n"
             f"{state_emoji} <b>State:</b> <code>{state_label}</code>{wifi_str}\n"
             f"{print_info_str}"
             f"{sensitive_block}"
@@ -346,7 +347,7 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False,
     else:
         noz_d = getattr(target_printer, "nozzle_diameter", "0.4")
         status_txt = (
-            f"<b>📊 Стан принтера: {target_printer.name}</b>\n\n"
+            f"<b>📊 Стан принтера: {safe_pname}</b>\n\n"
             f"{state_emoji} <b>Стан:</b> <code>{state_label}</code>{wifi_str}\n"
             f"{print_info_str}"
             f"{sensitive_block}"
@@ -377,6 +378,16 @@ async def handle_printer_status(message: Message, app):
 async def printer_view_state_filter(message: Message, app) -> bool:
     if not message.text or not message.text.startswith("🖨️ "):
         return False
+    normalized = message.text.strip().lower()
+    if normalized in [
+        "🖨️ назад до принтерів",
+        "🖨️ back to printers",
+        "🖨️ принтери",
+        "🖨️ printers",
+        "назад до принтерів",
+        "back to printers",
+    ]:
+        return False
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     return user.get("state") in [None, "", "idle", "printer_menu", "printers_list", "main_menu"]
@@ -389,6 +400,9 @@ async def handle_select_printer(message: Message, app):
         return
 
     p_name = message.text.replace("🖨️ ", "").strip()
+    if p_name.lower() in ["назад до принтерів", "back to printers", "принтери", "printers"]:
+        return await handle_list_printers(message, app)
+
     # 1. Prioritize exact name match first
     target_printer = next((p for p in app.printers.values() if p.name.strip().lower() == p_name.lower()), None)
     # 2. Fallback to substring only if exact match is not found

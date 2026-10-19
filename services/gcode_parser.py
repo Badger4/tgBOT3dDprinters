@@ -175,18 +175,38 @@ def resolve_model_name(raw_model: str) -> str:
     return clean
 
 
-def extract_bambu_gcode_objects(gcode_text: str) -> list[dict[str, Any]]:
+def extract_bambu_gcode_objects(gcode_source: Any) -> list[dict[str, Any]]:
     """Extracts object IDs and names from Bambu Lab / OrcaSlicer G-code."""
     objects: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
 
+    lines_iter = gcode_source.splitlines() if isinstance(gcode_source, str) else gcode_source
+
     # Step 1: Scan for per-object start markers with names:
-    # ; printing object Куб id:0 copy 0
-    # ; start printing object, unique label id: 422
     cur_name = None
-    for line in gcode_text.splitlines():
-        line_s = line.strip()
+    header_ids: list[str] = []
+    for line in lines_iter:
+        line_s = line.strip() if isinstance(line, str) else str(line).strip()
+        if not line_s:
+            continue
+
+        m_m486 = re.match(r"^M486\s+S(\d+)", line_s, re.IGNORECASE)
+        if m_m486:
+            uid = str(m_m486.group(1)).strip()
+            if uid not in seen_ids:
+                seen_ids.add(uid)
+                objects.append({"id": uid, "name": f"Об'єкт #{uid}"})
+            continue
+
         if not line_s.startswith(";"):
+            continue
+
+        m_obj_id = re.match(r"^;\s*OBJECT_ID:\s*(\d+)", line_s, re.IGNORECASE)
+        if m_obj_id:
+            uid = str(m_obj_id.group(1)).strip()
+            if uid not in seen_ids:
+                seen_ids.add(uid)
+                objects.append({"id": uid, "name": f"Об'єкт #{uid}"})
             continue
 
         m_name = re.match(r"^;\s*printing object\s+(.*?)(?:\s+id:\d+\s+copy\s+\d+)?$", line_s, re.IGNORECASE)
@@ -202,25 +222,19 @@ def extract_bambu_gcode_objects(gcode_text: str) -> list[dict[str, Any]]:
                 name = cur_name or f"Об'єкт #{uid}"
                 objects.append({"id": uid, "name": name})
             cur_name = None
+            continue
 
-    # Step 2: If no objects or some objects not yet registered, check header '; model label id: 54,105,127,149'
-    m_header = re.search(r";\s*model label id:\s*([^\r\n]+)", gcode_text, re.IGNORECASE)
-    if m_header:
-        raw_ids = [s.strip() for s in m_header.group(1).split(",") if s.strip().isdigit()]
-        for rid in raw_ids:
+        if not header_ids:
+            m_header = re.match(r"^;\s*model label id:\s*([^\r\n]+)", line_s, re.IGNORECASE)
+            if m_header:
+                header_ids = [s.strip() for s in m_header.group(1).split(",") if s.strip().isdigit()]
+
+    # Step 2: If no objects or some objects not yet registered, check header
+    if header_ids:
+        for rid in header_ids:
             if rid not in seen_ids:
                 seen_ids.add(rid)
                 objects.append({"id": rid, "name": f"Об'єкт #{rid}"})
-
-    # Step 3: Generic fallback for M486 / OBJECT_ID if standard RepRap/Klipper gcode
-    if not objects:
-        m486_ids = re.findall(r"M486\s+S(\d+)", gcode_text)
-        obj_id_matches = re.findall(r";\s*OBJECT_ID:\s*(\d+)", gcode_text)
-        for fid in sorted(list(set([int(i) for i in (m486_ids + obj_id_matches)]))):
-            fid_str = str(fid)
-            if fid_str not in seen_ids:
-                seen_ids.add(fid_str)
-                objects.append({"id": fid_str, "name": f"Об'єкт #{fid_str}"})
 
     return objects
 
@@ -261,6 +275,12 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
     try:
         if zipfile.is_zipfile(io.BytesIO(file_bytes)):
             with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+                # Zip bomb / decompression protection for single-board computers (RPi Zero/3/4)
+                total_uncompressed = sum(info.file_size for info in zf.infolist())
+                if total_uncompressed > 100 * 1024 * 1024 or any(info.file_size > 50 * 1024 * 1024 for info in zf.infolist()):
+                    result["error"] = "Архів .3mf перевищує безпечний ліміт розміру (100MB)."
+                    return result
+
                 namelist = zf.namelist()
 
                 # 0. Plate JSON Extraction: extract 2D bounding boxes for visual diagram (do NOT populate objects_list)
@@ -344,18 +364,19 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                         except Exception:
                             pass
 
-                # 1c. Scan embedded G-code for Bambu Lab object labels (model label id / unique label id)
+                # 1c. Scan embedded G-code for Bambu Lab object labels (streamed line-by-line to protect RAM)
                 gcode_files = [f for f in namelist if f.endswith(".gcode")]
                 for gf in gcode_files:
                     try:
-                        gcode_text = zf.read(gf).decode("utf-8", errors="ignore")
-                        gc_objs = extract_bambu_gcode_objects(gcode_text)
-                        for gco in gc_objs:
-                            existing = next((o for o in objects_list if str(o["id"]) == str(gco["id"])), None)
-                            if not existing:
-                                objects_list.append(gco)
-                            elif gco.get("name") and ("Об'єкт" in existing.get("name", "") or not existing.get("name")):
-                                existing["name"] = gco["name"]
+                        with zf.open(gf) as gf_stream:
+                            text_stream = io.TextIOWrapper(gf_stream, encoding="utf-8", errors="ignore")
+                            gc_objs = extract_bambu_gcode_objects(text_stream)
+                            for gco in gc_objs:
+                                existing = next((o for o in objects_list if str(o["id"]) == str(gco["id"])), None)
+                                if not existing:
+                                    objects_list.append(gco)
+                                elif gco.get("name") and ("Об'єкт" in existing.get("name", "") or not existing.get("name")):
+                                    existing["name"] = gco["name"]
                     except Exception:
                         pass
 
@@ -363,6 +384,9 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                 xml_files = [f for f in namelist if f.endswith(".config") or f.endswith(".xml") or f.endswith(".info") or f.endswith(".model") or f.startswith("3D/")]
                 for xf in xml_files:
                     try:
+                        info = zf.getinfo(xf)
+                        if getattr(info, "file_size", 0) > 50 * 1024 * 1024:
+                            continue
                         content_str = zf.read(xf).decode("utf-8", errors="ignore")
                         root = ET.fromstring(content_str)
 
@@ -465,7 +489,14 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                 gcode_files = [f for f in namelist if f.endswith(".gcode")]
                 for gf in gcode_files:
                     try:
-                        gcode_text = zf.read(gf).decode("utf-8", errors="ignore")
+                        info = zf.getinfo(gf)
+                        # Protect against decompression bombs / RAM exhaustion on low-memory devices:
+                        # G-code header metadata and print objects reside in the first few megabytes.
+                        if info.file_size > 500 * 1024 * 1024:
+                            continue
+                        with zf.open(gf) as gf_handle:
+                            raw_chunk = gf_handle.read(10 * 1024 * 1024)
+                        gcode_text = raw_chunk.decode("utf-8", errors="ignore")
 
                         # Object IDs regex from Gcode comments (e.g. ; PRINT_OBJECT_START name='Part' id=206)
                         for obj_match in re.finditer(
@@ -887,6 +918,7 @@ def check_compatibility(
     color: str = "",
     filament_name: str = "",
     nozzle_diameter: str | float | None = None,
+    weight_g: float = 0.0,
 ) -> dict[str, Any]:
     """
     Checks G-code / model, nozzle & filament compatibility between sliced 3MF metadata and target printer.
@@ -963,6 +995,24 @@ def check_compatibility(
     # Stage 3: Material Check (Filament Type)
     norm_sliced_fil = normalize_filament_name(filament_type)
 
+    def _build_filament_warning(slot_key_or_idx: Any) -> str | None:
+        if not weight_g or weight_g <= 0 or printer is None:
+            return None
+        try:
+            rem_g = 0.0
+            if hasattr(printer, "get_slot_grams") and callable(printer.get_slot_grams):
+                rem_g = float(printer.get_slot_grams(str(slot_key_or_idx)))
+            elif hasattr(printer, "filament_grams"):
+                rem_g = float(getattr(printer, "filament_grams", 0.0))
+            if rem_g > 0:
+                if rem_g < weight_g:
+                    return f"⚠️ На котушці мало нитки: залишок {rem_g:.0f}г < ваги моделі {weight_g:.0f}г!"
+                elif (rem_g - weight_g) <= 15.0:
+                    return f"⚠️ Залишок нитки критично близький до ваги моделі ({rem_g:.0f}г vs {weight_g:.0f}г, запас < 15г)!"
+        except Exception:
+            pass
+        return None
+
     # If printer has AMS, check if ANY loaded AMS slot matches the sliced filament
     if printer is not None and getattr(printer, "has_ams", False):
         matched_slot = None
@@ -993,6 +1043,7 @@ def check_compatibility(
 
         if matched_slot is not None:
             phys_num = matched_slot + 1
+            fil_warn = _build_filament_warning(matched_slot)
             if is_model_warning:
                 reason = f"⚠️ Умовно сумісний (Різна модель: {sliced_model or sliced_code} ➔ {display_target}, знайдено в AMS Слоті {phys_num})"
                 level = "WARNING"
@@ -1002,7 +1053,7 @@ def check_compatibility(
                 level = "OK"
                 reason_type = "OK"
 
-            return {
+            res_dict: dict[str, Any] = {
                 "compatible": True,
                 "reason_type": reason_type,
                 "level": level,
@@ -1016,6 +1067,9 @@ def check_compatibility(
                 "sliced_nozzle": s_noz_norm or "0.4",
                 "target_nozzle": t_noz_norm,
             }
+            if fil_warn:
+                res_dict["filament_warning"] = fil_warn
+            return res_dict
         else:
             summary = printer.get_loaded_ams_summary() if hasattr(printer, "get_loaded_ams_summary") else ""
             return {
@@ -1061,8 +1115,9 @@ def check_compatibility(
                 "target_nozzle": t_noz_norm,
             }
 
+    fil_warn = _build_filament_warning("254")
     if is_model_warning:
-        return {
+        res_dict = {
             "compatible": True,
             "reason_type": "MODEL_WARN",
             "level": "WARNING",
@@ -1074,8 +1129,11 @@ def check_compatibility(
             "sliced_nozzle": s_noz_norm or "0.4",
             "target_nozzle": t_noz_norm,
         }
+        if fil_warn:
+            res_dict["filament_warning"] = fil_warn
+        return res_dict
 
-    return {
+    res_dict = {
         "compatible": True,
         "reason_type": "OK",
         "level": "OK",
@@ -1087,3 +1145,6 @@ def check_compatibility(
         "sliced_nozzle": s_noz_norm or "0.4",
         "target_nozzle": t_noz_norm,
     }
+    if fil_warn:
+        res_dict["filament_warning"] = fil_warn
+    return res_dict

@@ -93,7 +93,7 @@ cp .env.example .env
 
 ### 5. Run the Application
 ```bash
-python printer.py
+python main.py
 ```
 
 ---

@@ -7,7 +7,7 @@ import time
 from aiohttp import web
 
 from config import logger
-from services.http.auth import check_auth
+from services.http.auth import check_auth, is_admin_request
 
 
 async def handle_printer_control(request: web.Request) -> web.Response:
@@ -26,6 +26,22 @@ async def handle_printer_control(request: web.Request) -> web.Response:
         action = str(data.get("action", "")).lower()
     except Exception:
         return web.json_response({"error": "Invalid JSON payload"}, status=400)
+
+    ADMIN_ACTIONS = {
+        "stop",
+        "reset_maint",
+        "set_maint_interval",
+        "calibrate",
+        "load_filament",
+        "unload_filament",
+        "set_speed",
+        "set_filament",
+        "set_slot_grams",
+        "set_ams_enabled",
+    }
+    if action in ADMIN_ACTIONS:
+        if not await is_admin_request(request):
+            return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     if action == "pause":
         p.pause()
@@ -336,6 +352,8 @@ async def handle_fleet_calibrate(request: web.Request) -> web.Response:
     """POST /api/fleet/calibrate - Run auto-calibration (G32) on all idle online printers."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     calibrated = []

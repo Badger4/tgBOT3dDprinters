@@ -1,3 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "3d-printer-farm-bot"
+version = "2.0.0"
+description = "Telegram Bot and WebApp for Bambu Lab 3D Printer Farm Fleet Management"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "3D Farm Team"}
+]
+dependencies = [
+    "aiogram>=3.0.0",
+    "paho-mqtt>=1.6.1",
+    "python-dotenv>=1.0.0",
+    "aiofiles>=23.2.1",
+    "Pillow>=12.3.0",
+    "reportlab>=4.0.0",
+    "google-genai>=0.1.0",
+    "setuptools>=83.0.0",
+    "aiohttp>=3.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-rerunfailures>=12.0",
+    "pytest-cov>=4.0.0",
+    "paramiko>=3.0.0",
+    "ruff>=0.3.0",
+]
+
+[project.scripts]
+printer-farm = "main:main"
+
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]
@@ -11,7 +50,6 @@ filterwarnings = [
     "ignore::aiohttp.web_exceptions.NotAppKeyWarning"
 ]
 
-
 [tool.coverage.run]
 source = [
     "models",
@@ -24,8 +62,6 @@ omit = [
     "tests/*",
     "scripts/*",
     "webapp/*",
-    "orca_hook.py",
-    "printer.py",
     "main.py",
     "app.py"
 ]
@@ -83,7 +119,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["F841", "F401", "B007"]
-
 
 [tool.ruff.format]
 quote-style = "double"

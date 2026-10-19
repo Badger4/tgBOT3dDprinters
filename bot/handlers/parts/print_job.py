@@ -83,9 +83,9 @@ async def handle_part_print_select(callback: CallbackQuery, state: FSMContext, a
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("part_exec_print"))
+@router.callback_query(F.data.startswith("part_exec_print") | F.data.startswith("pxp:"))
 async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app: Any) -> None:
-    raw = callback.data.replace("part_exec_print_", "").replace("part_exec_print:", "")
+    raw = callback.data.replace("part_exec_print_", "").replace("part_exec_print:", "").replace("pxp:", "")
     if ":" in raw:
         data_parts = raw.split(":", 1)
     else:
@@ -97,9 +97,10 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
 
     part_id, printer_id = data_parts[0], data_parts[1]
     parts: dict[str, dict[str, Any]] = await app.storage.load_parts()
-    printer = app.printers.get(printer_id)
+    part = parts.get(part_id) or next((p for pid, p in parts.items() if pid.startswith(part_id)), None)
+    printer = app.printers.get(printer_id) or next((p for pid, p in app.printers.items() if pid.startswith(printer_id)), None)
 
-    if part_id not in parts:
+    if not part:
         await callback.answer("⚠️ Деталь не знайдено!", show_alert=True)
         return
 
@@ -107,7 +108,6 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
         await callback.answer("⚠️ Обраний принтер недоступний!", show_alert=True)
         return
 
-    part = parts[part_id]
     three_mf_id = part.get("three_mf")
 
     if not three_mf_id:

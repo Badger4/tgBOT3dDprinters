@@ -167,14 +167,14 @@ async def show_user_card(
     await message.answer(info_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
-@router.message(F.text.func(lambda t: bool(re.search(r"\(([^()]+)\)\s*$", t or ""))))
+@router.message(F.text.func(lambda t: bool(re.search(r"^[👑👤⏳]\s+.*?\(([0-9a-zA-Z_-]+)\)\s*$", (t or "").strip()))))
 async def handle_select_user(message: Message, app):
     chat_id = str(message.chat.id)
     if not await app.is_user_admin(chat_id):
         return
 
     text = (message.text or "").strip()
-    m = re.search(r"\(([^()]+)\)\s*$", text)
+    m = re.search(r"^[👑👤⏳]\s+.*?\(([0-9a-zA-Z_-]+)\)\s*$", text)
     if not m:
         return
 
@@ -317,7 +317,7 @@ async def handle_manage_user_action(message: Message, app):
                 t_lang = t_user.get("language", "uk")
                 await app.bot.send_message(
                     chat_id=target_uid,
-                    text="👑 <b>Вам надано права Адміністратора 3D Ферми!</b>\nГоловне меню оновлено 🚀" if t_lang == "en" else "👑 <b>Вам надано права Адміністратора 3D Ферми!</b>\nГоловне меню оновлено 🚀",
+                    text="👑 <b>You have been granted Administrator rights to 3D Farm!</b>\nMain menu updated 🚀" if t_lang == "en" else "👑 <b>Вам надано права Адміністратора 3D Ферми!</b>\nГоловне меню оновлено 🚀",
                     parse_mode=ParseMode.HTML,
                     reply_markup=get_main_keyboard(True, lang=t_lang),
                 )

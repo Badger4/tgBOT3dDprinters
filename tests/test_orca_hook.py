@@ -5,7 +5,7 @@ Unit tests for OrcaSlicer hook script.
 import unittest
 from pathlib import Path
 
-from orca_hook import BASE_DIR, LOG_FILE, WEIGHT_CACHE
+from scripts.orca_hook import BASE_DIR, LOG_FILE, WEIGHT_CACHE
 
 
 class TestOrcaHook(unittest.TestCase):

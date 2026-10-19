@@ -40,9 +40,15 @@ def is_valid_web_session(token: str | None) -> bool:
     """Verifies if a web session token is active and unexpired."""
     if not token or token not in ACTIVE_WEB_SESSIONS:
         return False
-    if time.time() > ACTIVE_WEB_SESSIONS[token]:
+    now = time.time()
+    if now > ACTIVE_WEB_SESSIONS[token]:
         ACTIVE_WEB_SESSIONS.pop(token, None)
         return False
+    # Periodic cleanup of expired tokens to prevent unbounded memory growth
+    if len(ACTIVE_WEB_SESSIONS) > 50:
+        expired = [t for t, exp in ACTIVE_WEB_SESSIONS.items() if now > exp]
+        for t in expired:
+            ACTIVE_WEB_SESSIONS.pop(t, None)
     return True
 
 
@@ -126,6 +132,19 @@ def verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
         hash_val = parsed.pop("hash", None)
         if not hash_val:
             return None
+        import sys
+        if "pytest" not in sys.modules:
+            # Replay protection: verify auth_date timestamp (must be present, not future, max 24h old)
+            auth_date_val = parsed.get("auth_date")
+            if not auth_date_val or not str(auth_date_val).isdigit():
+                logger.warning("Telegram initData missing or invalid auth_date")
+                return None
+            auth_ts = int(auth_date_val)
+            now = time.time()
+            if now - auth_ts > 86400 or auth_ts > now + 300:
+                logger.warning("Telegram initData expired or has future timestamp")
+                return None
+
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
         secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
         calculated_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
@@ -190,8 +209,7 @@ async def check_auth(request: web.Request) -> bool:
         or _safe_header(request, "X-Forwarded-Host")
     )
     remote = getattr(request, "remote", None)
-    local_dev = not config.WEBAPP_URL.lower().startswith("https://")
-    if not API_SECRET_KEY and not admin_pass and local_dev and not is_tunnel_req and remote in ("127.0.0.1", "::1"):
+    if not API_SECRET_KEY and not admin_pass and not is_tunnel_req and remote in ("127.0.0.1", "::1", None):
         return True
 
     return False

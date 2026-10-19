@@ -816,9 +816,7 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
 
         ans_unm1 = await self._send("🔓 Зняти з принтера")
         self.assertTrue(ans_unm1.called)
-        ans_unmount1 = await self._send("Bambu PLA Basic Jade White")
-        self.assertTrue(ans_unmount1.called)
-        replies_unmount1 = " ".join(str(call[0][0]) for call in ans_unmount1.call_args_list)
+        replies_unmount1 = " ".join(str(call[0][0]) for call in ans_unm1.call_args_list)
         self.assertIn("повернуто до пачки (разом: 7 шт)", replies_unmount1)
 
         # Verify storage: batch is back to 7, temporary mounted copy is deleted
@@ -850,9 +848,7 @@ class TestFilamentComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
 
         ans_unm2 = await self._send("🔓 Зняти з принтера")
         self.assertTrue(ans_unm2.called)
-        ans_unmount2 = await self._send("Bambu PLA Basic Jade White")
-        self.assertTrue(ans_unmount2.called)
-        replies_unmount2 = " ".join(str(call[0][0]) for call in ans_unmount2.call_args_list)
+        replies_unmount2 = " ".join(str(call[0][0]) for call in ans_unm2.call_args_list)
         self.assertIn("розпочата котушка: 850.0g (1 шт)", replies_unmount2)
 
         # Verify storage: parent batch STILL has 6 шт (1000g), AND a separate started spool exists with 850g (1 шт)!

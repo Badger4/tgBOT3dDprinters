@@ -1,4 +1,4 @@
-﻿"""
+"""
 Commercial Pricing Calculator and Preset Management Handlers.
 """
 
@@ -196,6 +196,13 @@ async def handle_commercial_menu(message: Message, app):
                 f"  <i>Пластик: {p_pr}грн/г | Світло: {p_el}грн | Аморт: {p_depr} | Витрат: {p_cons} | Маржа: {p_prof}</i>\n"
             )
 
+    if len(txt) > 3900:
+        cut_idx = txt[:3800].rfind("\n• ")
+        if cut_idx != -1:
+            txt = txt[:cut_idx] + ("\n\n<i>⚠️ Список пресетів скорочено через ліміт Telegram.</i>" if not is_en else "\n\n<i>⚠️ Preset list truncated due to Telegram limit.</i>")
+        else:
+            txt = txt[:3800] + "..."
+
     await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_commercial_menu_keyboard(lang=u_lang))
 
 
@@ -297,33 +304,6 @@ async def start_quick_calc(message: Message, app):
 
 
 
-async def show_preset_edit_menu(message, app, target: dict):
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    import html
-    p_name = target.get("name", "??????")
-    p_pr = target.get("price_per_g", 0.85)
-    p_el = target.get("electricity_rate_uah", 4.32)
-    p_depr = target.get("depreciation_val", "10")
-    p_cons = target.get("consumables_val", "5")
-    p_prof = target.get("profit_val", "100%")
-    p_id = target.get("id", "")
-    inline_kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"?? ????? ({p_name})", callback_data=f"edit_p_field_name_{p_id}")],
-            [InlineKeyboardButton(text=f"?? ???? ???????? ({p_pr}???/?)", callback_data=f"edit_p_field_price_{p_id}")],
-            [InlineKeyboardButton(text=f"? ?????? ({p_el}???)", callback_data=f"edit_p_field_elec_{p_id}")],
-            [InlineKeyboardButton(text=f"?? ??????????? ({p_depr})", callback_data=f"edit_p_field_depr_{p_id}")],
-            [InlineKeyboardButton(text=f"?? ?????????? ({p_cons})", callback_data=f"edit_p_field_cons_{p_id}")],
-            [InlineKeyboardButton(text=f"?? ???????? ({p_prof})", callback_data=f"edit_p_field_profit_{p_id}")],
-            [InlineKeyboardButton(text=f"? ?????? (????????)", callback_data=f"edit_p_done")]
-        ]
-    )
-    from aiogram.enums import ParseMode
-    await message.answer(
-        f"?? <b>??????????? ???????: {html.escape(p_name)}</b>\n??????? ???????? ??? ?????:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=inline_kb,
-    )
 
 COMMERCIAL_STATES = {
     "add_preset_name",
@@ -389,6 +369,8 @@ async def handle_commercial_wizard(message: Message, app):
     if text.lower() in [
         "⬅️ головне меню",
         "головне меню",
+        "⬅️ main menu",
+        "main menu",
         "/start",
     ]:
         user["state"] = "idle"
@@ -398,7 +380,16 @@ async def handle_commercial_wizard(message: Message, app):
         await handle_main_menu_nav(message, app)
         return
 
-    if text.lower() in ["⬅️ назад", "назад", "скасувати", "⬅️ назад до комерції"]:
+    if text.lower() in [
+        "⬅️ назад",
+        "назад",
+        "скасувати",
+        "⬅️ назад до комерції",
+        "⬅️ back",
+        "back",
+        "cancel",
+        "⬅️ back to commercial",
+    ]:
         user["state"] = "idle"
         await app.storage.save_user(user)
         await handle_commercial_menu(message, app)
@@ -683,7 +674,7 @@ async def handle_commercial_wizard(message: Message, app):
                 [
                     InlineKeyboardButton(
                         text="📄 Завантажити розрахунок (PDF)" if u_lang != "en" else "📄 Download Quote (PDF)",
-                        callback_data=f"comm_quote_pdf_{target['id']}_{w_val}_{int(t_mins)}",
+                        callback_data=f"cqpdf:{target['id'][:12]}:{w_val}:{int(t_mins)}",
                     )
                 ]
             ]
@@ -822,15 +813,19 @@ async def handle_edit_preset_field_callback(callback: CallbackQuery, app):
             await callback.message.reply(prompt_txt, parse_mode=ParseMode.HTML)
 
 
-@router.callback_query(F.data.startswith("comm_quote_pdf_"))
+@router.callback_query(F.data.startswith("comm_quote_pdf_") | F.data.startswith("cqpdf:"))
 async def handle_commercial_quote_pdf_callback(callback: CallbackQuery, app):
     try:
         user = await app.storage.load_user(str(callback.from_user.id))
         u_lang = user.get("language", "uk") if user else "uk"
         is_en = u_lang == "en"
 
-        raw = callback.data[len("comm_quote_pdf_") :]
-        parts = raw.rsplit("_", 2)
+        if callback.data.startswith("cqpdf:"):
+            parts = callback.data.split(":")[1:]
+        else:
+            raw = callback.data[len("comm_quote_pdf_") :]
+            parts = raw.rsplit("_", 2)
+
         if len(parts) != 3:
             await callback.answer("⚠️ Некоректні дані запиту." if not is_en else "⚠️ Invalid request data.", show_alert=True)
             return
@@ -846,8 +841,9 @@ async def handle_commercial_quote_pdf_callback(callback: CallbackQuery, app):
         presets = await get_user_presets(app)
         target = (
             presets.get(pid)
-            or next((p for p in presets.values() if p.get("id") == pid), None)
+            or next((p for p in presets.values() if p.get("id") == pid or str(p.get("id", "")).startswith(pid)), None)
             or DEFAULT_PRESETS.get(pid)
+            or next((p for p in DEFAULT_PRESETS.values() if p.get("id") == pid or str(p.get("id", "")).startswith(pid)), None)
         )
         if not target:
             await callback.answer("⚠️ Пресет не знайдено!" if not is_en else "⚠️ Preset not found!", show_alert=True)
@@ -891,8 +887,8 @@ async def handle_edit_preset_done(callback: CallbackQuery, app):
     user = await app.storage.load_user(chat_id)
     user["state"] = "idle"
     user["context_data"] = {}
-    await app.storage.save_user(user)
-    await callback.message.answer("? ??? ????? ?????????!")
+    u_lang = user.get("language", "uk")
+    await callback.message.answer("✅ Зміни пресету збережено!" if u_lang != "en" else "✅ Preset changes saved!")
     from bot.handlers.commercial import handle_commercial_menu
     await handle_commercial_menu(callback.message, app)
     await callback.answer()

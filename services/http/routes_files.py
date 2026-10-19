@@ -13,7 +13,18 @@ from aiohttp import web
 import config
 from config import logger
 from services.gcode_parser import check_compatibility, get_printer_active_filament, parse_3mf_file
-from services.http.auth import check_auth
+from services.http.auth import check_auth, is_admin_request
+
+
+def cleanup_old_uploads(upload_dir: Path, max_age_days: int = 7) -> None:
+    """Removes uploads older than max_age_days to prevent flash storage exhaustion."""
+    try:
+        now = time.time()
+        for f in upload_dir.glob("*"):
+            if f.is_file() and now - f.stat().st_mtime > max_age_days * 86400:
+                f.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 async def handle_file_upload(request: web.Request) -> web.Response:
@@ -23,6 +34,9 @@ async def handle_file_upload(request: web.Request) -> web.Response:
 
     app_obj = request.app["app_obj"]
     try:
+        upload_dir = config.STORAGE_DIR / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        cleanup_old_uploads(upload_dir)
         reader = await request.multipart()
         field: Any = await reader.next()
         if not field or not getattr(field, "filename", None):
@@ -185,6 +199,8 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
     """POST /api/printers/{id}/print_file - Uploads file via FTPS to printer and starts print."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     p_id = request.match_info.get("id", "")
@@ -193,10 +209,13 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
         return web.json_response({"error": "Printer not found"}, status=404)
 
     try:
+        import os
         data = await request.json()
-        file_token = data.get("file_token", "")
-        save_path = config.STORAGE_DIR / "uploads" / file_token
-        if not save_path.exists():
+        raw_token = data.get("file_token", "")
+        file_token = os.path.basename(str(raw_token))
+        uploads_dir = (config.STORAGE_DIR / "uploads").resolve()
+        save_path = (uploads_dir / file_token).resolve()
+        if not (save_path.is_relative_to(uploads_dir) and save_path.exists() and save_path.is_file()):
             return web.json_response({"error": "Uploaded file not found"}, status=404)
 
         file_bytes = save_path.read_bytes()

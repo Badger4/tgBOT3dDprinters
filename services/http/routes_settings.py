@@ -62,10 +62,13 @@ async def handle_serve_index(request: web.Request) -> web.StreamResponse:
 
 async def handle_health(request: web.Request) -> web.Response:
     """GET /health - System health check endpoint for UptimeRobot / Docker / systemd."""
+    from utils.system_health import get_system_health
+
     app_obj = request.app["app_obj"]
     uptime = int(time.time() - START_TIME)
     printers = list(app_obj.printers.values())
     active = sum(1 for p in printers if p.gcode_state == "RUNNING")
+    sys_health = get_system_health()
 
     return web.json_response(
         {
@@ -74,6 +77,7 @@ async def handle_health(request: web.Request) -> web.Response:
             "uptime_seconds": uptime,
             "total_printers": len(printers),
             "active_printers": active,
+            "system": sys_health,
         }
     )
 
@@ -120,6 +124,8 @@ async def load_commercial_presets(app_obj: Any) -> dict:
 
 async def handle_get_presets(request: web.Request) -> web.Response:
     """GET /api/commercial/presets - List commercial pricing presets."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
     app_obj = request.app["app_obj"]
     presets = await load_commercial_presets(app_obj)
     return web.json_response(presets)
@@ -129,6 +135,8 @@ async def handle_save_preset(request: web.Request) -> web.Response:
     """POST /api/commercial/presets - Create or update commercial preset."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     try:
@@ -204,6 +212,8 @@ async def handle_delete_preset(request: web.Request) -> web.Response:
     """DELETE /api/commercial/presets/{id} - Remove commercial preset."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     p_id = request.match_info.get("id", "")
@@ -218,6 +228,8 @@ async def handle_delete_preset(request: web.Request) -> web.Response:
 
 async def handle_calculate_commercial(request: web.Request) -> web.Response:
     """POST /api/commercial/calculate - Calculate pricing breakdown."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
     app_obj = request.app["app_obj"]
     try:
         data = await request.json()
@@ -326,6 +338,8 @@ async def handle_mark_history_scrap(request: web.Request) -> web.Response:
     """POST /api/history/mark_scrap - Marks a history record as scrap with wasted weight & optional spool refund."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     try:
         data = await request.json()
@@ -419,6 +433,8 @@ async def handle_export_history_csv(request: web.Request) -> web.Response:
 
 async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
     """GET /api/commercial/export_pdf - Generates clean printable HTML/PDF report for commercial calculation."""
+    if not await check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
     app_obj = request.app["app_obj"]
     try:
         weight_g = float(request.query.get("weight_g", 100.0))
@@ -478,6 +494,7 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
             calc["client_order"] = client_order
         preset_name = preset.get("name", "За замовчуванням")
 
+        import asyncio
         if request.query.get("send_telegram") == "1":
             from services.report_generator import generate_commercial_calc_pdf
             from aiogram.types import BufferedInputFile
@@ -488,11 +505,13 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
             if not bot:
                 return web.json_response({"error": "Бот зараз не активний"}, status=503)
 
-            u_id = get_authenticated_user_id(request) or getattr(config, "ADMIN_CHAT_ID", None)
+            u_id = get_authenticated_user_id(request)
+            if not u_id and await is_admin_request(request):
+                u_id = getattr(config, "ADMIN_CHAT_ID", None)
             if not u_id:
                 return web.json_response({"error": "Користувача не ідентифіковано"}, status=400)
 
-            pdf_bytes = generate_commercial_calc_pdf(calc, filename=request.query.get("filename"), lang="uk")
+            pdf_bytes = await asyncio.to_thread(generate_commercial_calc_pdf, calc, filename=request.query.get("filename"), lang="uk")
             fname = f"commercial_quote_{int(time.time())}.pdf"
             doc_file = BufferedInputFile(pdf_bytes, filename=fname)
             order_extra = f"\n👤 Клієнт / Замовлення: <b>{html.escape(client_order)}</b>" if client_order else ""
@@ -512,7 +531,7 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
         req_format = request.query.get("format", "").lower()
         if req_format != "html":
             from services.report_generator import generate_commercial_calc_pdf
-            pdf_bytes = generate_commercial_calc_pdf(calc, filename=request.query.get("filename"), lang="uk")
+            pdf_bytes = await asyncio.to_thread(generate_commercial_calc_pdf, calc, filename=request.query.get("filename"), lang="uk")
             fname = f"commercial_quote_{int(time.time())}.pdf"
             disp_type = "inline" if request.query.get("inline") == "1" else "attachment"
             return web.Response(
@@ -695,7 +714,7 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
     </div>
     <div class="summary-grid">
         {f'<div style="grid-column: 1 / -1; background: #e0f2fe; padding: 6px; border-radius: 4px; border: 1px solid #bae6fd; color: #0369a1;"><strong>👤 Клієнт / Номер замовлення:</strong> {html.escape(client_order)}</div>' if client_order else ''}
-        <div><strong>Пресет:</strong> {preset_name}</div>
+        <div><strong>Пресет:</strong> {html.escape(preset_name)}</div>
         <div><strong>Вага нитки:</strong> {weight_g:.1f} г</div>
         <div><strong>Час друку:</strong> {time_mins} хв</div>
         <div><strong>Маржа / Націнка:</strong> {formatted_profit}</div>
@@ -924,11 +943,11 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
                 dt = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
             else:
                 dt = str(ts)[:16]
-            p_name = item.get("printer_name", "Принтер")
-            subtask = item.get("subtask_name", "Модель")
-            filament = item.get("filament_type", "PLA")
+            p_name = html.escape(str(item.get("printer_name", "Принтер")))
+            subtask = html.escape(str(item.get("subtask_name", "Модель")))
+            filament = html.escape(str(item.get("filament_type", "PLA")))
             weight_g = float(item.get("weight_g", 0.0) or 0.0)
-            note = item.get("note", "Успішно")
+            note = html.escape(str(item.get("note", "Успішно")))
 
             rows_html += f"""
             <tr>

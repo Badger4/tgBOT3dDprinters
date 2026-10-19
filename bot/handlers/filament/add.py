@@ -784,10 +784,13 @@ async def handle_filament_states(message: Message, app) -> bool:
             color_emoji = get_color_emoji(s.get("color_name") or s.get("color", ""))
             c_prefix = f"{color_emoji} " if color_emoji else ""
             type_str = f"{s_type}, " if (s_type and s_type.lower() not in s_name.lower()) else ""
-            qty_str = f" [📦 {qty} шт]" if qty > 1 else ""
+            qty_unit = "pcs" if u_lang == "en" else "шт"
+            qty_str = f" [📦 {qty} {qty_unit}]" if qty > 1 else ""
+            qty_str_alt = f" [📦 {qty} {'шт' if qty_unit == 'pcs' else 'pcs'}]" if qty > 1 else ""
             exact_title = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str}"
+            exact_title_alt = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str_alt}"
 
-            if text in [exact_title, s_name, s_id] or text.strip() == s_name.strip():
+            if text in [exact_title, exact_title_alt, s_name, s_id] or text.strip() == s_name.strip():
                 selected = s
                 break
         if not selected:
@@ -1214,10 +1217,13 @@ async def handle_filament_states(message: Message, app) -> bool:
             color_emoji = get_color_emoji(s.get("color_name") or s.get("color", ""))
             c_prefix = f"{color_emoji} " if color_emoji else ""
             type_str = f"{s_type}, " if (s_type and s_type.lower() not in s_name.lower()) else ""
-            qty_str = f" [📦 {qty} шт]" if qty > 1 else ""
+            qty_unit = "pcs" if u_lang == "en" else "шт"
+            qty_str = f" [📦 {qty} {qty_unit}]" if qty > 1 else ""
+            qty_str_alt = f" [📦 {qty} {'шт' if qty_unit == 'pcs' else 'pcs'}]" if qty > 1 else ""
             exact_title = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str}"
+            exact_title_alt = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str_alt}"
 
-            if text in [exact_title, s_name, s.get("id")] or text.strip() == s_name.strip():
+            if text in [exact_title, exact_title_alt, s_name, s.get("id")] or text.strip() == s_name.strip():
                 selected = s
                 break
         if not selected:
@@ -1617,10 +1623,13 @@ async def handle_filament_states(message: Message, app) -> bool:
             color_emoji = get_color_emoji(s.get("color_name") or s.get("color", ""))
             c_prefix = f"{color_emoji} " if color_emoji else ""
             type_str = f"{s_type}, " if (s_type and s_type.lower() not in s_name.lower()) else ""
-            qty_str = f" [📦 {qty} шт]" if qty > 1 else ""
+            qty_unit = "pcs" if u_lang == "en" else "шт"
+            qty_str = f" [📦 {qty} {qty_unit}]" if qty > 1 else ""
+            qty_str_alt = f" [📦 {qty} {'шт' if qty_unit == 'pcs' else 'pcs'}]" if qty > 1 else ""
             exact_title = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str}"
+            exact_title_alt = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str_alt}"
 
-            if text in [exact_title, s_name, s.get("id")] or text.strip() == s_name.strip():
+            if text in [exact_title, exact_title_alt, s_name, s.get("id")] or text.strip() == s_name.strip():
                 selected = s
                 break
         if not selected:

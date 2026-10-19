@@ -463,3 +463,97 @@ def test_pdf_reports_generation_with_new_fields():
     assert isinstance(comm_pdf, bytes)
     assert len(comm_pdf) > 2000
     assert comm_pdf.startswith(b"%PDF")
+
+
+# ==============================================================================
+# 6. SYSTEM HEALTH, FINISH KEYBOARD & FILAMENT MARGIN SAFETY TESTS
+# ==============================================================================
+
+
+def test_system_health_telemetry():
+    """Tests cross-platform system health telemetry structure."""
+    from utils.system_health import get_system_health
+
+    sh = get_system_health()
+    assert isinstance(sh, dict)
+    assert "platform" in sh
+    assert "ram_used_mb" in sh
+    assert "ram_total_mb" in sh
+    assert "ram_pct" in sh
+    assert "disk_free_gb" in sh
+    assert "disk_total_gb" in sh
+    assert sh["disk_total_gb"] > 0
+
+
+@pytest.mark.asyncio
+async def test_finish_notification_keyboard_and_clear_bed_callback():
+    """Tests finish notification inline keyboard and clear_bed callback handler."""
+    from bot.handlers.callbacks import handle_callback_query
+    from bot.keyboards.notifications import get_finish_notification_inline_keyboard
+
+    kb = get_finish_notification_inline_keyboard("p-finish-1")
+    callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+    assert "notify_photo_p-finish-1" in callbacks
+    assert "clear_bed_p-finish-1" in callbacks
+    assert "notify_light_p-finish-1" in callbacks
+    for c_data in callbacks:
+        assert len(c_data.encode("utf-8")) <= 64
+
+    app = DummyApp("/tmp")
+
+    class MockPrinter:
+        id = "p-finish-1"
+        name = "Bambu P1S"
+        finish_timestamp = 1700000000.0
+
+    p = MockPrinter()
+    app.printers = {"p-finish-1": p}
+
+    cb = AsyncMock()
+    cb.data = "clear_bed_p-finish-1"
+    await handle_callback_query(cb, app)
+
+    assert p.finish_timestamp == 0.0
+    cb.answer.assert_called_once()
+
+
+def test_check_compatibility_filament_margin_warning():
+    """Tests check_compatibility returns filament_warning when spool remaining weight is close to or less than model weight."""
+    from services.gcode_parser import check_compatibility
+
+    class MockPrinter:
+        printer_model = "Bambu Lab A1"
+        nozzle_diameter = "0.4"
+        has_ams = False
+        filament_grams = 110.0
+
+        def get_slot_grams(self, slot_key="254"):
+            return 110.0
+
+    p = MockPrinter()
+    res_tight = check_compatibility(
+        sliced_model="@BBL A1",
+        filament_type="PLA",
+        target_printer_name="Bambu Lab A1",
+        target_filament="PLA",
+        printer=p,
+        nozzle_diameter="0.4",
+        weight_g=100.0,
+    )
+    assert res_tight["compatible"] is True
+    assert "filament_warning" in res_tight
+    assert "запас < 15г" in res_tight["filament_warning"]
+
+    res_short = check_compatibility(
+        sliced_model="@BBL A1",
+        filament_type="PLA",
+        target_printer_name="Bambu Lab A1",
+        target_filament="PLA",
+        printer=p,
+        nozzle_diameter="0.4",
+        weight_g=140.0,
+    )
+    assert res_short["compatible"] is True
+    assert "filament_warning" in res_short
+    assert "мало нитки" in res_short["filament_warning"]
+

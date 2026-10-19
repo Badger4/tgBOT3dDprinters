@@ -46,10 +46,16 @@ class TestCommercialHandlers(unittest.TestCase):
     async def _send_cb(self, data: str) -> Message:
         msg = Message(message_id=99, date=datetime.now(), chat=self.chat, from_user=self.user_obj, text="")
         mock_reply = AsyncMock()
+        mock_answer = AsyncMock()
         mock_answer_doc = AsyncMock()
+        mock_delete = AsyncMock()
         object.__setattr__(msg, "reply", mock_reply)
+        object.__setattr__(msg, "answer", mock_answer)
         object.__setattr__(msg, "answer_document", mock_answer_doc)
+        object.__setattr__(msg, "delete", mock_delete)
+        msg._bot = self.app.bot
         cb = CallbackQuery(id="cb1", from_user=self.user_obj, chat_instance="1", message=msg, data=data)
+        cb._bot = self.app.bot
         mock_cb_answer = AsyncMock()
         object.__setattr__(cb, "answer", mock_cb_answer)
         await self.router.propagate_event("callback_query", cb, app=self.app, bot=self.app.bot)
@@ -172,6 +178,11 @@ class TestCommercialHandlers(unittest.TestCase):
 
             # Type new name
             await self._send_msg("Brand New Name")
+            user = await self.sm.load_user("123456")
+            self.assertEqual(user["state"], "edit_preset_field_choice")
+
+            # Click save draft
+            await self._send_cb("save_draft_preset_p_edit")
             user = await self.sm.load_user("123456")
             self.assertEqual(user["state"], "idle")
 

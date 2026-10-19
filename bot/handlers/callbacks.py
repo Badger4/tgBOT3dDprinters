@@ -13,15 +13,23 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
     data = callback.data or ""
     if data.startswith("deduct_"):
         parts = data.split("_")
-        if len(parts) >= 3:
+        p_id = None
+        grams = 0.0
+        if len(parts) >= 4 and parts[1] == "w":
+            p_id = parts[2]
+            try:
+                grams = float(parts[3])
+            except ValueError:
+                grams = 0.0
+        elif len(parts) >= 3:
             p_id = parts[1]
             try:
                 grams = float(parts[2])
             except ValueError:
                 grams = 0.0
 
-            printer = app.printers.get(p_id)
-            if printer and grams > 0:
+        printer = app.printers.get(p_id) if p_id else None
+        if printer and grams > 0:
                 active_key = printer.get_active_slot_key()
                 old_w = printer.get_slot_grams(active_key)
                 new_w = max(0.0, round(old_w - grams, 2))
@@ -32,9 +40,10 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
                     f"✅ Списано {grams}g зі слота {active_key}! Новий залишок: {new_w}g", show_alert=True
                 )
                 try:
+                    import html
                     await callback.message.reply(
-                        f"✅ **Списано {grams}g для {printer.name}!**\n🧵 **Слот AMS:** `{active_key}`\n📦 Старий залишок: *{old_w}g* ➔ Новий залишок: *{new_w}g*",
-                        parse_mode=ParseMode.MARKDOWN,
+                        f"✅ <b>Списано {grams}g для {html.escape(printer.name)}!</b>\n🧵 <b>Слот AMS:</b> <code>{html.escape(str(active_key))}</code>\n📦 Старий залишок: <i>{old_w}g</i> ➔ Новий залишок: <i>{new_w}g</i>",
+                        parse_mode=ParseMode.HTML,
                     )
                 except Exception:
                     pass
@@ -51,10 +60,11 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
 
             photo = await capture_real_camera_photo(printer.ip, printer.access_code)
             if photo:
+                import html
                 await callback.message.reply_photo(
                     BufferedInputFile(photo, filename=f"{printer.name}.jpg"),
-                    caption=f"📷 **Кадр з {printer.name}**",
-                    parse_mode=ParseMode.MARKDOWN,
+                    caption=f"📷 <b>Кадр з {html.escape(printer.name)}</b>",
+                    parse_mode=ParseMode.HTML,
                 )
             else:
                 await callback.message.reply("⚠️ Не вдалося отримати фото з камери.")
@@ -88,6 +98,29 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             await callback.answer(f"💡 Підсвітка {printer.name}: {new_state.upper()}", show_alert=True)
             return
 
+    elif data.startswith("clear_bed_"):
+        p_id = data.replace("clear_bed_", "")
+        printer = app.printers.get(p_id)
+        if printer:
+            printer.finish_timestamp = 0.0
+            if hasattr(app, "save_printers_config"):
+                await app.save_printers_config()
+            await callback.answer(
+                f"🧹 Стіл принтера {printer.name} позначено як очищений! Принтер готовий до роботи ✅",
+                show_alert=True,
+            )
+            try:
+                import html
+
+                await callback.message.reply(
+                    f"🧹 <b>Стіл принтера {html.escape(printer.name)} очищено!</b>\n"
+                    f"✅ Принтер вільний та готовий до наступного друку.",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                pass
+            return
+
     elif data.startswith("notify_calibrate_") or data.startswith("calibrate_printer_"):
         p_id = data.replace("notify_calibrate_", "").replace("calibrate_printer_", "")
         printer = app.printers.get(p_id)
@@ -110,11 +143,14 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
                 await callback.answer("⚠️ Не вдалося відправити команду калібрування.", show_alert=True)
             return
 
-    elif data.startswith("notify_maint_reset_"):
-        parts = data.replace("notify_maint_reset_", "").split("_")
+    elif data.startswith("notify_maint_reset_") or data.startswith("nmr:"):
+        if data.startswith("nmr:"):
+            parts = data.replace("nmr:", "").split(":")
+        else:
+            parts = data.replace("notify_maint_reset_", "").split("_")
         p_id = parts[0]
         item_key = parts[1] if len(parts) > 1 else "rails"
-        printer = app.printers.get(p_id)
+        printer = app.printers.get(p_id) or next((p for pid, p in app.printers.items() if pid.startswith(p_id)), None)
         if printer:
             printer.reset_maintenance_counter(item_key)
             await app.save_printers_config()

@@ -9,12 +9,15 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 def get_all_project_files():
     files = []
     extensions = ('.py', '.html', '.js', '.css', '.md')
     exclude_dirs = {'.venv', '__pycache__', '.git', 'logs', 'db', '.idea'}
     tracked_files = subprocess.run(
         ['git', 'ls-files', '--cached'],
+        cwd=str(PROJECT_ROOT),
         check=True,
         capture_output=True,
         text=True,
@@ -63,7 +66,7 @@ def deploy():
 
     for local_path, relative_remote_path in files_to_sync:
         remote_path = f"{remote_dir}/{relative_remote_path}"
-        sftp.put(local_path, remote_path)
+        sftp.put(str(PROJECT_ROOT / local_path), remote_path)
     sftp.close()
     print("[OK] Files uploaded.")
 

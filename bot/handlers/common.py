@@ -141,6 +141,11 @@ async def handle_fallback_text(message: Message, app):
         return
 
     user = await app.storage.load_user(chat_id)
+    if user.get("state") not in ["idle", ""]:
+        user["state"] = "idle"
+        user["context_data"] = {}
+        await app.storage.save_user(user)
+
     u_lang = user.get("language", "uk")
     is_adm = await app.is_user_admin(chat_id)
     await message.answer(

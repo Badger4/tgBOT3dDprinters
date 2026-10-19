@@ -594,16 +594,16 @@ class BambuPrinter:
                             spool_to_deduct["remaining_grams"] = new_w
                             spools[spool_id_to_deduct] = spool_to_deduct
                             await self.storage.save_spools(spools)
-                        await self.storage.record_spool_movement(
-                            spool_id=spool_id_to_deduct,
-                            spool_name=spool_to_deduct.get("name", "Котушка"),
-                            action="print",
-                            weight_change_g=-round(deducted_grams, 2),
-                            prev_weight_g=round(prev_w, 2),
-                            new_weight_g=new_w,
-                            reason=f"Друк: {self.subtask_name or 'Завдання'}",
-                            user=self.name,
-                        )
+                            await self.storage.record_spool_movement(
+                                spool_id=spool_id_to_deduct,
+                                spool_name=spool_to_deduct.get("name", "Котушка"),
+                                action="print",
+                                weight_change_g=-round(deducted_grams, 2),
+                                prev_weight_g=round(prev_w, 2),
+                                new_weight_g=new_w,
+                                reason=f"Друк: {self.subtask_name or 'Завдання'}",
+                                user=self.name,
+                            )
                 except Exception as ex:
                     logger.warning(f"Error in _deduct_spool_warehouse async task for [{self.name}]: {ex}")
 
@@ -717,6 +717,9 @@ class BambuPrinter:
     def _try_ftps_fetch(self) -> None:
         if self._ftps_fetching or not self.ip or not self.access_code:
             return
+        loop_to_use = self._get_active_event_loop()
+        if not loop_to_use or not loop_to_use.is_running():
+            return
         self._ftps_fetching = True
 
         def _worker() -> None:
@@ -737,17 +740,11 @@ class BambuPrinter:
             finally:
                 self._ftps_fetching = False
 
-        loop_to_use = self._get_active_event_loop()
-        if loop_to_use:
-            asyncio.run_coroutine_threadsafe(asyncio.to_thread(_worker), loop_to_use)
+        asyncio.run_coroutine_threadsafe(asyncio.to_thread(_worker), loop_to_use)
 
     def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
         payload = msg.payload
-        loop_to_use = self._get_active_event_loop()
-        if loop_to_use:
-            loop_to_use.call_soon_threadsafe(self._process_message, payload)
-        else:
-            self._process_message(payload)
+        self._process_message(payload)
 
     def _process_message(self, payload: bytes) -> None:
         try:
@@ -1053,20 +1050,26 @@ class BambuPrinter:
                         self._trigger_save()
 
                 if self.subtask_name and is_valid_print_job:
-                    from utils.spool_fingerprint import build_spool_fingerprint, save_active_print_context
+                    now_ts = time.time()
+                    last_l = getattr(self, "_last_saved_context_layer", -1)
+                    last_t = getattr(self, "_last_saved_context_time", 0.0)
+                    if self.layer_num != last_l or (now_ts - last_t >= 30.0):
+                        from utils.spool_fingerprint import build_spool_fingerprint, save_active_print_context
 
-                    active_print_context = {
-                        "printer_id": self.id,
-                        "subtask_name": self.subtask_name,
-                        "total_layers": self.total_layer_num,
-                        "saved_layer": self.layer_num,
-                        "saved_progress": self.mc_percent,
-                        "spool_fingerprint": build_spool_fingerprint(self),
-                        "job_grams": self._current_job_grams,
-                        "job_deducted": self._job_deducted,
-                        "timestamp": time.time(),
-                    }
-                    save_active_print_context(self.id, active_print_context)
+                        active_print_context = {
+                            "printer_id": self.id,
+                            "subtask_name": self.subtask_name,
+                            "total_layers": self.total_layer_num,
+                            "saved_layer": self.layer_num,
+                            "saved_progress": self.mc_percent,
+                            "spool_fingerprint": build_spool_fingerprint(self),
+                            "job_grams": self._current_job_grams,
+                            "job_deducted": self._job_deducted,
+                            "timestamp": now_ts,
+                        }
+                        save_active_print_context(self.id, active_print_context)
+                        self._last_saved_context_layer = self.layer_num
+                        self._last_saved_context_time = now_ts
 
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
                 was_calibrating = bool(getattr(self, "_is_calibrating", False))
@@ -1493,7 +1496,6 @@ class BambuPrinter:
             }
 
     def _dispatch_tray_event(self, event: dict) -> None:
-        self._pending_tray_events.append(event)
         if self.tray_event_callback:
             loop_to_use = getattr(self, "_main_loop", None) or self._get_active_event_loop()
             if loop_to_use and loop_to_use.is_running():
@@ -1509,6 +1511,8 @@ class BambuPrinter:
                     self.tray_event_callback(self, event)
                 except Exception as e:
                     logger.warning(f"Failed direct callback dispatch for [{self.name}]: {e}")
+        else:
+            self._pending_tray_events.append(event)
 
     def pop_tray_events(self) -> list[dict]:
         events = list(self._pending_tray_events)
@@ -1870,6 +1874,7 @@ class BambuPrinter:
 
         # Deduct weight from selected slot or active slot
         w_g = getattr(self, "_current_job_grams", 0.0)
+        self._job_started_from_app = True
         if w_g > 0 and not getattr(self, "_job_deducted", False) and deduct_key is not None:
             old_w = self.get_slot_grams(deduct_key)
             new_w = max(0.0, round(old_w - w_g, 2))

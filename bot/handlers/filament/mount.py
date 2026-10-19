@@ -1,4 +1,4 @@
-﻿"""
+"""
 Filament mounting and unmounting handlers.
 """
 
@@ -356,7 +356,7 @@ async def handle_fil_auto_mount_callback(call: CallbackQuery, app):
     p_id = parts[1]
     slot_id = parts[2]
     fil_type = parts[3] if len(parts) > 3 else ""
-    target_p = app.printers.get(p_id)
+    target_p = app.printers.get(p_id) or next((p for pid, p in app.printers.items() if pid.startswith(p_id)), None)
     if not target_p:
         await call.answer("Принтер не знайдено", show_alert=True)
         return
@@ -380,8 +380,8 @@ async def handle_fil_auto_mount_callback(call: CallbackQuery, app):
         s_mat = s.get("type", "PLA")
         s_grams = s.get("remaining_grams", 1000.0)
         btn_txt = f"🧵 {s_name} ({s_mat}, {s_grams}g)"
-        buttons.append([InlineKeyboardButton(text=btn_txt, callback_data=f"fil_pick:{p_id}:{slot_id}:{s['id']}")])
-    buttons.append([InlineKeyboardButton(text="⬅️ Скасувати", callback_data=f"fil_auto_skip:{p_id}:{slot_id}")])
+        buttons.append([InlineKeyboardButton(text=btn_txt, callback_data=f"fil_pk:{target_p.id[:8]}:{slot_id}:{s['id'][:12]}")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Скасувати", callback_data=f"fil_skip:{target_p.id[:8]}:{slot_id}")])
 
     await call.message.edit_text(
         f"📦 <b>Оберіть котушку зі Складу для слоту {s_label} на {html.escape(target_p.name)}:</b>",
@@ -391,19 +391,19 @@ async def handle_fil_auto_mount_callback(call: CallbackQuery, app):
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("fil_pick:"))
+@router.callback_query(F.data.startswith("fil_pick:") | F.data.startswith("fil_pk:"))
 async def handle_fil_pick_callback(call: CallbackQuery, app):
     parts = call.data.split(":")
     p_id = parts[1]
     slot_id = parts[2]
     spool_id = parts[3]
-    target_p = app.printers.get(p_id)
+    target_p = app.printers.get(p_id) or next((p for pid, p in app.printers.items() if pid.startswith(p_id)), None)
     if not target_p:
         await call.answer("Принтер не знайдено", show_alert=True)
         return
 
     spools = await app.storage.load_spools()
-    spool = spools.get(spool_id)
+    spool = spools.get(spool_id) or next((s for sid, s in spools.items() if sid.startswith(spool_id)), None)
     if not spool:
         await call.answer("Котушку не знайдено на складі", show_alert=True)
         return
@@ -433,9 +433,12 @@ async def handle_fil_auto_add_callback(call: CallbackQuery, app):
     chat_id = str(call.message.chat.id)
     user = await app.storage.load_user(chat_id)
 
+    target_p = app.printers.get(p_id) or next((p for pid, p in app.printers.items() if pid.startswith(p_id)), None)
+    resolved_pid = target_p.id if target_p else p_id
+
     user["state"] = "add_spool_name"
     user["context_data"] = {
-        "target_printer_id": p_id,
+        "target_printer_id": resolved_pid,
         "target_slot_key": slot_id,
         "auto_mount_on_create": True,
         "prefill_type": fil_type,
@@ -453,7 +456,7 @@ async def handle_fil_auto_add_callback(call: CallbackQuery, app):
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("fil_auto_skip"))
+@router.callback_query(F.data.startswith("fil_auto_skip") | F.data.startswith("fil_skip"))
 async def handle_fil_auto_skip_callback(call: CallbackQuery):
     await call.message.edit_text("✖ <b>Прив'язку котушки пропущено.</b>", parse_mode=ParseMode.HTML)
     await call.answer("Пропущено")

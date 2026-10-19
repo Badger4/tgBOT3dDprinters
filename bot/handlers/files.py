@@ -149,6 +149,20 @@ async def handle_document_upload(message: Message, app):
         kb_buttons.append([KeyboardButton(text="⬅️ Назад")])
         reply_kb = ReplyKeyboardMarkup(keyboard=kb_buttons, resize_keyboard=True)
 
+        if len(comp_txt) > 3900:
+            cut_idx = comp_txt[:3800].rfind("\n• ")
+            if cut_idx == -1:
+                cut_idx = comp_txt[:3800].rfind("\n")
+            if cut_idx == -1:
+                cut_idx = 3800
+            truncated = comp_txt[:cut_idx]
+            for tag in ["b", "i", "code", "pre", "s", "u"]:
+                open_cnt = truncated.count(f"<{tag}>")
+                close_cnt = truncated.count(f"</{tag}>")
+                if open_cnt > close_cnt:
+                    truncated += f"</{tag}>" * (open_cnt - close_cnt)
+            comp_txt = truncated + "\n\n<i>⚠️ Список сумісності скорочено через ліміт Telegram.</i>"
+
         await message.answer(comp_txt, parse_mode=ParseMode.HTML, reply_markup=reply_kb)
         await msg_wait.delete()
     except Exception as e:
@@ -281,7 +295,7 @@ async def handle_3mf_preset_choice(message: Message, app):
                     [
                         InlineKeyboardButton(
                             text="📄 Завантажити розрахунок (PDF)",
-                            callback_data=f"comm_quote_pdf_{p['id']}_{w_val}_{int(t_mins)}",
+                            callback_data=f"cqpdf:{p['id'][:12]}:{w_val}:{int(t_mins)}",
                         )
                     ]
                 ]
@@ -305,7 +319,7 @@ async def handle_3mf_preset_choice(message: Message, app):
                 [
                     InlineKeyboardButton(
                         text="📄 Завантажити розрахунок (PDF)",
-                        callback_data=f"comm_quote_pdf_{target['id']}_{w_val}_{int(t_mins)}",
+                        callback_data=f"cqpdf:{target['id'][:12]}:{w_val}:{int(t_mins)}",
                     )
                 ]
             ]

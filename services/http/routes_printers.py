@@ -11,7 +11,7 @@ from aiohttp import web
 from config import logger
 from models.printer import BambuPrinter
 from services.camera_stream import async_stream_camera_frames, capture_real_camera_photo
-from services.http.auth import check_auth
+from services.http.auth import check_auth, is_admin_request
 
 __all__ = [
     "build_printer_telemetry",
@@ -63,7 +63,6 @@ def build_printer_telemetry(p: Any) -> dict[str, Any]:
             "last_mqtt_msg_time": 0.0,
             "model": p.get("printer_model", "X1C"),
             "nozzle_diameter": p.get("nozzle_diameter", "0.4"),
-            "access_code": p.get("accessCode", p.get("access_code", "")),
             "serial_number": p.get("serialNumber", p.get("serial_number", "")),
         }
     used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
@@ -95,8 +94,8 @@ def build_printer_telemetry(p: Any) -> dict[str, Any]:
         "maintenance_items": getattr(p, "maintenance_items", {}),
         "total_print_hours": round(getattr(p, "total_print_hours", 0.0), 1),
         "hms_errors": getattr(p, "hms_errors", []),
-        "ams_slots": getattr(p, "ams_slots", {}),
-        "ams_trays_info": getattr(p, "ams_trays_info", {}),
+        "ams_slots": dict(getattr(p, "ams_slots", {})),
+        "ams_trays_info": dict(getattr(p, "ams_trays_info", {})),
         "active_ams_tray": getattr(p, "active_ams_tray", 255),
         "active_slot_key": p.get_active_slot_key() if hasattr(p, "get_active_slot_key") else "254",
         "has_ams": bool(getattr(p, "has_ams", False)),
@@ -104,8 +103,8 @@ def build_printer_telemetry(p: Any) -> dict[str, Any]:
         "ams_humidity_raw": getattr(p, "ams_humidity_raw", 0),
         "ams_temp": getattr(p, "ams_temp", 0.0),
         "notify": getattr(p, "notify", True),
-        "current_job_objects": getattr(p, "current_job_objects", []),
-        "skipped_objects": getattr(p, "skipped_objects", []),
+        "current_job_objects": list(getattr(p, "current_job_objects", [])),
+        "skipped_objects": list(getattr(p, "skipped_objects", [])),
         "model": getattr(p, "printer_model", "X1C"),
         "printer_model": getattr(p, "printer_model", "X1C"),
         "nozzle_diameter": getattr(p, "nozzle_diameter", "0.4"),
@@ -118,7 +117,7 @@ async def handle_get_printers(request: web.Request) -> web.Response:
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     app_obj = request.app["app_obj"]
-    result = [build_printer_telemetry(p) for p in app_obj.printers.values()]
+    result = [build_printer_telemetry(p) for p in list(app_obj.printers.values())]
     return web.json_response(result)
 
 
@@ -126,6 +125,8 @@ async def handle_create_printer(request: web.Request) -> web.Response:
     """POST /api/printers - Adds a new Bambu printer."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     try:
@@ -166,6 +167,8 @@ async def handle_delete_printer(request: web.Request) -> web.Response:
     """DELETE /api/printers/{id} - Removes a Bambu printer."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     p_id = request.match_info.get("id", "")
@@ -216,7 +219,7 @@ async def handle_get_printer_plate_map(request: web.Request) -> web.Response:
 
     req_fmt = str(request.query.get("format") or request.query.get("gif") or "").lower()
     if req_fmt in ["gif", "1", "true"]:
-        img_bytes = printer.get_plate_gif()
+        img_bytes = await asyncio.to_thread(printer.get_plate_gif)
         c_type = "image/gif"
     else:
         img_bytes = b""
@@ -225,7 +228,7 @@ async def handle_get_printer_plate_map(request: web.Request) -> web.Response:
     if not img_bytes:
         from utils.image_utils import render_plate_diagram
 
-        img_bytes = render_plate_diagram(objects, bed_size_mm=bed_size, skipped_ids=skipped)
+        img_bytes = await asyncio.to_thread(render_plate_diagram, objects, bed_size_mm=bed_size, skipped_ids=skipped)
         c_type = "image/jpeg"
 
     if not img_bytes:
@@ -300,9 +303,11 @@ async def handle_get_camera_stream(request: web.Request) -> web.StreamResponse:
 
 
 async def handle_update_access_code(request: web.Request) -> web.Response:
-    """POST /api/printers/{id}/access_code - Updates access code &SN for a printer."""
+    """POST /api/printers/{id}/access_code - Updates access code & SN for a printer."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     p_id = request.match_info.get("id", "")
@@ -362,11 +367,12 @@ async def handle_get_printer_settings(request: web.Request) -> web.Response:
             "min_filament": 0,
         }
 
+    is_admin = await is_admin_request(request)
     settings = {
         "id": p.id,
         "name": p.name,
         "ip": p.ip,
-        "accessCode": p.access_code,
+        "accessCode": p.access_code if is_admin else ("••••••••" if p.access_code else ""),
         "serialNumber": p.serial_number,
         "printer_model": getattr(p, "printer_model", "A1"),
         "ams_enabled": getattr(p, "ams_enabled", None),
@@ -383,8 +389,8 @@ async def handle_get_printer_settings(request: web.Request) -> web.Response:
 
 async def handle_update_printer_settings(request: web.Request) -> web.Response:
     """POST /api/printers/{id}/settings - Updates individual settings for a specific printer."""
-    if not await check_auth(request):
-        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Admin required"}, status=403)
 
     app_obj = request.app["app_obj"]
     p_id = request.match_info.get("id", "")

@@ -36,15 +36,20 @@ def is_trusted_proxy(remote_ip: str | None, trusted_list: list[str]) -> bool:
 def get_client_ip(request: web.Request) -> str:
     """
     Safely extracts client IP address.
-    X-Forwarded-For is only trusted when the direct connection originates
-    from a verified trusted reverse proxy (e.g. 127.0.0.1, ::1, or TRUSTED_PROXIES).
+    Checks CF-Connecting-IP first when behind a trusted proxy,
+    or validates X-Forwarded-For against trusted proxies.
     """
     remote = request.remote or "127.0.0.1"
     trusted = get_trusted_proxies()
     if is_trusted_proxy(remote, trusted):
+        cf_ip = request.headers.get("CF-Connecting-IP", "").strip()
+        if cf_ip:
+            return cf_ip
         forwarded = request.headers.get("X-Forwarded-For", "")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+            if parts:
+                return parts[0]
     return remote
 
 # IP Rate Limiting storage: ip -> list of request timestamps
@@ -68,7 +73,7 @@ ALLOWED_ORIGINS.discard("")
 
 STATIC_SECURITY_HEADERS = {
     "Access-Control-Allow-Methods": "GET, POST, DELETE, PUT, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-API-Key, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-API-Key, Authorization, X-Session-Token, X-Requested-With",
     "Access-Control-Max-Age": "86400",
     "X-Content-Type-Options": "nosniff",
     "X-XSS-Protection": "1; mode=block",
@@ -90,7 +95,7 @@ def _apply_cors_and_security_headers(request: web.Request, response: web.StreamR
     origin = request.headers.get("Origin", "")
     if origin and origin.rstrip("/") in ALLOWED_ORIGINS:
         response.headers["Access-Control-Allow-Origin"] = origin
-    else:
+    elif origin:
         response.headers["Access-Control-Allow-Origin"] = "null"
 
     response.headers.update(STATIC_SECURITY_HEADERS)
@@ -118,7 +123,9 @@ async def security_and_ratelimit_middleware(request: web.Request, handler: Any) 
     # 2. Redirect insecure external proxy requests to HTTPS when configured
     proto = request.headers.get("X-Forwarded-Proto", "").lower()
     if proto == "http" and getattr(config, "WEBAPP_URL", "").lower().startswith("https://"):
-        host = request.headers.get("X-Forwarded-Host") or request.host
+        from urllib.parse import urlparse
+        configured_host = urlparse(config.WEBAPP_URL).netloc
+        host = configured_host if configured_host else request.host
         return web.HTTPMovedPermanently(f"https://{host}{request.rel_url}")
 
     client_ip = get_client_ip(request)
@@ -168,12 +175,11 @@ async def security_and_ratelimit_middleware(request: web.Request, handler: Any) 
     # Process request
     response = await handler(request)
 
-    # Apply HTTP Security, CORS & Rate Limit Headers
-    _apply_cors_and_security_headers(request, response)
-    response.headers["X-RateLimit-Limit"] = str(limit)
-    response.headers["X-RateLimit-Remaining"] = str(max(0, remaining - 1))
-
+    # Apply HTTP Security, CORS & Rate Limit Headers if response is not yet prepared (streaming responses)
     if not response.prepared:
+        _apply_cors_and_security_headers(request, response)
+        response.headers["X-RateLimit-Limit"] = str(limit)
+        response.headers["X-RateLimit-Remaining"] = str(max(0, remaining - 1))
         try:
             response.enable_compression()
         except Exception:

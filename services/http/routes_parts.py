@@ -4,10 +4,11 @@ Parts warehouse management REST API endpoints supporting reference bot fields.
 
 import asyncio
 import time
+import re
 from aiohttp import web
 
 from config import logger
-from services.http.auth import check_auth
+from services.http.auth import check_auth, is_admin_request
 
 
 async def handle_get_parts(request: web.Request) -> web.Response:
@@ -76,6 +77,8 @@ async def handle_save_part(request: web.Request) -> web.Response:
     """POST /api/parts - Add or update a part in warehouse."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     try:
@@ -86,7 +89,9 @@ async def handle_save_part(request: web.Request) -> web.Response:
             parts = {}
 
         existing = parts.get(part_id, {}) if isinstance(parts.get(part_id), dict) else {}
-        new_three_mf = str(data.get("three_mf", existing.get("three_mf", ""))).strip()
+        import os
+        raw_three_mf = str(data.get("three_mf", existing.get("three_mf", ""))).strip().replace("\\", "/")
+        new_three_mf = os.path.basename(raw_three_mf) if raw_three_mf else ""
         old_three_mf = existing.get("old_three_mf", "")
 
         if new_three_mf and existing.get("three_mf") and new_three_mf != existing.get("three_mf"):
@@ -166,10 +171,14 @@ async def handle_download_part_3mf(request: web.Request) -> web.Response:
     file_bytes = None
     filename = part.get("name", "model").replace(" ", "_") + ".3mf"
 
+    import os
+    safe_id = os.path.basename(str(three_mf_id))
+
     # Search local disk uploads or parts_files
     for dir_path in [config.STORAGE_DIR / "uploads", config.STORAGE_DIR / "parts_files"]:
-        target_path = dir_path / three_mf_id
-        if target_path.exists():
+        resolved_dir = dir_path.resolve()
+        target_path = (resolved_dir / safe_id).resolve()
+        if target_path.is_relative_to(resolved_dir) and target_path.exists() and target_path.is_file():
             file_bytes = target_path.read_bytes()
             break
 
@@ -185,11 +194,12 @@ async def handle_download_part_3mf(request: web.Request) -> web.Response:
     if not file_bytes:
         return web.json_response({"error": "Файл .3mf недоступний на сервері"}, status=404)
 
+    clean_fname = re.sub(r'[\r\n"\\/]', '_', filename).strip('_')
     return web.Response(
         body=file_bytes,
         headers={
             "Content-Type": "application/octet-stream",
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": f'attachment; filename="{clean_fname}"'
         }
     )
 
@@ -198,16 +208,19 @@ async def handle_delete_part(request: web.Request) -> web.Response:
     """DELETE /api/parts/{id} - Remove a part from warehouse."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     part_id = request.match_info.get("id", "")
-    parts = await app_obj.storage.load_parts()
-    if not isinstance(parts, dict):
-        parts = {}
-    if part_id in parts:
-        del parts[part_id]
-        await app_obj.storage.save_parts(parts)
-        return web.json_response({"status": "ok"})
+    async with app_obj.storage.transaction_lock("parts"):
+        parts = await app_obj.storage.load_parts()
+        if not isinstance(parts, dict):
+            parts = {}
+        if part_id in parts:
+            del parts[part_id]
+            await app_obj.storage.save_parts(parts)
+            return web.json_response({"status": "ok"})
     return web.json_response({"error": "Part not found"}, status=404)
 
 
@@ -215,6 +228,8 @@ async def handle_print_part(request: web.Request) -> web.Response:
     """POST /api/parts/{part_id}/print/{printer_id} - Sends a part model to a printer and starts print."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     part_id = request.match_info.get("part_id", "")
@@ -241,23 +256,22 @@ async def handle_print_part(request: web.Request) -> web.Response:
         except Exception:
             data = {}
         import config
+        import os
         from pathlib import Path
-        clean_name = three_mf_id.replace("\\", "/").split("/")[-1]
-        clean_rel = three_mf_id.lstrip("/").lstrip("\\")
+        clean_name = os.path.basename(three_mf_id.replace("\\", "/"))
 
         possible_paths = [
             config.STORAGE_DIR / "uploads" / clean_name,
             config.STORAGE_DIR / "parts_files" / clean_name,
             config.STORAGE_DIR / clean_name,
-            config.STORAGE_DIR / clean_rel,
-            Path(three_mf_id),
         ]
 
         file_bytes = None
         for p in possible_paths:
             try:
-                if p.exists() and p.is_file():
-                    file_bytes = p.read_bytes()
+                resolved_p = p.resolve()
+                if resolved_p.is_relative_to(config.STORAGE_DIR.resolve()) and resolved_p.is_file():
+                    file_bytes = await asyncio.to_thread(resolved_p.read_bytes)
                     break
             except Exception:
                 pass
@@ -348,11 +362,12 @@ async def handle_export_parts_pdf(request: web.Request) -> web.Response:
 
         rows_html = ""
         if parts and isinstance(parts, dict):
+            import html
             for p_id, p in parts.items():
                 if isinstance(p, dict):
-                    name = p.get("name", "Деталь")
-                    model = p.get("printer_model", "-")
-                    fil_type = p.get("filament_type", "PLA")
+                    name = html.escape(str(p.get("name", "Деталь")))
+                    model = html.escape(str(p.get("printer_model", "-")))
+                    fil_type = html.escape(str(p.get("filament_type", "PLA")))
                     weight_g = float(p.get("weight_g", 0.0) or p.get("weight", 0.0) or 0.0)
                     price = float(p.get("price", 0.0) or p.get("cost", 0.0) or 0.0)
                     qty = max(1, int(p.get("count", 1) or p.get("quantity", 1) or 1))
@@ -385,11 +400,13 @@ async def handle_export_parts_pdf(request: web.Request) -> web.Response:
             if not bot:
                 return web.json_response({"error": "Бот зараз не активний"}, status=503)
 
-            u_id = get_authenticated_user_id(request) or getattr(config, "ADMIN_CHAT_ID", None)
+            u_id = get_authenticated_user_id(request)
+            if not u_id and await is_admin_request(request):
+                u_id = getattr(config, "ADMIN_CHAT_ID", None)
             if not u_id:
                 return web.json_response({"error": "Користувача не ідентифіковано"}, status=400)
 
-            pdf_bytes = generate_parts_pdf_report(parts)
+            pdf_bytes = await asyncio.to_thread(generate_parts_pdf_report, parts)
             fname = f"parts_inventory_{int(time.time())}.pdf"
             doc_file = BufferedInputFile(pdf_bytes, filename=fname)
             cap = (

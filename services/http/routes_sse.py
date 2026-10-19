@@ -24,7 +24,6 @@ async def handle_sse_stream(request: web.Request) -> web.StreamResponse:
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
         },
     )
     await response.prepare(request)
@@ -32,7 +31,7 @@ async def handle_sse_stream(request: web.Request) -> web.StreamResponse:
 
     try:
         while True:
-            printers_data = [build_printer_telemetry(p) for p in app_obj.printers.values()]
+            printers_data = [build_printer_telemetry(p) for p in list(app_obj.printers.values())]
             payload = f"data: {json.dumps(printers_data)}\n\n"
             await response.write(payload.encode("utf-8"))
             await asyncio.sleep(SSE_INTERVAL_SECONDS)

@@ -2,8 +2,12 @@
  * 3D Farm Telegram WebApp Application Logic
  */
 
-// Automatically bypass localtunnel & attach Telegram WebApp HMAC initData to all API requests
+// Automatically bypass localtunnel & attach Telegram WebApp HMAC initData & session tokens to all API requests
 const originalFetch = window.fetch;
+function getWebSessionToken() {
+    return localStorage.getItem("3d_farm_session") || localStorage.getItem("web_session_token") || "";
+}
+
 window.fetch = function(url, options = {}) {
     options = options || {};
     let h = options.headers;
@@ -15,6 +19,11 @@ window.fetch = function(url, options = {}) {
     h.set("Bypass-Tunnel-Reminder", "true");
     if (window.Telegram?.WebApp?.initData) {
         h.set("X-Telegram-Init-Data", window.Telegram.WebApp.initData);
+    }
+    const token = getWebSessionToken();
+    if (token) {
+        if (!h.has("Authorization")) h.set("Authorization", `Bearer ${token}`);
+        if (!h.has("X-Session-Token")) h.set("X-Session-Token", token);
     }
     options.headers = h;
     return originalFetch(url, options);
@@ -244,7 +253,7 @@ window.submitSaveSpool = async function(e) {
 
     try {
         const initData = window.Telegram?.WebApp?.initData || "";
-        const sessionToken = localStorage.getItem("web_session_token") || "";
+        const sessionToken = getWebSessionToken();
         const headers = { "Content-Type": "application/json" };
         if (initData) headers["X-Telegram-Init-Data"] = initData;
         if (sessionToken) headers["Authorization"] = `Bearer ${sessionToken}`;
@@ -295,7 +304,7 @@ function getMovementsPdfExportUrl() {
 
     const url = new URL("/api/spools/movements/export_pdf", window.location.origin);
     const initData = window.Telegram?.WebApp?.initData || "";
-    const sessionToken = localStorage.getItem("web_session_token") || "";
+    const sessionToken = getWebSessionToken();
     if (initData) url.searchParams.set("initData", initData);
     if (sessionToken) url.searchParams.set("token", sessionToken);
 
@@ -520,7 +529,7 @@ window.openSpoolMovementsModal = async function(options = {}) {
 
     try {
         const initData = window.Telegram?.WebApp?.initData || "";
-        const sessionToken = localStorage.getItem("web_session_token") || "";
+        const sessionToken = getWebSessionToken();
         const headers = {};
         if (initData) headers["X-Telegram-Init-Data"] = initData;
         if (sessionToken) headers["Authorization"] = `Bearer ${sessionToken}`;
@@ -623,6 +632,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (lastModal.style.display === 'flex' || lastModal.style.display === 'block') {
                         lastModal.style.display = 'none';
                     }
+                    if (lastModal.id === "printer-modal" || lastModal.id === "camera-fullscreen-modal" || !document.getElementById("printer-modal")?.classList.contains("active")) {
+                        const cImg = document.getElementById("camera-snapshot-img");
+                        const fsImg = document.getElementById("fullscreen-camera-img");
+                        if (cImg) cImg.src = "";
+                        if (fsImg) fsImg.src = "";
+                    }
                     updateBackButton();
                 }
             });
@@ -673,7 +688,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const rFilament = rHub + (rOuter - rHub - 2) * Math.sqrt(pct);
         const isLow = rem < 100 || pct < 0.15;
         const pulseClass = isLow ? "spool-svg-pulse" : "";
-        const spoolColor = (color && color.startsWith("#")) ? color : "#3b82f6";
+        const spoolColor = (color && /^#[0-9a-fA-F]{3,8}$/.test(color)) ? color : "#3b82f6";
 
         // Calculate luminance for contrast outline on light colors (white, ivory, light yellow, etc.)
         let isLightColor = false;
@@ -805,19 +820,20 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // 2. Navigation & Tabs
+    // 2. Navigation & Tabs, Pull-to-Refresh & Mobile Bottom Sheet Gestures
 
     navButtons.forEach(btn => {
         btn.addEventListener("click", () => {
-            triggerHaptic("light");
+            triggerHaptic("selection");
             const targetTab = btn.getAttribute("data-tab");
 
             navButtons.forEach(b => b.classList.remove("active"));
             tabPages.forEach(p => p.classList.remove("active"));
 
             btn.classList.add("active");
-            document.getElementById(targetTab).classList.add("active");
+            document.getElementById(targetTab)?.classList.add("active");
 
+            if (targetTab === "tab-commercial" && typeof loadCommercialPresets === "function") loadCommercialPresets();
             if (targetTab === "tab-materials") loadMaterials();
             if (targetTab === "tab-parts") loadParts();
             if (targetTab === "tab-history") loadHistory();
@@ -825,14 +841,139 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    // Pull-to-Refresh Gesture at top of viewport
+    const ptrEl = document.createElement("div");
+    ptrEl.className = "ptr-indicator";
+    ptrEl.innerHTML = `<i class="fa-solid fa-rotate"></i> <span>Потягніть для оновлення</span>`;
+    document.body.appendChild(ptrEl);
+
+    let ptrStartY = 0;
+    let ptrPulling = false;
+    let ptrRefreshing = false;
+
+    document.addEventListener("touchstart", (e) => {
+        if (ptrRefreshing || window.scrollY > 2) return;
+        const activeModal = document.querySelector(".modal-backdrop.active, .camera-fullscreen-backdrop.active");
+        if (activeModal) return;
+        ptrStartY = e.touches[0].clientY;
+        ptrPulling = true;
+    }, { passive: true });
+
+    document.addEventListener("touchmove", (e) => {
+        if (!ptrPulling || ptrRefreshing) return;
+        if (window.scrollY > 2) {
+            ptrPulling = false;
+            ptrEl.classList.remove("visible");
+            ptrEl.style.transform = "translate(-50%, -70px)";
+            return;
+        }
+        const dy = e.touches[0].clientY - ptrStartY;
+        if (dy > 15) {
+            const pullOffset = Math.min(40, (dy - 15) * 0.45);
+            ptrEl.classList.add("visible");
+            ptrEl.style.transform = `translate(-50%, ${pullOffset - 35}px)`;
+            const span = ptrEl.querySelector("span");
+            if (span) {
+                span.textContent = dy > 80 ? "Відпустіть для оновлення" : "Потягніть для оновлення";
+            }
+        }
+    }, { passive: true });
+
+    document.addEventListener("touchend", async (e) => {
+        if (!ptrPulling || ptrRefreshing) return;
+        ptrPulling = false;
+        const endY = e.changedTouches?.[0]?.clientY || ptrStartY;
+        const dy = endY - ptrStartY;
+        if (dy > 80 && window.scrollY <= 2) {
+            ptrRefreshing = true;
+            triggerHaptic("medium");
+            ptrEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Оновлення...</span>`;
+            ptrEl.style.transform = "translate(-50%, 6px)";
+            try {
+                await fetchPrinters();
+                const activeTab = document.querySelector(".nav-btn.active")?.getAttribute("data-tab");
+                if (activeTab === "tab-materials" && typeof loadMaterials === "function") await loadMaterials();
+                else if (activeTab === "tab-parts" && typeof loadParts === "function") await loadParts(false);
+                else if (activeTab === "tab-history" && typeof loadHistory === "function") await loadHistory();
+                else if (activeTab === "tab-settings" && typeof loadSettings === "function") await loadSettings();
+            } catch (_) {}
+            setTimeout(() => {
+                ptrEl.classList.remove("visible");
+                ptrEl.style.transform = "translate(-50%, -70px)";
+                ptrEl.innerHTML = `<i class="fa-solid fa-rotate"></i> <span>Потягніть для оновлення</span>`;
+                ptrRefreshing = false;
+            }, 350);
+        } else {
+            ptrEl.classList.remove("visible");
+            ptrEl.style.transform = "translate(-50%, -70px)";
+        }
+    }, { passive: true });
+
+    // Mobile Bottom Sheet Swipe-Down-to-Dismiss on .modal-header
+    let sheetStartY = 0;
+    let sheetActiveWindow = null;
+    let sheetActiveBackdrop = null;
+
+    document.addEventListener("touchstart", (e) => {
+        const header = e.target.closest(".modal-header");
+        if (!header) return;
+        const backdrop = header.closest(".modal-backdrop.active:not(.camera-fullscreen-backdrop)");
+        const win = header.closest(".modal-window");
+        if (!backdrop || !win) return;
+        sheetStartY = e.touches[0].clientY;
+        sheetActiveWindow = win;
+        sheetActiveBackdrop = backdrop;
+        win.style.transition = "none";
+    }, { passive: true });
+
+    document.addEventListener("touchmove", (e) => {
+        if (!sheetActiveWindow) return;
+        const dy = Math.max(0, e.touches[0].clientY - sheetStartY);
+        if (dy > 5) {
+            sheetActiveWindow.style.transform = `translateY(${dy}px)`;
+        }
+    }, { passive: true });
+
+    document.addEventListener("touchend", (e) => {
+        if (!sheetActiveWindow || !sheetActiveBackdrop) return;
+        const endY = e.changedTouches?.[0]?.clientY || sheetStartY;
+        const dy = endY - sheetStartY;
+        const win = sheetActiveWindow;
+        const backdrop = sheetActiveBackdrop;
+        sheetActiveWindow = null;
+        sheetActiveBackdrop = null;
+        win.style.transition = "transform 0.2s ease";
+        if (dy > 75) {
+            triggerHaptic("light");
+            win.style.transform = "";
+            const closeBtn = backdrop.querySelector(".icon-btn-close");
+            if (closeBtn) {
+                closeBtn.click();
+            } else {
+                backdrop.classList.remove("active");
+                updateBackButton();
+            }
+        } else {
+            win.style.transform = "";
+        }
+    }, { passive: true });
+
     // 3. SSE Live Event Stream Listener & Telemetry Fetching
+    let evtSource = null;
+    let sseRetryCount = 0;
+
     function initSSEStream() {
         if (!window.EventSource) return;
+        if (evtSource) {
+            try { evtSource.close(); } catch (_) {}
+            evtSource = null;
+        }
         try {
             const initDataParam = tg?.initData ? "?initData=" + encodeURIComponent(tg.initData) : "";
-            const evtSource = new EventSource("/api/events" + initDataParam);
+            evtSource = new EventSource("/api/events" + initDataParam);
 
             evtSource.onopen = function() {
+                sseRetryCount = 0;
                 // When SSE stream is healthy, slow down backup polling from 4s to 15s to save bandwidth & CPU
                 if (pollInterval) {
                     clearInterval(pollInterval);
@@ -862,15 +1003,45 @@ document.addEventListener("DOMContentLoaded", () => {
             };
 
             evtSource.onerror = function() {
-                evtSource.close();
+                if (evtSource) {
+                    evtSource.close();
+                    evtSource = null;
+                }
                 // Resume active 4s polling on SSE disconnect
                 if (pollInterval) clearInterval(pollInterval);
                 pollInterval = setInterval(fetchPrinters, 4000);
+                const delay = Math.min(30000, 1000 * Math.pow(1.5, sseRetryCount++));
+                setTimeout(() => {
+                    if (!evtSource && document.visibilityState !== "hidden") {
+                        initSSEStream();
+                    }
+                }, delay);
             };
         } catch (e) {
             console.error("SSE initialization failed:", e);
         }
     }
+
+    document.addEventListener("visibilitychange", () => {
+        const BLANK_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+        if (document.hidden) {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+            if (evtSource) {
+                evtSource.close();
+                evtSource = null;
+            }
+            const cImg = document.getElementById("camera-snapshot-img");
+            const fsImg = document.getElementById("fullscreen-camera-img");
+            if (cImg) cImg.src = BLANK_PIXEL;
+            if (fsImg) fsImg.src = BLANK_PIXEL;
+        } else {
+            fetchPrinters();
+            initSSEStream();
+        }
+    });
 
     async function fetchPrinters() {
         try {
@@ -1213,6 +1384,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 </div>`;
         }
 
+        const isPaused = statusInfo.code === "PAUSE";
+        const canPauseResume = isPrinting || isPaused;
+        const isPeekOpen = window._openCamPeekIds && window._openCamPeekIds.has(String(p.id));
+        const initDataParam = tg?.initData ? `?initData=${encodeURIComponent(tg.initData)}` : '';
+        const peekSrc = isPeekOpen ? `/api/printers/${p.id}/snapshot${initDataParam}${initDataParam ? '&' : '?'}t=${Date.now()}` : "";
+
         return `
             <div class="printer-card cockpit-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">
                 <!-- Header -->
@@ -1228,6 +1405,13 @@ document.addEventListener("DOMContentLoaded", () => {
                         </div>
                     </div>
                     <div class="cockpit-quick-actions">
+                        ${canPauseResume ? `
+                        <button type="button" class="btn-cockpit-quick btn-cockpit-pause-resume ${isPaused ? 'state-pause' : 'state-running'}" data-id="${p.id}" data-state="${statusInfo.code}" title="${isPaused ? 'Відновити друк' : 'Поставити на паузу'}">
+                            <i class="fa-solid ${isPaused ? 'fa-play' : 'fa-pause'}"></i>
+                        </button>` : ''}
+                        <button type="button" class="btn-cockpit-quick btn-cockpit-cam-peek ${isPeekOpen ? 'active' : ''}" data-id="${p.id}" title="Швидкий огляд камери">
+                            <i class="fa-solid fa-camera"></i>
+                        </button>
                         <button type="button" class="btn-cockpit-quick btn-cockpit-light ${lightIsOn ? 'active' : ''}" data-id="${p.id}" title="Підсвітка камери: ${lightIsOn ? 'Увімкнено' : 'Вимкнено'}">
                             <i class="fa-solid fa-lightbulb"></i>
                         </button>
@@ -1239,6 +1423,11 @@ document.addEventListener("DOMContentLoaded", () => {
                             <i class="fa-solid fa-gear"></i>
                         </button>
                     </div>
+                </div>
+
+                <!-- Quick Inline Camera Peek Box -->
+                <div class="cockpit-cam-peek-box ${isPeekOpen ? 'active' : ''}" id="cockpit-peek-${p.id}">
+                    ${isPeekOpen ? `<img src="${peekSrc}" alt="Камера ${escapeHtml(p.name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; color:var(--text-muted); font-size:12px; align-items:center; gap:6px;"><i class="fa-solid fa-video-slash"></i> Камера недоступна</div>` : ''}
                 </div>
 
                 <!-- Cockpit Body: Circular SVG Progress & Telemetry -->
@@ -1278,6 +1467,58 @@ document.addEventListener("DOMContentLoaded", () => {
                 <!-- Cockpit AMS Mini-Slots / External Spool -->
                 ${amsPanelHtml}
             </div>`;
+    }
+
+    async function handleQuickPauseResume(pId, btnEl, e) {
+        if (e) e.stopPropagation();
+        triggerHaptic("medium");
+        const curState = btnEl.getAttribute("data-state") || "RUNNING";
+        const action = curState === "PAUSE" ? "resume" : "pause";
+        const actionLabel = action === "resume" ? "Відновлення друку" : "Паузу друку";
+        btnEl.disabled = true;
+        try {
+            const res = await fetch(`/api/printers/${pId}/control`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action })
+            });
+            const data = await res.json();
+            if (res.ok && data.status === "ok") {
+                triggerHaptic("success");
+                fetchPrinters();
+            } else {
+                triggerHaptic("error");
+                alert(`⚠️ Не вдалося виконати ${actionLabel}: ${data.error || ''}`);
+            }
+        } catch (err) {
+            triggerHaptic("error");
+            console.error("Quick pause/resume error:", err);
+        } finally {
+            btnEl.disabled = false;
+        }
+    }
+
+    function handleQuickCamPeek(pId, btnEl, e) {
+        if (e) e.stopPropagation();
+        triggerHaptic("light");
+        if (!window._openCamPeekIds) window._openCamPeekIds = new Set();
+        const key = String(pId);
+        const box = document.getElementById(`cockpit-peek-${pId}`);
+        if (!box) return;
+
+        if (window._openCamPeekIds.has(key)) {
+            window._openCamPeekIds.delete(key);
+            btnEl.classList.remove("active");
+            box.classList.remove("active");
+            box.innerHTML = "";
+        } else {
+            window._openCamPeekIds.add(key);
+            btnEl.classList.add("active");
+            box.classList.add("active");
+            const initDataParam = tg?.initData ? `?initData=${encodeURIComponent(tg.initData)}` : '';
+            const src = `/api/printers/${pId}/snapshot${initDataParam}${initDataParam ? '&' : '?'}t=${Date.now()}`;
+            box.innerHTML = `<img src="${src}" alt="Камера" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; color:var(--text-muted); font-size:12px; align-items:center; gap:6px;"><i class="fa-solid fa-video-slash"></i> Камера недоступна</div>`;
+        }
     }
 
     async function handleQuickLightToggle(pId, btnEl, e) {
@@ -1483,7 +1724,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 else if (!timeStr && isPrinting) timeStr = "Оцінка...";
 
                 const initDataParam = tg?.initData ? `?initData=${encodeURIComponent(tg.initData)}` : '';
-                let thumbSrc = `/api/printers/${p.id}/stream${initDataParam}`;
+                let thumbSrc = `/api/printers/${p.id}/snapshot${initDataParam}`;
                 
                 return `
                     <div class="glass-card" data-id="${p.id}" style="padding: 10px; cursor: pointer; display: flex; flex-direction: column; position: relative;">
@@ -1528,6 +1769,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 e.stopPropagation();
                 const pId = btn.getAttribute("data-id");
                 openPrinterSettingsModal(pId);
+            });
+        });
+
+        document.querySelectorAll(".btn-cockpit-pause-resume").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const pId = btn.getAttribute("data-id");
+                handleQuickPauseResume(pId, btn, e);
+            });
+        });
+
+        document.querySelectorAll(".btn-cockpit-cam-peek").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const pId = btn.getAttribute("data-id");
+                handleQuickCamPeek(pId, btn, e);
             });
         });
 
@@ -2093,12 +2348,19 @@ document.addEventListener("DOMContentLoaded", () => {
             if (cameraImg.nextElementSibling) cameraImg.nextElementSibling.style.display = "none";
             if (!cameraImg.src.includes(`/api/printers/${pId}/stream`)) {
                 cameraImg.src = streamUrl;
+                let cRetries = 0;
                 cameraImg.onerror = () => {
-                    setTimeout(() => {
-                        if (selectedPrinterId === pId && cameraImg) {
-                            cameraImg.src = `/api/printers/${pId}/stream?t=${Date.now()}${tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : ""}`;
-                        }
-                    }, 2000);
+                    if (cRetries < 3) {
+                        cRetries++;
+                        setTimeout(() => {
+                            if (selectedPrinterId === pId && cameraImg) {
+                                cameraImg.src = `/api/printers/${pId}/stream?t=${Date.now()}${tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : ""}`;
+                            }
+                        }, 2000 * cRetries);
+                    } else {
+                        cameraImg.style.display = "none";
+                        if (cameraImg.nextElementSibling) cameraImg.nextElementSibling.style.display = "flex";
+                    }
                 };
             }
         }
@@ -2108,12 +2370,19 @@ document.addEventListener("DOMContentLoaded", () => {
             if (fullscreenCamImg.nextElementSibling) fullscreenCamImg.nextElementSibling.style.display = "none";
             if (!fullscreenCamImg.src.includes(`/api/printers/${pId}/stream`)) {
                 fullscreenCamImg.src = streamUrl;
+                let fsRetries = 0;
                 fullscreenCamImg.onerror = () => {
-                    setTimeout(() => {
-                        if (selectedPrinterId === pId && fullscreenCamImg) {
-                            fullscreenCamImg.src = `/api/printers/${pId}/stream?t=${Date.now()}${tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : ""}`;
-                        }
-                    }, 2000);
+                    if (fsRetries < 3) {
+                        fsRetries++;
+                        setTimeout(() => {
+                            if (selectedPrinterId === pId && fullscreenCamImg) {
+                                fullscreenCamImg.src = `/api/printers/${pId}/stream?t=${Date.now()}${tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : ""}`;
+                            }
+                        }, 2000 * fsRetries);
+                    } else {
+                        fullscreenCamImg.style.display = "none";
+                        if (fullscreenCamImg.nextElementSibling) fullscreenCamImg.nextElementSibling.style.display = "flex";
+                    }
                 };
             }
         }
@@ -2170,12 +2439,32 @@ document.addEventListener("DOMContentLoaded", () => {
             if (fullscreenCamModal && fullscreenCamModal.classList.contains("active")) {
                 closeFullscreenCamera();
             }
+            if (printerModal && printerModal.classList.contains("active")) {
+                printerModal.classList.remove("active");
+                if (cameraImg) cameraImg.src = "";
+                selectedPrinterId = null;
+            }
             const movModal = document.getElementById("spool-movements-modal");
             if (movModal && movModal.classList.contains("active")) {
                 window.closeSpoolMovementsModal(e);
             }
         }
     });
+
+    if (printerModal) {
+        printerModal.addEventListener("click", (e) => {
+            if (e.target === printerModal) {
+                triggerHaptic("light");
+                printerModal.classList.remove("active");
+                if (cameraImg) cameraImg.src = "";
+                if (fullscreenCamModal) {
+                    fullscreenCamModal.classList.remove("active");
+                    if (fullscreenCamImg) fullscreenCamImg.src = "";
+                }
+                selectedPrinterId = null;
+            }
+        });
+    }
 
     closeModalBtn.addEventListener("click", () => {
         triggerHaptic("light");
@@ -2953,13 +3242,19 @@ document.addEventListener("DOMContentLoaded", () => {
         const statJobsEl = document.getElementById("stat-total-jobs");
         const statWeightEl = document.getElementById("stat-total-weight");
         const statScrapEl = document.getElementById("stat-total-scrap");
+        const scrapSummaryEl = document.getElementById("scrap-reasons-summary");
 
         let totalGrams = 0;
         let scrapJobs = 0;
+        const reasonCounts = {};
         history.forEach(item => {
             const g = item.weight_g !== undefined ? item.weight_g : (item.weight ? Math.round(item.weight) : 0);
             totalGrams += g;
-            if (item.is_scrap) scrapJobs++;
+            if (item.is_scrap) {
+                scrapJobs++;
+                const r = String(item.scrap_reason || "Інший дефект").trim();
+                reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+            }
         });
 
         if (statJobsEl) statJobsEl.textContent = history.length;
@@ -2970,6 +3265,17 @@ document.addEventListener("DOMContentLoaded", () => {
         if (statScrapEl) {
             const scrapPct = history.length ? Math.round((scrapJobs / history.length) * 100) : 0;
             statScrapEl.textContent = `${scrapJobs} (${scrapPct}%)`;
+        }
+        if (scrapSummaryEl) {
+            const entries = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]);
+            if (entries.length > 0) {
+                scrapSummaryEl.style.display = "flex";
+                scrapSummaryEl.innerHTML = `<span style="font-size:11px; color:var(--text-muted); align-self:center; margin-right:4px;"><i class="fa-solid fa-chart-simple color-red"></i> Причини браку:</span>` +
+                    entries.map(([reason, cnt]) => `<span class="badge-scrap" style="font-size:10.5px;">${escapeHtml(reason)}: <b>${cnt}</b></span>`).join("");
+            } else {
+                scrapSummaryEl.style.display = "none";
+                scrapSummaryEl.innerHTML = "";
+            }
         }
 
         if (!history || history.length === 0) {
@@ -3366,7 +3672,7 @@ document.addEventListener("DOMContentLoaded", () => {
     async function downloadReportFile(urlOrBlob, defaultFilename) {
         try {
             const initData = window.Telegram?.WebApp?.initData || "";
-            const sessionToken = localStorage.getItem("web_session_token") || "";
+            const sessionToken = getWebSessionToken();
 
             // String URL (GET API Endpoint)
             if (typeof urlOrBlob === "string") {
@@ -3423,7 +3729,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function triggerPdfReportExport(endpointBase, params = {}, defaultFilename = "report.pdf", btnEl = null) {
         const initData = window.Telegram?.WebApp?.initData || "";
-        const sessionToken = localStorage.getItem("web_session_token") || "";
+        const sessionToken = getWebSessionToken();
 
         // 1. URL to send PDF to Telegram bot in background
         const sendTgUrl = new URL(endpointBase, window.location.origin);
@@ -3537,7 +3843,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!el) return;
         const updateHref = () => {
             const initData = window.Telegram?.WebApp?.initData || "";
-            const sessionToken = localStorage.getItem("web_session_token") || "";
+            const sessionToken = getWebSessionToken();
             let params = {};
             if (linkId === "btn-export-movements-pdf") {
                 params = getMovementsFilterParams();
@@ -3614,7 +3920,7 @@ document.addEventListener("DOMContentLoaded", () => {
             toast.style.cssText = "position:fixed;bottom:85px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.96);color:#fff;padding:10px 20px;border-radius:30px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.15);transition:opacity 0.25s ease,transform 0.25s ease;pointer-events:none;";
             document.body.appendChild(toast);
         }
-        toast.innerHTML = msg;
+        toast.textContent = msg;
         toast.style.borderColor = isError ? "rgba(239, 68, 68, 0.6)" : "rgba(16, 185, 129, 0.6)";
         toast.style.opacity = "1";
         toast.style.transform = "translateX(-50%) translateY(0)";
@@ -4809,24 +5115,6 @@ document.addEventListener("DOMContentLoaded", () => {
         submitPresetForm();
     });
 
-    // Update Tab Listener
-    document.querySelectorAll(".nav-btn").forEach(btn => {
-        btn.addEventListener("click", () => {
-            triggerHaptic("light");
-            const tabId = btn.getAttribute("data-tab");
-
-            document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-            document.querySelectorAll(".tab-page").forEach(p => p.classList.remove("active"));
-
-            btn.classList.add("active");
-            document.getElementById(tabId).classList.add("active");
-
-            if (tabId === "tab-commercial") loadCommercialPresets();
-            if (tabId === "tab-materials") loadMaterials();
-            if (tabId === "tab-history") loadHistory();
-            if (tabId === "tab-settings") loadSettings();
-        });
-    });
 
     // 10. Tab 5: Settings & User Notifications Management
     async function loadSettings() {
@@ -4865,6 +5153,41 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("sys-uptime").textContent = `${uptimeMins} хв`;
             document.getElementById("sys-printers-count").textContent = health.total_printers || 0;
 
+            const sysInfo = health.system || {};
+            const cpuTempEl = document.getElementById("sys-cpu-temp");
+            if (cpuTempEl) {
+                if (sysInfo.cpu_temp_c !== null && sysInfo.cpu_temp_c !== undefined) {
+                    const t = parseFloat(sysInfo.cpu_temp_c);
+                    const color = t >= 75 ? "#ef4444" : (t >= 62 ? "#f59e0b" : "#10b981");
+                    cpuTempEl.innerHTML = `<span style="color:${color};">${t.toFixed(1)}°C</span>`;
+                } else {
+                    cpuTempEl.textContent = `Н/Д (${sysInfo.platform || 'Host'})`;
+                }
+            }
+
+            const ramEl = document.getElementById("sys-ram-usage");
+            if (ramEl) {
+                if (sysInfo.ram_total_mb > 0) {
+                    const pct = parseFloat(sysInfo.ram_pct || 0);
+                    const color = pct >= 85 ? "#ef4444" : (pct >= 70 ? "#f59e0b" : "#10b981");
+                    ramEl.innerHTML = `<span style="color:${color};">${sysInfo.ram_used_mb} / ${sysInfo.ram_total_mb} МБ (${pct.toFixed(0)}%)</span>`;
+                } else {
+                    ramEl.textContent = "-";
+                }
+            }
+
+            const diskEl = document.getElementById("sys-disk-free");
+            if (diskEl) {
+                if (sysInfo.disk_total_gb > 0) {
+                    const freeGb = parseFloat(sysInfo.disk_free_gb || 0);
+                    const pct = parseFloat(sysInfo.disk_pct || 0);
+                    const color = (freeGb < 2.0 || pct >= 90) ? "#ef4444" : "#10b981";
+                    diskEl.innerHTML = `<span style="color:${color};">${freeGb.toFixed(1)} ГБ вільно (з ${sysInfo.disk_total_gb} ГБ)</span>`;
+                } else {
+                    diskEl.textContent = "-";
+                }
+            }
+
             const adminUsersCard = document.getElementById("admin-users-card");
             const isUserAdmin = userSettingsData.user?.role === "ADMIN" || Boolean(userSettingsData.user?.is_admin);
 
@@ -4892,42 +5215,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    async function loadPrinterSettings(printerId) {
-        const formContainer = document.getElementById("printer-settings-form-container");
-        if (!printerId) {
-            if (formContainer) formContainer.style.display = "none";
-            return;
-        }
-        try {
-            const res = await fetch(`/api/printers/${printerId}/settings`);
-            if (!res.ok) return;
-            const p = await res.json();
-            
-            if (formContainer) formContainer.style.display = "block";
-
-            const elName = document.getElementById("p-setting-name");
-            const elIp = document.getElementById("p-setting-ip");
-            const elAc = document.getElementById("p-setting-access-code");
-            const elSn = document.getElementById("p-setting-sn");
-            const elModel = document.getElementById("p-setting-model");
-            const elAms = document.getElementById("p-setting-ams");
-            const elMaintInt = document.getElementById("p-setting-maint-interval");
-            const elNotify = document.getElementById("p-setting-notify");
-            const elMaintVal = document.getElementById("p-setting-maint-counter-val");
-
-            if (elName) elName.value = p.name || "";
-            if (elIp) elIp.value = p.ip || "";
-            if (elAc) elAc.value = p.accessCode || "";
-            if (elSn) elSn.value = p.serialNumber || p.serial || p.serial_number || "";
-            if (elModel) elModel.value = p.printer_model || "A1";
-            if (elAms) elAms.value = p.ams_enabled === true ? "true" : (p.ams_enabled === false ? "false" : "auto");
-            if (elMaintInt) elMaintInt.value = p.maintenance_interval_hours || 100;
-            if (elNotify) elNotify.checked = p.notify !== false;
-            if (elMaintVal) elMaintVal.textContent = `${(p.maintenance_hours_counter || 0.0).toFixed(1)} год`;
-        } catch (e) {
-            console.error("Failed loading printer settings:", e);
-        }
-    }
 
     async function loadUsersTable() {
         const usersTableBody = document.getElementById("users-table-body");
@@ -5788,19 +6075,137 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (isModelWarn) {
                 compTag = ` ⚠️ УМОВНО СУМІСНИЙ (${reasons.join('; ')})`;
             }
-            return `${idx + 1}. ${p.name} (${p.gcode_state || 'IDLE'})${compTag}`;
-        }).join("\n");
+        // Build interactive modal for printer selection
+        const existingModal = document.getElementById("select-printer-part-modal");
+        if (existingModal) existingModal.remove();
 
-        const inputIdx = prompt(`🚀 Оберіть номер принтера для запуску друку деталі "${part.name}":\n\n${printerChoices}\n\nВведіть номер (1-${printersData.length}):`);
-        if (!inputIdx) return;
+        const modal = document.createElement("div");
+        modal.id = "select-printer-part-modal";
+        modal.className = "modal-backdrop active";
+        modal.style.zIndex = "99999";
 
-        const chosenIndex = parseInt(inputIdx.trim(), 10) - 1;
-        if (isNaN(chosenIndex) || chosenIndex < 0 || chosenIndex >= printersData.length) {
-            alert("⚠️ Некоректний номер принтера.");
-            return;
-        }
+        let optionsHtml = "";
+        printersData.forEach((p, idx) => {
+            const targetM = part.printer_model || '';
+            const partFilament = part.filament_type || '';
+            const printerFilament = p.filament_type || '';
+            let isComp = true;
+            let reasons = [];
+            const corexyFamily = ["@BBL P1P", "@BBL P1S", "@BBL P2S", "@BBL X1C", "@BBL X1E"];
+            let isModelWarn = false;
 
-        const selectedPrinter = printersData[chosenIndex];
+            if (targetM && targetM !== 'Unknown') {
+                const targetCode = getBambuModelCode(targetM);
+                const pModel = p.printer_model || p.model || p.name;
+                const printerCode = getBambuModelCode(pModel);
+                if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
+                    if (corexyFamily.includes(targetCode) && corexyFamily.includes(printerCode)) {
+                        isModelWarn = true;
+                        reasons.push(`⚠️ Модель: ${targetM} ➔ ${pModel}`);
+                    } else {
+                        isComp = false;
+                        reasons.push(`нарізано для ${targetM}`);
+                    }
+                }
+            }
+
+            if (partFilament) {
+                if (!printerFilament || printerFilament === 'Невизначено') {
+                    isComp = false;
+                    reasons.push(`пластик не встановлено (потрібен ${partFilament})`);
+                } else {
+                    const normPartFil = normalizeFilamentName(partFilament);
+                    const normPrinterFil = normalizeFilamentName(printerFilament);
+                    if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
+                        isComp = false;
+                        reasons.push(`пластик: ${printerFilament} vs ${partFilament}`);
+                    }
+                }
+            }
+
+            const partNozzle = part.nozzle_diameter ? parseFloat(part.nozzle_diameter) : null;
+            const printerNozzle = p.nozzle_diameter ? parseFloat(p.nozzle_diameter) : 0.4;
+            if (partNozzle && Math.abs(partNozzle - printerNozzle) > 0.01) {
+                isComp = false;
+                reasons.push(`сопло: ${printerNozzle}мм vs ${partNozzle}мм`);
+            }
+
+            const partWeight = parseFloat(part.weight_g || 0);
+            const activeSlot = String(p.active_slot_key || "254");
+            const remGrams = (p.ams_slots && p.ams_slots[activeSlot] !== undefined)
+                ? parseFloat(p.ams_slots[activeSlot])
+                : parseFloat(p.filament_grams_left !== undefined ? p.filament_grams_left : (p.filament_grams || 0));
+
+            if (isComp && partWeight > 0 && remGrams > 0) {
+                if (remGrams < partWeight) {
+                    isModelWarn = true;
+                    reasons.push(`⚠️ Мало нитки: ${Math.round(remGrams)}г < ${Math.round(partWeight)}г`);
+                } else if (remGrams - partWeight <= 15) {
+                    isModelWarn = true;
+                    reasons.push(`⚠️ Нитка впритул: ${Math.round(remGrams)}г на ${Math.round(partWeight)}г`);
+                }
+            }
+
+            let badgeHtml = '<span class="status-pill status-ready">✅ Сумісний</span>';
+            if (!isComp) {
+                badgeHtml = `<span class="status-pill status-error" title="${escapeHtml(reasons.join('; '))}">🛑 Несумісний</span>`;
+            } else if (isModelWarn) {
+                badgeHtml = `<span class="status-pill status-pause" title="${escapeHtml(reasons.join('; '))}">⚠️ Умовно</span>`;
+            }
+
+            optionsHtml += `
+                <div class="printer-select-row glass-card p-3 mb-2 d-flex justify-content-between align-items-center" style="border-radius: 8px; border: 1px solid ${isComp ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.2)'};">
+                    <div>
+                        <div class="fw-bold text-light">${escapeHtml(p.name)} <span class="text-muted" style="font-size:12px;">(${escapeHtml(p.gcode_state || 'IDLE')})</span></div>
+                        <div style="font-size: 11px; margin-top: 3px;" class="${!isComp ? 'text-danger' : (isModelWarn ? 'color-orange' : 'text-success')}">${reasons.length ? escapeHtml(reasons.join(', ')) : 'Параметри сумісні'}</div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        ${badgeHtml}
+                        <button class="btn btn-sm ${isComp ? 'btn-success' : 'btn-outline-danger'} btn-launch-print-part" data-printer-id="${p.id}" ${isComp || isModelWarn ? '' : 'disabled'}>
+                            🚀 Друк
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+
+        modal.innerHTML = `
+            <div class="modal-window" style="max-width: 500px; max-height: 85vh; overflow-y: auto;">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-print color-blue"></i> Вибір принтера</h3>
+                    <button class="icon-btn-close btn-close-printer-select"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body" style="padding: 16px;">
+                    <p class="text-muted mb-3" style="font-size: 13px;">
+                        Оберіть принтер для запуску деталі <strong>${escapeHtml(part.name)}</strong>:
+                    </p>
+                    <div class="printer-options-container">
+                        ${optionsHtml}
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding: 12px 16px;">
+                    <button class="btn btn-neutral w-100 btn-close-printer-select">Скасувати</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const closeModal = () => modal.remove();
+        modal.querySelectorAll(".btn-close-printer-select").forEach(b => b.addEventListener("click", closeModal));
+
+        modal.querySelectorAll(".btn-launch-print-part").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const targetPid = btn.getAttribute("data-printer-id");
+                const selectedPrinter = printersData.find(p => p.id === targetPid);
+                if (!selectedPrinter) return;
+
+                closeModal();
+                await executeLaunchPartPrint(part, selectedPrinter);
+            });
+        });
+    }
+
+    async function executeLaunchPartPrint(part, selectedPrinter) {
 
         // Strict compatibility blocking / CoreXY warning
         const targetM = part.printer_model || '';
@@ -5842,6 +6247,25 @@ document.addEventListener("DOMContentLoaded", () => {
         if (partNozzle && Math.abs(partNozzle - printerNozzle) > 0.01) {
             alert(`🛑 Помилка сумісності сопла!\nДеталь нарізано під сопло ${partNozzle} мм, а на принтері ${selectedPrinter.name} встановлено ${printerNozzle} мм.`);
             return;
+        }
+
+        // Smart Filament Safety Check
+        const partWeight = parseFloat(part.weight_g || 0);
+        const activeSlot = String(selectedPrinter.active_slot_key || "254");
+        const remGrams = (selectedPrinter.ams_slots && selectedPrinter.ams_slots[activeSlot] !== undefined)
+            ? parseFloat(selectedPrinter.ams_slots[activeSlot])
+            : parseFloat(selectedPrinter.filament_grams_left !== undefined ? selectedPrinter.filament_grams_left : (selectedPrinter.filament_grams || 0));
+
+        if (partWeight > 0 && remGrams > 0) {
+            if (remGrams < partWeight) {
+                if (!confirm(`⚠️ УВАГА: Недостатньо пластику на котушці!\n\nМодель вимагає ~${Math.round(partWeight)} г, а розрахунковий залишок на принтері ${selectedPrinter.name} становить лише ${Math.round(remGrams)} г.\n\nВи впевнені, що хочете запустити друк?`)) {
+                    return;
+                }
+            } else if (remGrams - partWeight <= 15) {
+                if (!confirm(`⚠️ Залишок нитки критично близький до ваги моделі!\n\nПотрібно: ~${Math.round(partWeight)} г | Залишок: ${Math.round(remGrams)} г (запас менше 15 г — з урахуванням лінії калібрування пластику може не вистачити на останніх шарах).\n\nПродовжити запуск друку?`)) {
+                    return;
+                }
+            }
         }
 
         try {
@@ -5888,7 +6312,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let html = `
             <div class="part-details-img-container">
                 ${imageSrc
-                    ? `<img src="${imageSrc}" class="part-details-full-img" alt="${escapeHtml(part.name)}">`
+                    ? `<img src="${escapeHtml(imageSrc)}" class="part-details-full-img" alt="${escapeHtml(part.name)}">`
                     : `<div class="part-details-no-img"><i class="fa-solid fa-cube"></i><span>Немає зображення деталі</span></div>`
                 }
             </div>
@@ -5984,16 +6408,18 @@ document.addEventListener("DOMContentLoaded", () => {
         if (modal) modal.classList.remove("active");
     };
 
-    async function loadParts() {
+    async function loadParts(fromCache = false) {
         const partsListEl = document.getElementById("parts-list");
         const partsBadgeEl = document.getElementById("parts-summary-badge");
         if (!partsListEl) return;
 
         try {
-            const res = await fetch("/api/parts");
-            if (!res.ok) throw new Error("Failed fetching parts");
-            partsData = await res.json();
-            window._partsCache = partsData;
+            if (!fromCache || !partsData) {
+                const res = await fetch("/api/parts");
+                if (!res.ok) throw new Error("Failed fetching parts");
+                partsData = await res.json();
+                window._partsCache = partsData;
+            }
 
             const partSearchInput = document.getElementById("part-search-input");
             const partSearchClearBtn = document.getElementById("part-search-clear-btn");
@@ -6056,7 +6482,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <div class="part-card-header">
                             <div class="part-card-main-info" data-id="${part.id}" title="Натисніть для перегляду деталей моделі">
                                 ${imageSrc
-                                    ? `<img src="${imageSrc}" class="part-preview-thumb" alt="${escapeHtml(part.name)}">`
+                                    ? `<img src="${escapeHtml(imageSrc)}" class="part-preview-thumb" alt="${escapeHtml(part.name)}">`
                                     : `<div class="part-preview-placeholder"><i class="fa-solid fa-cube color-green fs-5"></i></div>`
                                 }
                                 <div class="part-card-title-group">
@@ -6297,15 +6723,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const partSearchInput = document.getElementById("part-search-input");
     const partSearchClearBtn = document.getElementById("part-search-clear-btn");
+    let partSearchTimeout = null;
     if (partSearchInput) {
         partSearchInput.addEventListener("input", () => {
-            loadParts();
+            clearTimeout(partSearchTimeout);
+            partSearchTimeout = setTimeout(() => {
+                loadParts(true);
+            }, 150);
         });
     }
     if (partSearchClearBtn) {
         partSearchClearBtn.addEventListener("click", () => {
             if (partSearchInput) partSearchInput.value = "";
-            loadParts();
+            loadParts(true);
         });
     }
 

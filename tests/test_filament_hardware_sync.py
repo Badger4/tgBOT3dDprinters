@@ -230,7 +230,7 @@ class TestFilamentHardwareSync(unittest.IsolatedAsyncioTestCase):
         app_mock.printers = {"p1": printer_mock}
         app_mock.spool_storage = MagicMock()
 
-        with patch("services.http.routes_control.check_auth", return_value=True):
+        with patch("services.http.routes_control.check_auth", return_value=True), patch("services.http.routes_control.is_admin_request", AsyncMock(return_value=True)):
             # Test standalone unload_filament
             req = AsyncMock()
             req.app = {"app_obj": app_mock}

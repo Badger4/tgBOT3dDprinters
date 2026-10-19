@@ -268,17 +268,17 @@ class PrinterBotApp:
                     [
                         InlineKeyboardButton(
                             text="📦 Обрати зі Складу",
-                            callback_data=f"fil_auto_mount:{printer.id}:{slot_id}:{fil_type}",
+                            callback_data=f"fil_auto_mount:{printer.id[:10]}:{slot_id}:{fil_type[:8]}",
                         ),
                         InlineKeyboardButton(
                             text="➕ Додати нову",
-                            callback_data=f"fil_auto_add:{printer.id}:{slot_id}:{fil_type}",
+                            callback_data=f"fil_auto_add:{printer.id[:10]}:{slot_id}:{fil_type[:8]}",
                         ),
                     ],
                     [
                         InlineKeyboardButton(
                             text="✖ Пропустити",
-                            callback_data=f"fil_auto_skip:{printer.id}:{slot_id}",
+                            callback_data=f"fil_auto_skip:{printer.id[:10]}:{slot_id}",
                         ),
                     ],
                 ]
@@ -341,6 +341,7 @@ class PrinterBotApp:
             }
 
         last_live_status_check = 0.0
+        last_gc_time = time.time()
         while True:
             try:
                 # Prune removed printer states to prevent memory leaks
@@ -572,6 +573,8 @@ class PrinterBotApp:
                     # 3. Finish Notification & History Recording
                     if curr_state == "FINISH" and st["lastState"] != "FINISH":
                         if p.notify and not st["notifiedFinish"]:
+                            from bot.keyboards.notifications import get_finish_notification_inline_keyboard
+
                             used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
                             finish_txt = f"🎉 *Принтер {p.name} нарешті завершив друк!*\n"
                             if p.subtask_name:
@@ -580,7 +583,12 @@ class PrinterBotApp:
                                 finish_txt += f"⚖️ **Списано:** `{used_w}g`\n"
                             finish_txt += f"📦 **Залишок на бабіні:** *{p.get_slot_grams()}g*\nІди й негайно зніми деталь зі столу, скільки можна чекати?! 😤🧹"
 
-                            await self.send_notification("finish", finish_txt, printer=p)
+                            await self.send_notification(
+                                "finish",
+                                finish_txt,
+                                printer=p,
+                                reply_markup=get_finish_notification_inline_keyboard(p.id),
+                            )
                             st["notifiedFinish"] = True
                             st["notifiedStart"] = False
                             st["notifiedPause"] = False
@@ -642,8 +650,15 @@ class PrinterBotApp:
                         mins_passed = (time.time() - p.finish_timestamp) / 60.0
                         if 15.0 <= mins_passed <= 30.0:
                             if not st.get("notifiedClearReminder"):
+                                from bot.keyboards.notifications import get_finish_notification_inline_keyboard
+
                                 rem_txt = f"🔔 *Скільки можна чекати, Бака?!*\nДрук на {p.name} закінчився 15 хв тому!\nНегайно зніми готову деталь зі столу, щоб звільнити принтер! 🧼😤"
-                                await self.send_notification("remind_clear", rem_txt, printer=p)
+                                await self.send_notification(
+                                    "remind_clear",
+                                    rem_txt,
+                                    printer=p,
+                                    reply_markup=get_finish_notification_inline_keyboard(p.id),
+                                )
                                 st["notifiedClearReminder"] = True
                         elif mins_passed > 30.0:
                             st["notifiedClearReminder"] = True
@@ -767,7 +782,9 @@ class PrinterBotApp:
                         asyncio.create_task(self.update_live_status_messages())
 
                 sleep_interval = 5 if is_any_printing else 15
-                gc.collect()
+                if time.time() - last_gc_time >= 120.0:
+                    last_gc_time = time.time()
+                    gc.collect()
                 await asyncio.sleep(sleep_interval)
 
             except asyncio.CancelledError:
@@ -805,7 +822,7 @@ class PrinterBotApp:
         monitor_task = asyncio.create_task(self.monitoring_loop())
 
         # Start REST API & Healthcheck HTTP server
-        from services.http_server import start_http_server
+        from services.http import start_http_server
 
         await start_http_server(self)
 
@@ -822,6 +839,7 @@ class PrinterBotApp:
         except Exception as e:
             logger.warning(f"Could not set chat menu button: {e}")
 
+        webhook_url = ""
         try:
             import config
 
@@ -831,25 +849,51 @@ class PrinterBotApp:
 
             if webhook_url:
                 webhook_url = webhook_url.rstrip("/")
+                import hashlib
+                secret_token = getattr(config, "TELEGRAM_WEBHOOK_SECRET", None)
+                if not secret_token and getattr(config, "API_SECRET_KEY", None):
+                    secret_token = hashlib.sha256(config.API_SECRET_KEY.encode()).hexdigest()[:32]
                 allowed_updates = self.dp.resolve_used_update_types()
-                await self.bot.set_webhook(f"{webhook_url}/webhook", allowed_updates=allowed_updates)
-                logger.info(f"🤖 Webhook set to {webhook_url}/webhook with updates: {allowed_updates}")
+                await self.bot.set_webhook(
+                    f"{webhook_url}/webhook",
+                    allowed_updates=allowed_updates,
+                    secret_token=secret_token or None,
+                )
+                logger.info(f"🤖 Webhook set to {webhook_url}/webhook with updates: {allowed_updates} (secret_token active)")
+                logger.info("🤖 Telegram Bot is running with Webhooks...")
+                await asyncio.Event().wait()
             else:
-                logger.warning("⚠️ WEBHOOK_URL is not set. Webhook not registered with Telegram.")
-
-            logger.info("🤖 Telegram Bot is running with Webhooks...")
-            await asyncio.Event().wait()
+                logger.warning("⚠️ WEBHOOK_URL is not set. Switching to Telegram long polling (getUpdates)...")
+                try:
+                    await self.bot.delete_webhook(drop_pending_updates=False)
+                except Exception as e:
+                    logger.debug(f"Could not delete webhook before polling: {e}")
+                allowed_updates = self.dp.resolve_used_update_types()
+                await self.dp.start_polling(self.bot, allowed_updates=allowed_updates)
         finally:
+            if hasattr(self, "http_runner") and self.http_runner:
+                try:
+                    await self.http_runner.cleanup()
+                except Exception:
+                    pass
             if webhook_url:
                 try:
                     await self.bot.delete_webhook()
                 except Exception:
                     pass
             monitor_task.cancel()
-            for p in self.printers.values():
+            try:
+                await monitor_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            for p in list(self.printers.values()):
                 if hasattr(p, "destroy"):
                     try:
                         p.destroy()
                     except Exception:
                         pass
-            await self.bot.session.close()
+            if self.bot and self.bot.session:
+                try:
+                    await self.bot.session.close()
+                except Exception:
+                    pass

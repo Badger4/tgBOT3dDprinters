@@ -502,6 +502,16 @@ async def handle_movements_search_input(message: Message, app):
     filters = get_user_mov_filters(user)
 
     raw_text = (message.text or "").strip()
+    if raw_text.lower() in [
+        "⬅️ головне меню", "головне меню", "⬅️ main menu", "main menu",
+        "⬅️ назад", "назад", "⬅️ back", "back", "/start",
+    ]:
+        user["state"] = "idle"
+        await app.storage.save_user(user)
+        from bot.handlers.common import handle_main_menu_nav
+        await handle_main_menu_nav(message, app)
+        return
+
     if raw_text.lower() in ["❌", "скасувати", "cancel", "скинути", "clear", "-", "none"]:
         filters["query"] = ""
     else:

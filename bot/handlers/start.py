@@ -20,6 +20,8 @@ async def cmd_start(message: Message, app, state: FSMContext | None = None):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
 
+    user["state"] = "idle"
+    user["context_data"] = {}
     if message.from_user:
         user.setdefault("personal", {})
         user["personal"]["first_name"] = message.from_user.first_name or ""
@@ -38,12 +40,12 @@ async def cmd_start(message: Message, app, state: FSMContext | None = None):
     is_adm = await app.is_user_admin(chat_id)
     u_lang = user.get("language", "uk")
     await message.answer(
-        "🤖 *Головне меню 3D Ферми*\nОбирай розділ або відкривай WebApp! 🚀" if u_lang != "en" else "🤖 *3D Farm Main Menu*\nSelect a section or open WebApp! 🚀",
-        parse_mode=ParseMode.MARKDOWN,
+        "🤖 <b>Головне меню 3D Ферми</b>\nОбирай розділ або відкривай WebApp! 🚀" if u_lang != "en" else "🤖 <b>3D Farm Main Menu</b>\nSelect a section or open WebApp! 🚀",
+        parse_mode=ParseMode.HTML,
         reply_markup=get_main_keyboard(is_adm, lang=u_lang),
     )
     await message.answer(
-        "📱 **Інтерактивний WebApp Дашборд:**" if u_lang != "en" else "📱 **Interactive WebApp Dashboard:**", parse_mode=ParseMode.MARKDOWN, reply_markup=get_webapp_inline_keyboard()
+        "📱 <b>Інтерактивний WebApp Дашборд:</b>" if u_lang != "en" else "📱 <b>Interactive WebApp Dashboard:</b>", parse_mode=ParseMode.HTML, reply_markup=get_webapp_inline_keyboard()
     )
 
 

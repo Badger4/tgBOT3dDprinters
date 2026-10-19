@@ -6,7 +6,7 @@ import asyncio
 import time
 from aiohttp import web
 
-from services.http.auth import check_auth
+from services.http.auth import check_auth, is_admin_request
 
 
 async def handle_get_spools(request: web.Request) -> web.Response:
@@ -72,6 +72,8 @@ async def handle_save_spool(request: web.Request) -> web.Response:
     """POST /api/spools - Add or update a spool with automatic audit trail logging."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     try:
@@ -150,29 +152,32 @@ async def handle_delete_spool(request: web.Request) -> web.Response:
     """DELETE /api/spools/{id} - Remove a spool from inventory with audit logging."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     spool_id = request.match_info.get("id", "")
-    spools = await app_obj.storage.load_spools()
-    if not isinstance(spools, dict):
-        spools = {}
+    async with app_obj.storage.transaction_lock("spools"):
+        spools = await app_obj.storage.load_spools()
+        if not isinstance(spools, dict):
+            spools = {}
 
-    if spool_id in spools:
-        spool = spools.pop(spool_id)
-        await app_obj.storage.save_spools(spools)
+        if spool_id in spools:
+            spool = spools.pop(spool_id)
+            await app_obj.storage.save_spools(spools)
 
-        prev_weight = float(spool.get("remaining_grams", 0.0))
-        await app_obj.storage.record_spool_movement(
-            spool_id=spool_id,
-            spool_name=spool.get("name", "Котушка"),
-            action="write_off",
-            weight_change_g=-prev_weight,
-            prev_weight_g=prev_weight,
-            new_weight_g=0.0,
-            reason="Списання / Видалення котушки зі складу",
-            user="Admin",
-        )
-        return web.json_response({"status": "ok"})
+            prev_weight = float(spool.get("remaining_grams", 0.0))
+            await app_obj.storage.record_spool_movement(
+                spool_id=spool_id,
+                spool_name=spool.get("name", "Котушка"),
+                action="write_off",
+                weight_change_g=-prev_weight,
+                prev_weight_g=prev_weight,
+                new_weight_g=0.0,
+                reason="Списання / Видалення котушки зі складу",
+                user="Admin",
+            )
+            return web.json_response({"status": "ok"})
     return web.json_response({"error": "Spool not found"}, status=404)
 
 
@@ -180,6 +185,8 @@ async def handle_mount_spool(request: web.Request) -> web.Response:
     """POST /api/spools/{id}/mount - Assign a spool to a specific printer and AMS slot."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     spool_id = request.match_info.get("id", "")
@@ -224,6 +231,8 @@ async def handle_unmount_spool(request: web.Request) -> web.Response:
     """POST /api/spools/{id}/unmount - Unmount a spool from its assigned printer slot."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     spool_id = request.match_info.get("id", "")
@@ -294,11 +303,12 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
 
         rows_html = ""
         if spools and isinstance(spools, dict):
+            import html
             for s_id, s in spools.items():
                 if isinstance(s, dict):
-                    name = s.get("name", "Котушка")
-                    fil_type = s.get("type", "PLA")
-                    color = str(s.get("color") or "-")
+                    name = html.escape(str(s.get("name", "Котушка")))
+                    fil_type = html.escape(str(s.get("type", "PLA")))
+                    color = html.escape(str(s.get("color") or "-"))
                     initial_g = float(s.get("initial_grams") or s.get("total_grams") or 1000.0)
                     rem_g = float(s.get("remaining_grams") or 1000.0)
                     price_kg = float(s.get("price_per_kg") or 650.0)
@@ -309,7 +319,7 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
                         from services.report_generator import _format_slot_name, _resolve_printer_name
                         p_name = _resolve_printer_name(p_id, getattr(app_obj, "printers", None))
                         slot_desc = _format_slot_name(slot)
-                        status_text = f"{p_name} ({slot_desc})"
+                        status_text = html.escape(f"{p_name} ({slot_desc})")
                     else:
                         status_text = "На складі"
 
@@ -342,11 +352,13 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
             if not bot:
                 return web.json_response({"error": "Бот зараз не активний"}, status=503)
 
-            u_id = get_authenticated_user_id(request) or getattr(config, "ADMIN_CHAT_ID", None)
+            u_id = get_authenticated_user_id(request)
+            if not u_id and await is_admin_request(request):
+                u_id = getattr(config, "ADMIN_CHAT_ID", None)
             if not u_id:
                 return web.json_response({"error": "Користувача не ідентифіковано"}, status=400)
 
-            pdf_bytes = generate_spools_pdf_report(spools, printers=getattr(app_obj, "printers", None))
+            pdf_bytes = await asyncio.to_thread(generate_spools_pdf_report, spools, printers=getattr(app_obj, "printers", None))
             fname = f"spools_inventory_{int(time.time())}.pdf"
             doc_file = BufferedInputFile(pdf_bytes, filename=fname)
             cap = (
@@ -610,7 +622,7 @@ async def handle_export_movements_pdf(request: web.Request) -> web.Response:
         filter_subtitle = " | ".join(filter_parts) if filter_parts else None
 
         from services.report_generator import generate_movements_pdf_report
-        pdf_bytes = generate_movements_pdf_report(movements, filter_subtitle=filter_subtitle)
+        pdf_bytes = await asyncio.to_thread(generate_movements_pdf_report, movements, filter_subtitle=filter_subtitle)
 
         if request.query.get("send_telegram") == "1":
             from services.http.routes_settings import get_authenticated_user_id
@@ -622,7 +634,9 @@ async def handle_export_movements_pdf(request: web.Request) -> web.Response:
             if not bot:
                 return web.json_response({"error": "Бот зараз не активний"}, status=503)
 
-            u_id = get_authenticated_user_id(request) or getattr(config, "ADMIN_CHAT_ID", None)
+            u_id = get_authenticated_user_id(request)
+            if not u_id and await is_admin_request(request):
+                u_id = getattr(config, "ADMIN_CHAT_ID", None)
             if not u_id:
                 return web.json_response({"error": "Користувача не ідентифіковано"}, status=400)
 

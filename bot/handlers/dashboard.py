@@ -38,7 +38,7 @@ def format_live_dashboard_text(app: Any, lang: str = "uk") -> str:
     else:
         dash_txt = f"<b>🏭 Стан 3D Ферми LIVE</b> (<code>{now_str}</code>)\n\n"
 
-    for pid, p in app.printers.items():
+    for pid, p in list(app.printers.items()):
         p_name = html.escape(p.name)
         is_p_online = getattr(p, "is_online", True)
         mapped_st = getattr(p, "mapped_state", "ONLINE")
@@ -82,14 +82,53 @@ def format_live_dashboard_text(app: Any, lang: str = "uk") -> str:
             finish_note = f" (~{finish_str})" if finish_str else ""
             p_bar = make_progress_bar(p_pct, 10)
 
+            from utils.filament_utils import get_color_emoji
+
+            active_k = p.get_active_slot_key() if hasattr(p, "get_active_slot_key") and callable(p.get_active_slot_key) else "254"
+            t_info = (getattr(p, "ams_trays_info", {}) or {}).get(str(active_k), {})
+            c_emoji = get_color_emoji(t_info.get("color") or t_info.get("tray_color") or "") if t_info else "📦"
+
             dash_txt += f"   📄 <i>{sub_task}</i>\n"
             dash_txt += f"   <code>[{p_bar}]</code> <b>{p_pct}%</b> | ⏱️ {rem_str}{finish_note}\n"
             dash_txt += f"   🌡️ Сопло: {p.nozzle_temper}°C | Стіл: {p.bed_temper}°C\n"
-            dash_txt += f"   📦 Залишок: {p.filament_grams}g ({html.escape(p.filament_type)})\n\n"
+            dash_txt += f"   {c_emoji} Залишок: {p.filament_grams}g ({html.escape(p.filament_type)})\n\n"
         else:
+            from utils.filament_utils import get_color_emoji
+
+            active_k = p.get_active_slot_key() if hasattr(p, "get_active_slot_key") and callable(p.get_active_slot_key) else "254"
+            t_info = (getattr(p, "ams_trays_info", {}) or {}).get(str(active_k), {})
+            c_emoji = get_color_emoji(t_info.get("color") or t_info.get("tray_color") or "") if t_info else "📦"
+
             rem_lbl = "Remaining:" if is_en else "Залишок:"
             dash_txt += f"   🌡️ Сопло: {p.nozzle_temper}°C | Стіл: {p.bed_temper}°C\n"
-            dash_txt += f"   📦 {rem_lbl} {p.filament_grams}g ({html.escape(p.filament_type)})\n\n"
+            dash_txt += f"   {c_emoji} {rem_lbl} {p.filament_grams}g ({html.escape(p.filament_type)})\n\n"
+
+    try:
+        from utils.system_health import get_system_health
+
+        sh = get_system_health()
+        sh_parts = []
+        if sh.get("cpu_temp_c") is not None:
+            sh_parts.append(f"🌡️ {sh['cpu_temp_c']}°C")
+        if sh.get("ram_pct"):
+            sh_parts.append(f"🧠 RAM {sh['ram_pct']:.0f}%")
+        if sh.get("disk_free_gb"):
+            free_lbl = "GB free" if is_en else "ГБ вільно"
+            sh_parts.append(f"💾 {sh['disk_free_gb']} {free_lbl}")
+        if sh_parts:
+            srv_lbl = "Server:" if is_en else "Сервер:"
+            dash_txt += f"🖥️ <b>{srv_lbl}</b> {' | '.join(sh_parts)}\n"
+    except Exception:
+        pass
+
+    if len(dash_txt) > 4000:
+        cut_pos = dash_txt[:3900].rfind("\n\n")
+        if cut_pos != -1:
+            dash_txt = dash_txt[:cut_pos] + "\n\n<i>⚠️ Список скорочено через ліміт Telegram. Відкрийте WebApp для повної панелі.</i>"
+        else:
+            import re
+            clean = re.sub(r"<[^>]+>", "", dash_txt[:3800])
+            dash_txt = clean + "...\n\n<i>⚠️ Список скорочено.</i>"
 
     return dash_txt
 

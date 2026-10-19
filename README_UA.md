@@ -86,7 +86,7 @@ cp .env.example .env
 
 ### 5. Запуск бота
 ```bash
-python printer.py
+python main.py
 ```
 
 ---

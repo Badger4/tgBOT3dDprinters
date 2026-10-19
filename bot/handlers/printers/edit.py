@@ -2,6 +2,9 @@
 Edit printer settings handlers.
 """
 
+import asyncio
+import html
+
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import Message
@@ -16,6 +19,17 @@ async def handle_edit_printer_menu(message: Message, app):
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
 
+    if hasattr(app, "is_user_admin") and callable(app.is_user_admin):
+        is_adm = app.is_user_admin(chat_id)
+        if asyncio.iscoroutine(is_adm) or asyncio.isfuture(is_adm):
+            is_adm = await is_adm
+        if not is_adm:
+            await message.answer(
+                "⛔ <b>У вас немає прав адміністратора для цієї дії!</b>" if u_lang != "en" else "⛔ <b>Admin privileges required!</b>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
@@ -27,7 +41,7 @@ async def handle_edit_printer_menu(message: Message, app):
     await app.storage.save_user(user)
 
     await message.answer(
-        f"⚙️ <b>Налаштування принтера: {target_printer.name}</b>\n\nОберіть параметр для редагування:",
+        f"⚙️ <b>Налаштування принтера: {html.escape(target_printer.name)}</b>\n\nОберіть параметр для редагування:",
         parse_mode=ParseMode.HTML,
         reply_markup=get_edit_printer_keyboard(lang=u_lang),
     )
@@ -92,7 +106,12 @@ async def edit_printer_state_filter(message: Message, app) -> bool:
     return user.get("state") in EDIT_PRINTER_STATES
 
 
-BACK_TEXTS = {"⬅️ назад", "назад", "⬅️ back", "back", "⬅️ назад до принтерів", "назад до принтерів"}
+BACK_TEXTS = {
+    "⬅️ назад", "назад", "⬅️ back", "back",
+    "⬅️ назад до принтерів", "назад до принтерів",
+    "головне меню", "⬅️ головне меню", "main menu", "⬅️ main menu",
+    "скасувати", "cancel", "/start",
+}
 
 
 @router.message(edit_printer_state_filter)
@@ -111,7 +130,7 @@ async def handle_edit_printer_states(message: Message, app) -> bool:
         u_lang = user.get("language", "uk")
         if target_printer:
             await message.answer(
-                f"⚙️ <b>Налаштування принтера: {target_printer.name}</b>\n\nОберіть параметр для редагування:",
+                f"⚙️ <b>Налаштування принтера: {html.escape(target_printer.name)}</b>\n\nОберіть параметр для редагування:",
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_edit_printer_keyboard(lang=u_lang),
             )

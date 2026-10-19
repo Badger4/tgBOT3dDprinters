@@ -115,7 +115,7 @@ async def handle_skip_objects_menu(message: Message, app):
     bed_size = (180, 180) if "mini" in p_model else (256, 256)
     # Hybrid approach: For <= 6 objects, send animated GIF highlighting each object ID; for > 6, send static diagram
     if len(objects) <= 6:
-        gif_bytes = target_printer.get_plate_gif()
+        gif_bytes = await asyncio.to_thread(target_printer.get_plate_gif)
         if gif_bytes:
             try:
                 await message.answer_animation(
@@ -177,8 +177,8 @@ async def handle_pause_print(message: Message, app):
 
     if target_printer.pause():
         await message.answer(
-            f"⏸️ **Поставила на паузу** принтер *{target_printer.name}*! Задоволений тепер, Бака?! 😤",
-            parse_mode=ParseMode.MARKDOWN,
+            f"⏸️ <b>Поставила на паузу</b> принтер <i>{html.escape(target_printer.name)}</i>! Задоволений тепер, Бака?! 😤",
+            parse_mode=ParseMode.HTML,
             reply_markup=get_printer_menu_keyboard(target_printer),
         )
     else:
@@ -197,8 +197,8 @@ async def handle_resume_print(message: Message, app):
 
     if target_printer.resume():
         await message.answer(
-            f"▶️ **Відновила друк** на *{target_printer.name}*! І тільки спробуй знову зупинити, Бака! 😤",
-            parse_mode=ParseMode.MARKDOWN,
+            f"▶️ <b>Відновила друк</b> на <i>{html.escape(target_printer.name)}</i>! І тільки спробуй знову зупинити, Бака! 😤",
+            parse_mode=ParseMode.HTML,
             reply_markup=get_printer_menu_keyboard(target_printer),
         )
     else:
@@ -217,12 +217,21 @@ async def handle_stop_print_request(message: Message, app):
 
     user["state"] = "confirm_stop_print"
     await app.storage.save_user(user)
+    u_lang = user.get("language", "uk") if user else "uk"
     stop_kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Так, зупинити друк")], [KeyboardButton(text="Ні, скасувати")]],
+        keyboard=[
+            [KeyboardButton(text="Так, зупинити друк" if u_lang != "en" else "Yes, stop print")],
+            [KeyboardButton(text="Ні, скасувати" if u_lang != "en" else "No, cancel")],
+        ],
         resize_keyboard=True,
     )
+    prompt_txt = (
+        f"⚠️ **Ви дійсно хочете ЗУПИНИТИ друк на {target_printer.name}?**"
+        if u_lang != "en"
+        else f"⚠️ **Are you sure you want to STOP printing on {target_printer.name}?**"
+    )
     await message.answer(
-        f"⚠️ **Ви дійсно хочете ЗУПИНИТИ друк на {target_printer.name}?**",
+        prompt_txt,
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=stop_kb,
     )
@@ -243,24 +252,32 @@ async def handle_control_states(message: Message, app):
     state = user.get("state", "idle")
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
+    u_lang = user.get("language", "uk") if user else "uk"
 
     if state == "confirm_stop_print" and target_printer:
-        text = message.text.strip() if message.text else ""
-        if text == "Так, зупинити друк":
+        text = message.text.strip().lower() if message.text else ""
+        if text in ["так, зупинити друк", "yes, stop print", "так", "yes"]:
             if target_printer.stop_print():
                 user["state"] = "printer_menu"
                 await app.storage.save_user(user)
+                succ_msg = (
+                    f"⏹️ **Друк скасовано (зупинено)** на *{target_printer.name}*"
+                    if u_lang != "en"
+                    else f"⏹️ **Print stopped** on *{target_printer.name}*"
+                )
                 await message.answer(
-                    f"⏹️ **Друк скасовано (зупинено)** на *{target_printer.name}*",
+                    succ_msg,
                     parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=get_printer_menu_keyboard(target_printer),
+                    reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
                 )
             else:
-                await message.answer("⚠️ Не вдалося відправити команду зупинки через MQTT.")
+                err_msg = "⚠️ Не вдалося відправити команду зупинки через MQTT." if u_lang != "en" else "⚠️ Failed to send stop command via MQTT."
+                await message.answer(err_msg)
         else:
             user["state"] = "printer_menu"
             await app.storage.save_user(user)
-            await message.answer("Зупинку друку скасовано.", reply_markup=get_printer_menu_keyboard(target_printer))
+            canc_msg = "Зупинку друку скасовано." if u_lang != "en" else "Print stop cancelled."
+            await message.answer(canc_msg, reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang))
         return True
     return False
 

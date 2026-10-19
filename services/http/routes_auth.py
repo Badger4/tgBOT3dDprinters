@@ -2,6 +2,7 @@
 Authentication & First-Launch Setup Wizard REST API endpoints for Standalone Web Access.
 """
 
+import hmac
 from pathlib import Path
 from aiohttp import web
 
@@ -126,7 +127,7 @@ async def handle_post_login(request: web.Request) -> web.Response:
         # If no password configured yet, allow setup
         return web.json_response({"error": "Система ще не налаштована. Перейдіть до /setup"}, status=400)
 
-    if password != expected_pass:
+    if not hmac.compare_digest(password, expected_pass):
         return web.json_response({"error": "Невірний пароль доступу!"}, status=401)
 
     session_token = create_web_session()

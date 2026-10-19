@@ -21,6 +21,17 @@ async def handle_add_printer_start(message: Message, app):
     user = await app.storage.load_user(chat_id)
     u_lang = user.get("language", "uk")
 
+    if hasattr(app, "is_user_admin") and callable(app.is_user_admin):
+        is_adm = app.is_user_admin(chat_id)
+        if asyncio.iscoroutine(is_adm) or asyncio.isfuture(is_adm):
+            is_adm = await is_adm
+        if not is_adm:
+            await message.answer(
+                "⛔ <b>У вас немає прав адміністратора для цієї дії!</b>" if u_lang != "en" else "⛔ <b>Admin privileges required!</b>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
     user["state"] = "add_p_name"
     user.setdefault("context_data", {})["new_printer"] = {}
     await app.storage.save_user(user)
@@ -63,7 +74,11 @@ async def handle_printer_states(message: Message, app) -> bool:
     text = message.text.strip() if message.text else ""
     u_lang = user.get("language", "uk")
 
-    cancel_keywords = {"відміна", "відмінити", "скасувати", "стоп", "назад", "⬅️ назад", "cancel", "/cancel"}
+    cancel_keywords = {
+        "відміна", "відмінити", "скасувати", "стоп", "назад", "⬅️ назад",
+        "cancel", "/cancel", "back", "⬅️ back", "головне меню", "⬅️ головне меню",
+        "main menu", "⬅️ main menu", "/start",
+    }
     if text.lower() in cancel_keywords:
         user["state"] = "idle"
         user.get("context_data", {}).pop("new_printer", None)

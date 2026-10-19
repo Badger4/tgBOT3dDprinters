@@ -2,6 +2,7 @@
 Global user notification settings handlers.
 """
 
+import html
 from typing import Any
 
 from aiogram import F, Router
@@ -45,7 +46,7 @@ async def handle_notifications_menu(message: Message, app):
     target_printer = app.printers.get(selected_pid) if selected_pid and hasattr(app, "printers") else None
 
     if target_printer:
-        title = f"⚙️ <b>Сповіщення для {target_printer.name}:</b>"
+        title = f"⚙️ <b>Сповіщення для {html.escape(target_printer.name)}:</b>"
         ikb = get_printer_notification_inline_keyboard(target_printer, lang=u_lang)
         await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
     elif hasattr(app, "printers") and app.printers and len(app.printers) > 1:
@@ -54,7 +55,7 @@ async def handle_notifications_menu(message: Message, app):
         await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
     elif hasattr(app, "printers") and app.printers and len(app.printers) == 1:
         p = list(app.printers.values())[0]
-        title = f"⚙️ <b>Сповіщення для {p.name}:</b>"
+        title = f"⚙️ <b>Сповіщення для {html.escape(p.name)}:</b>"
         ikb = get_printer_notification_inline_keyboard(p, lang=u_lang)
         await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
     else:
@@ -97,7 +98,7 @@ async def handle_pn_select_callback(callback: CallbackQuery, app):
         await callback.answer("Принтер не знайдено!", show_alert=True)
         return
 
-    title = f"⚙️ <b>Сповіщення для {printer.name}:</b>"
+    title = f"⚙️ <b>Сповіщення для {html.escape(printer.name)}:</b>"
     ikb = get_printer_notification_inline_keyboard(printer, lang=u_lang)
     await callback.message.edit_text(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
     await callback.answer()

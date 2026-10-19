@@ -307,7 +307,10 @@ def fetch_bambu_ftps_info(ip: str, access_code: str, target_filename: str = "") 
             try:
                 ftps.quit()
             except Exception:
-                pass
+                try:
+                    ftps.close()
+                except Exception:
+                    pass
 
 
 def fetch_bambu_ftps_weight(ip: str, access_code: str, target_filename: str = "") -> float:
@@ -419,7 +422,10 @@ def upload_3mf_to_bambu(ip: str, access_code: str, file_bytes: bytes, filename: 
                 time.sleep(1.0)
                 ftps.quit()
             except Exception:
-                pass
+                try:
+                    ftps.close()
+                except Exception:
+                    pass
 
     # Attempt 2: Fresh connection upload to root /
     ftps_root = _connect_bambu_ftps(ip, access_code, timeout=15.0)
@@ -483,7 +489,10 @@ def verify_bambu_file_size(
                 try:
                     ftps.quit()
                 except Exception:
-                    pass
+                    try:
+                        ftps.close()
+                    except Exception:
+                        pass
 
         time.sleep(retry_delay)
 

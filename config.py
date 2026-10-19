@@ -40,6 +40,12 @@ def _get_env_float(key: str, default: float) -> float:
 
 def update_env_key(key: str, val: str) -> None:
     """Safely sets or updates a key=val pair in the project's .env file."""
+    # Sanitize key and val against newline and delimiter injection
+    clean_key = re.sub(r"[\r\n=]", "", str(key)).strip()
+    clean_val = re.sub(r"[\r\n]", "", str(val)).strip()
+    if not clean_key:
+        return
+
     lines = []
     if ENV_PATH.exists():
         content = ENV_PATH.read_text(encoding="utf-8")
@@ -48,14 +54,14 @@ def update_env_key(key: str, val: str) -> None:
     found = False
     new_lines = []
     for line in lines:
-        if line.strip().startswith(f"{key}="):
-            new_lines.append(f"{key}={val}")
+        if line.strip().startswith(f"{clean_key}="):
+            new_lines.append(f"{clean_key}={clean_val}")
             found = True
         else:
             new_lines.append(line)
 
     if not found:
-        new_lines.append(f"{key}={val}")
+        new_lines.append(f"{clean_key}={clean_val}")
 
     ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 

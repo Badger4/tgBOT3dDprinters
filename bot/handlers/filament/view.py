@@ -1,4 +1,4 @@
-﻿"""
+"""
 Filament warehouse view & RFID sync handlers.
 """
 
@@ -253,6 +253,25 @@ async def handle_filament_menu(message: Message, app, state: FSMContext | None =
             if u_lang != "en"
             else "<i>No free spools in stock (all mounted or stock is empty).</i>\n"
         )
+
+    if len(txt) > 3900:
+        cut_idx = txt[:3800].rfind("\n• ")
+        suffix = (
+            "\n\n<i>⚠️ Список скорочено через ліміт Telegram. Відкрийте WebApp для повного складу!</i>"
+            if u_lang != "en"
+            else "\n\n<i>⚠️ List truncated due to Telegram limit. Open WebApp for full stock!</i>"
+        )
+        if cut_idx != -1:
+            txt = txt[:cut_idx] + suffix
+        else:
+            txt = txt[:3800] + suffix
+
+        import re
+        for tag in ["b", "i", "code", "s", "u", "strong", "em"]:
+            opens = len(re.findall(rf"<{tag}(?:\s+[^>]*)?>", txt, re.IGNORECASE))
+            closes = len(re.findall(rf"</{tag}>", txt, re.IGNORECASE))
+            if opens > closes:
+                txt += f"</{tag}>" * (opens - closes)
 
     await message.answer(txt, parse_mode=ParseMode.HTML, reply_markup=get_filament_menu_keyboard(lang=u_lang))
 
