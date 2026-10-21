@@ -34,6 +34,7 @@ printers_storage/*
 # Temporary executables & scratch
 cloudflared.exe
 scratch/
+tools/scratch_scripts/
 NUL
 .gemini/
 

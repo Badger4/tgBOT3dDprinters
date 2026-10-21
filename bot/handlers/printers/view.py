@@ -31,7 +31,7 @@ async def handle_list_printers(message: Message, app, state: FSMContext | None =
     await app.storage.save_user(user)
     u_lang = user.get("language", "uk")
     await message.answer(
-        "🖨️ <b>Ось твої принтери, Бака!</b>\nОбирай якийсь один і не дратуй мене даремно! 😤💅" if u_lang != "en" else "🖨️ <b>Here are your printers!</b>\nSelect one to view controls and status! 🚀",
+        "🖨️ <b>Список принтерів ферми</b>\nОберіть потрібний принтер для перегляду та керування:" if u_lang != "en" else "🖨️ <b>Here are your printers!</b>\nSelect one to view controls and status! 🚀",
         parse_mode=ParseMode.HTML,
         reply_markup=get_printers_keyboard(app.printers, lang=u_lang),
     )

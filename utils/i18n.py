@@ -238,3 +238,32 @@ def set_user_lang(user_data: dict[str, Any], lang: str) -> dict[str, Any]:
         user_data = {}
     user_data["language"] = "en" if str(lang).lower() in ["en", "english"] else "uk"
     return user_data
+
+
+def get_button_variants(*keys: str, extra: list[str] | None = None) -> list[str]:
+    """
+    Returns all language variants (e.g. 'uk', 'en', with and without emojis, lowercased)
+    for given translation keys, ensuring flexible and resilient button matching.
+    """
+    all_raw: set[str] = set()
+    for k in keys:
+        entry = TRANSLATIONS.get(k, {})
+        for lang_val in entry.values():
+            if lang_val:
+                all_raw.add(lang_val)
+    if extra:
+        for ex in extra:
+            if ex:
+                all_raw.add(ex)
+
+    variants: set[str] = set()
+    for val in all_raw:
+        variants.add(val)
+        variants.add(val.lower())
+        cleaned = val.lstrip("🖨️🧵🧩📊📦⚙️🎛️🔔🗑️➕✏️📜💰👑🏷️🔗🔓🎯🧹⬇️⬆️🌐🚀📱❌↩️ ").strip()
+        if cleaned:
+            variants.add(cleaned)
+            variants.add(cleaned.lower())
+
+    return sorted(variants)
+

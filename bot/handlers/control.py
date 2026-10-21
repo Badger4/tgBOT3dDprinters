@@ -37,7 +37,7 @@ async def handle_control_menu(message: Message, app):
 
     await message.answer(
         f"🎛️ <b>Панель керування {html.escape(target_printer.name)}</b>\n"
-        f"Х-хмпф! Обирай команду керування... Тільки дивись нічого не зіпсуй, Бака! 😤💅",
+        f"Оберіть потрібну дію або команду керування:",
         parse_mode=ParseMode.HTML,
         reply_markup=get_printer_control_keyboard(target_printer),
     )
@@ -178,7 +178,7 @@ async def handle_pause_print(message: Message, app):
 
     if target_printer.pause():
         await message.answer(
-            f"⏸️ <b>Поставила на паузу</b> принтер <i>{html.escape(target_printer.name)}</i>! Задоволений тепер, Бака?! 😤",
+            f"⏸️ <b>Принтер поставлено на паузу:</b> <i>{html.escape(target_printer.name)}</i>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_printer_menu_keyboard(target_printer),
         )
@@ -198,7 +198,7 @@ async def handle_resume_print(message: Message, app):
 
     if target_printer.resume():
         await message.answer(
-            f"▶️ <b>Відновила друк</b> на <i>{html.escape(target_printer.name)}</i>! І тільки спробуй знову зупинити, Бака! 😤",
+            f"▶️ <b>Друк відновлено:</b> <i>{html.escape(target_printer.name)}</i>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_printer_menu_keyboard(target_printer),
         )

@@ -48,12 +48,42 @@ DEFAULT_PRESETS = {
 }
 
 
+_INDEX_CACHE: tuple[float, float, str] = (0.0, 0.0, "")
+
+
+def get_rendered_index_html() -> str:
+    """Renders webapp/index.html with automatic asset mtime cache-busting."""
+    global _INDEX_CACHE
+    index_file = WEBAPP_DIR / "index.html"
+    app_js_file = WEBAPP_DIR / "static" / "js" / "app.js"
+    style_css_file = WEBAPP_DIR / "static" / "css" / "style.css"
+
+    idx_mtime = index_file.stat().st_mtime if index_file.exists() else 0.0
+    js_mtime = app_js_file.stat().st_mtime if app_js_file.exists() else 0.0
+
+    if _INDEX_CACHE[0] == idx_mtime and _INDEX_CACHE[1] == js_mtime and _INDEX_CACHE[2]:
+        return _INDEX_CACHE[2]
+
+    if not index_file.exists():
+        return "<h1>WebApp index.html not found</h1>"
+
+    raw_html = index_file.read_text(encoding="utf-8")
+    version_tag = f"v={int(js_mtime)}"
+    import re
+    rendered = re.sub(r"/static/js/app\.js\?v=\d+", f"/static/js/app.js?{version_tag}", raw_html)
+    rendered = re.sub(r"/static/css/style\.css\?v=\d+", f"/static/css/style.css?{version_tag}", rendered)
+
+    _INDEX_CACHE = (idx_mtime, js_mtime, rendered)
+    return rendered
+
+
 async def handle_serve_index(request: web.Request) -> web.StreamResponse:
-    """Serves the main Telegram WebApp single-page application."""
+    """Serves the main Telegram WebApp with automatic asset cache-busting."""
     index_file = WEBAPP_DIR / "index.html"
     if not index_file.exists():
         return web.Response(text="<h1>WebApp index.html not found</h1>", content_type="text/html", status=404)
-    resp = web.FileResponse(index_file)
+    content = get_rendered_index_html()
+    resp = web.Response(text=content, content_type="text/html", charset="utf-8")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"

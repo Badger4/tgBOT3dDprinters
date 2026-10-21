@@ -657,7 +657,7 @@ async def handle_confirm_start_print_job(message: Message, app):
             await message.answer(
                 f"{print_msg}\n"
                 f"📦 Новий залишок нитки ({slot_label}): <b>{rem_g}g</b>\n\n"
-                f"Х-хмпф! Друк відправлено! І тільки спробуй за ним не стежити, Бака! 😤💅",
+                f"✅ <b>Друк успішно запущено!</b>\nФайл відправлено на виконання на принтер <b>{html.escape(p.name)}</b>.",
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_printer_menu_keyboard(target_p),
             )

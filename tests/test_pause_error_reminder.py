@@ -110,7 +110,7 @@ class TestPauseErrorReminder(unittest.IsolatedAsyncioTestCase):
             if p.notify and not st["notifiedPause"]:
                 await self.app.send_notification(
                     "pause",
-                    f"⏸️ *Гей! Принтер {p.name} поставлено на паузу!* Іди перевір, що там сталося, Бака! 😤",
+                    f"⏸️ *Увага! Принтер {p.name} поставлено на паузу!* Будь ласка, перевірте стан принтера.",
                     reply_markup=get_error_notification_inline_keyboard(p.id),
                     printer=p,
                 )
@@ -144,7 +144,7 @@ class TestPauseErrorReminder(unittest.IsolatedAsyncioTestCase):
             err_txt = (
                 f"{err_title} {p.name}!</b>\n\n"
                 f"⚠️ <b>Виявлено збої:</b>\n{err_lines}\n\n"
-                f"Біжи перевіряй принтер, Бака! 😤"
+                f"Будь ласка, перевірте принтер."
             )
             await self.app.send_notification(
                 "pause",
@@ -167,7 +167,7 @@ class TestPauseErrorReminder(unittest.IsolatedAsyncioTestCase):
                         f"🚨 <b>Повторне сповіщення про помилку!</b>\n\n"
                         f"Принтер <b>{p.name}</b> досі стоїть на паузі вже понад <b>5 хвилин</b> через помилку!\n\n"
                         f"⚠️ <b>Активні помилки:</b>\n{err_lines}\n\n"
-                        f"Принтер потребує вашої уваги, Бака! Швидше перевір його! 😤🔧"
+                        f"Принтер потребує вашої уваги! Будь ласка, перевірте стан принтера. 🔧"
                     )
                     await self.app.send_notification(
                         "pause",
@@ -217,7 +217,7 @@ class TestPauseErrorReminder(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Повторне сповіщення про помилку!", args[1])
         self.assertIn("понад <b>5 хвилин</b>", args[1])
         self.assertIn("Закінчився філамент", args[1])
-        self.assertIn("Бака! Швидше перевір його!", args[1])
+        self.assertIn("Принтер потребує вашої уваги!", args[1])
         self.assertIsNotNone(kwargs.get("reply_markup"))
 
         # Tick 4 at t=315s: repeat already sent, no spam!

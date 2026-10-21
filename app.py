@@ -418,7 +418,7 @@ class PrinterBotApp:
                         is_insufficient = used_w > 0 and used_w > spool_before
 
                         if st["lastState"] != "RUNNING" and p.notify and not st["notifiedStart"]:
-                            start_txt = f"🚀 *Принтер {p.name} розпочав друк!*\nХ-хмпф! Не думай, що я буду стежити за ним замість тебе, Бака! 😤\n"
+                            start_txt = f"🚀 *Принтер {p.name} розпочав друк!*\n"
                             if p.subtask_name:
                                 start_txt += f"📄 **Модель:** `{p.subtask_name}`\n"
                             start_txt += f"🧵 **Матеріал:** *{p.filament_type}*\n"
@@ -443,7 +443,7 @@ class PrinterBotApp:
                                     start_txt += (
                                         f"\n\n🚨 **УВАГА! Недостатньо пластику для друку!**\n"
                                         f"❌ Вага моделі (`{used_w}g`) більша ніж залишок (`{spool_before}g`{deficit_note})!\n"
-                                        f"⚠️ Не вистачає ~*{deficit}g*! Не кажи потім, що я не попереджала, Бака!"
+                                        f"⚠️ Не вистачає ~*{deficit}g*! Будь ласка, замініть котушку."
                                     )
                                 st["notifiedInsufficentWarning"] = True
 
@@ -465,7 +465,7 @@ class PrinterBotApp:
                                 warn_txt = (
                                     f"ℹ️ *Гей! На поточній котушці (Слот {slot_label}) всього {spool_before}g,*\n"
                                     f"але в AMS є сумісний резерв: *Слот {backup_names}* (разом: *{total_avail}g* / потрібно: `{used_w}g`).\n"
-                                    f"✨ Автозаміна AMS перемкнеться штатно під час друку! Можеш не хвилюватися, Бака! 😉✅"
+                                    f"✨ Автозаміна AMS перемкнеться штатно під час друку! ✅"
                                 )
                             else:
                                 if backup_slots:
@@ -475,7 +475,7 @@ class PrinterBotApp:
                                         f"🖨️ **Принтер:** *{p.name}*\n"
                                         f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
                                         f"⚖️ **Потрібно:** `{used_w}g` | 📦 **Всього в AMS:** `{total_avail}g`\n"
-                                        f"⚠️ Не вистачає ще ~*{total_def}g*! Підготуй нову котушку, Бака! 😤"
+                                        f"⚠️ Не вистачає ще ~*{total_def}g*! Підготуйте нову котушку."
                                     )
                                 else:
                                     deficit = round(used_w - spool_before, 2)
@@ -483,7 +483,7 @@ class PrinterBotApp:
                                         f"🚨 **УВАГА! Недостатньо пластику на принтері {p.name}!**\n"
                                         f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
                                         f"⚖️ **Вага моделі:** `{used_w}g` | 📦 **Залишок:** `{spool_before}g`\n"
-                                        f"⚠️ Не вистачає ~*{deficit}g* пластику! Іди міняй котушку, Бака! 😤"
+                                        f"⚠️ Не вистачає ~*{deficit}g* пластику! Будь ласка, встановіть нову котушку."
                                     )
                             await self.send_notification("start", warn_txt, printer=p)
                             st["notifiedInsufficentWarning"] = True
@@ -504,10 +504,10 @@ class PrinterBotApp:
                                 if min_time > 0 and p.mc_remaining_time <= min_time:
                                     if not st.get(time_key):
                                         time_txt = (
-                                            f"⏳ *Гей, Бака! Попереджую заздалегідь!*\n"
+                                            f"⏳ *Попередження про завершення друку!*\n"
                                             f"🖨️ **Принтер:** *{p.name}*\n"
                                             f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
-                                            f"⏱️ Друк завершиться приблизно через *{p.mc_remaining_time} хв*! Іди вже готуйся! 😤"
+                                            f"⏱️ Друк завершиться приблизно через *{p.mc_remaining_time} хв*!"
                                         )
                                         sent = await self.safe_send_message(
                                             chat_id, time_txt, parse_mode=ParseMode.MARKDOWN
@@ -545,7 +545,7 @@ class PrinterBotApp:
                                         f"📦 *Гей! Автоматичне попередження про малий залишок нитки!*\n"
                                         f"🖨️ **Принтер:** *{p.name}*\n"
                                         f"🧵 **Залишок на бабіні:** *{p.filament_grams}g* (поріг: ≤{int(min_fil)}g)\n"
-                                        f"⚠️ На бабіні замало пластику! Підготуй нову котушку, не кажи потім, що я не попереджала, Бака! 😤"
+                                        f"⚠️ На котушці замало пластику! Підготуйте нову котушку заздалегідь."
                                     )
                                     sent = await self.safe_send_message(chat_id, fil_txt, parse_mode=ParseMode.MARKDOWN)
                                     if sent:
@@ -563,7 +563,7 @@ class PrinterBotApp:
                         if p.notify and not st["notifiedPause"]:
                             await self.send_notification(
                                 "pause",
-                                f"⏸️ *Гей! Принтер {p.name} поставлено на паузу!* Іди перевір, що там сталося, Бака! 😤",
+                                f"⏸️ *Увага! Принтер {p.name} поставлено на паузу!* Будь ласка, перевірте стан принтера.",
                                 printer=p, reply_markup=get_error_notification_inline_keyboard(p.id),
                             )
                             st["notifiedPause"] = True
@@ -652,7 +652,7 @@ class PrinterBotApp:
                             if not st.get("notifiedClearReminder"):
                                 from bot.keyboards.notifications import get_finish_notification_inline_keyboard
 
-                                rem_txt = f"🔔 *Скільки можна чекати, Бака?!*\nДрук на {p.name} закінчився 15 хв тому!\nНегайно зніми готову деталь зі столу, щоб звільнити принтер! 🧼😤"
+                                rem_txt = f"🔔 *Нагадування: друк завершено!*\nДрук на {p.name} закінчився 15 хв тому.\nЗніміть готову деталь зі столу, щоб звільнити принтер! 🧼"
                                 await self.send_notification(
                                     "remind_clear",
                                     rem_txt,
@@ -693,7 +693,7 @@ class PrinterBotApp:
                         err_txt = (
                             f"{err_title} {html.escape(p.name)}!</b>\n\n"
                             f"⚠️ <b>Виявлено збої:</b>\n{err_lines}\n\n"
-                            f"Біжи перевіряй принтер, Бака! 😤"
+                            f"Будь ласка, перевірте принтер."
                         )
                         await self.send_notification(
                             "pause",
@@ -715,7 +715,7 @@ class PrinterBotApp:
                                     f"🚨 <b>Повторне сповіщення про помилку!</b>\n\n"
                                     f"Принтер <b>{html.escape(p.name)}</b> досі стоїть на паузі вже понад <b>5 хвилин</b> через помилку!\n\n"
                                     f"⚠️ <b>Активні помилки:</b>\n{err_lines}\n\n"
-                                    f"Принтер потребує вашої уваги, Бака! Швидше перевір його! 😤🔧"
+                                    f"Принтер потребує вашої уваги! Будь ласка, перевірте стан принтера. 🔧"
                                 )
                                 await self.send_notification(
                                     "pause",
@@ -738,7 +738,7 @@ class PrinterBotApp:
                                 maint_txt = (
                                     f"🧹 *Час провести {item_name} на принтері {p.name}!*\n"
                                     f"⏱️ Відпрацьовано: *{c_hrs:.1f} годин* (встановлений поріг: {int(i_hrs)} год)!\n"
-                                    f"🔧 Проведіть технічне обслуговування, Бака! 🧼✨"
+                                    f"🔧 Проведіть планове технічне обслуговування. 🧼✨"
                                 )
                                 from bot.keyboards import get_maintenance_inline_keyboard
 
@@ -765,7 +765,7 @@ class PrinterBotApp:
                                     f"💧 <b>Увага: Підвищена вологість в AMS!</b>\n"
                                     f"🖨️ Принтер: <b>{html.escape(p.name)}</b>\n"
                                     f"📊 Стан осушувача: <b>{hum_state_str}</b>\n\n"
-                                    f"<i>Силікагель у відсіку AMS наситився вологою! Не дай пластику сиріти — заміни або просуши осушувач, Бака! 😤📦</i>"
+                                    f"<i>Силікагель у відсіку AMS наситився вологою! Замініть або просушіть осушувач, щоб зберегти пластик сухим. 📦</i>"
                                 )
                                 await self.send_notification("error", hum_msg, printer=p, parse_mode=ParseMode.HTML)
                                 st["lastAmsHumidityAlert"] = now_ts

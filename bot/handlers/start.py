@@ -32,7 +32,7 @@ async def cmd_start(message: Message, app, state: FSMContext | None = None):
     if not await app.is_user_approved(chat_id):
         keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Додати в команду")]], resize_keyboard=True)
         await message.answer(
-            "Х-хмпф! Для отримання доступу натисни кнопку нижче... Тільки не змушуй мене чекати, Бака! 😤",
+            "Для отримання доступу надішліть заявку адміністратору за кнопкою нижче:",
             reply_markup=keyboard,
         )
         return
