@@ -31,11 +31,13 @@ async def handle_sse_stream(request: web.Request) -> web.StreamResponse:
 
     try:
         while True:
+            if request.transport is None or request.transport.is_closing():
+                break
             printers_data = [build_printer_telemetry(p) for p in list(app_obj.printers.values())]
             payload = f"data: {json.dumps(printers_data)}\n\n"
             await response.write(payload.encode("utf-8"))
             await asyncio.sleep(SSE_INTERVAL_SECONDS)
-    except (asyncio.CancelledError, ConnectionResetError):
+    except (asyncio.CancelledError, ConnectionError, RuntimeError):
         pass
 
     return response

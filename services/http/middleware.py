@@ -73,14 +73,14 @@ ALLOWED_ORIGINS.discard("")
 
 STATIC_SECURITY_HEADERS = {
     "Access-Control-Allow-Methods": "GET, POST, DELETE, PUT, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-API-Key, Authorization, X-Session-Token, X-Requested-With",
+    "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-API-Key, Authorization, X-Session-Token, X-Requested-With, Bypass-Tunnel-Reminder",
     "Access-Control-Max-Age": "86400",
     "X-Content-Type-Options": "nosniff",
     "X-XSS-Protection": "1; mode=block",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Content-Security-Policy": (
         "default-src 'self' https: data: blob:; "
-        "script-src 'self' https://telegram.org https://cdnjs.cloudflare.com; "
+        "script-src 'self' 'unsafe-inline' https://telegram.org https://cdnjs.cloudflare.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
         "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; "
         "img-src 'self' data: blob: https:; "
@@ -181,7 +181,8 @@ async def security_and_ratelimit_middleware(request: web.Request, handler: Any) 
         response.headers["X-RateLimit-Limit"] = str(limit)
         response.headers["X-RateLimit-Remaining"] = str(max(0, remaining - 1))
         try:
-            response.enable_compression()
+            if not isinstance(response, web.FileResponse):
+                response.enable_compression()
         except Exception:
             pass
 
