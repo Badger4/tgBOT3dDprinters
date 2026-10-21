@@ -73,7 +73,8 @@ def get_ram_usage() -> dict[str, Any]:
 
             stat = MEMORYSTATUSEX()
             stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+            windll = getattr(ctypes, "windll", None)
+            if windll and windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
                 total_mb = round(stat.ullTotalPhys / (1024 * 1024))
                 avail_mb = round(stat.ullAvailPhys / (1024 * 1024))
                 used_mb = max(0, total_mb - avail_mb)
