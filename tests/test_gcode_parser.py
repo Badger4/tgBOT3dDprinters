@@ -229,6 +229,28 @@ class TestGcodeParser(unittest.TestCase):
         res_tol = check_compatibility("Bambu Lab A1", "PLA", p_040.name, "PLA", printer=p_040, nozzle_diameter="0.4")
         self.assertTrue(res_tol["compatible"])
 
+    def test_parse_3mf_file_from_disk_path(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.NamedTemporaryFile(suffix=".3mf", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            with zipfile.ZipFile(tmp_path, "w") as zf:
+                zf.writestr("Metadata/slice_info.config", '<config><printer_model_id>c12</printer_model_id></config>')
+            res = parse_3mf_file(tmp_path)
+            self.assertTrue(res["valid"])
+            self.assertEqual(res["printer_model"], "Bambu Lab P1S")
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def test_parse_3mf_zip_traversal_rejected(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("../evil.txt", "exploit")
+        res = parse_3mf_file(buf.getvalue(), "exploit.3mf")
+        self.assertFalse(res["valid"])
+        self.assertIn("неприпустимі шляхи", res["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

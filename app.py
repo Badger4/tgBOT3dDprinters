@@ -887,6 +887,11 @@ class PrinterBotApp:
             except (asyncio.CancelledError, Exception):
                 pass
             for p in list(self.printers.values()):
+                if hasattr(p, "flush_active_print_context"):
+                    try:
+                        p.flush_active_print_context()
+                    except Exception:
+                        pass
                 if hasattr(p, "destroy"):
                     try:
                         p.destroy()

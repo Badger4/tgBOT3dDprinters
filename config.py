@@ -63,7 +63,19 @@ def update_env_key(key: str, val: str) -> None:
     if not found:
         new_lines.append(f"{clean_key}={clean_val}")
 
-    ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    tmp_path = ENV_PATH.with_suffix(".tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(new_lines) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, ENV_PATH)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 # Environment variables

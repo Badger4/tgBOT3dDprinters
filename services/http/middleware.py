@@ -38,19 +38,29 @@ def get_client_ip(request: web.Request) -> str:
     Safely extracts client IP address.
     Checks CF-Connecting-IP first when behind a trusted proxy,
     or validates X-Forwarded-For against trusted proxies.
+    Prevents header spoofing from untrusted remotes and validates IP syntax.
     """
-    remote = request.remote or "127.0.0.1"
+    remote = getattr(request, "remote", None)
     trusted = get_trusted_proxies()
-    if is_trusted_proxy(remote, trusted):
+    if remote and is_trusted_proxy(remote, trusted):
         cf_ip = request.headers.get("CF-Connecting-IP", "").strip()
         if cf_ip:
-            return cf_ip
+            try:
+                ipaddress.ip_address(cf_ip)
+                return cf_ip
+            except ValueError:
+                pass
         forwarded = request.headers.get("X-Forwarded-For", "")
         if forwarded:
             parts = [p.strip() for p in forwarded.split(",") if p.strip()]
             if parts:
-                return parts[0]
-    return remote
+                candidate = parts[0]
+                try:
+                    ipaddress.ip_address(candidate)
+                    return candidate
+                except ValueError:
+                    pass
+    return remote or "127.0.0.1"
 
 # IP Rate Limiting storage: ip -> list of request timestamps
 IP_REQUEST_LOGS: dict[str, list[float]] = {}

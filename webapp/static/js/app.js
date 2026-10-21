@@ -1620,6 +1620,339 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // =========================================================================
+    // EVENT DELEGATION & REPRINT HANDLERS (Stops Memory Leaks on SSE / Polling)
+    // =========================================================================
+    async function handleReprintFromHistory(btn) {
+        const taskName = btn.getAttribute("data-task") || "Модель";
+        const origPrinterName = btn.getAttribute("data-printer") || "Принтер";
+        const origPrinterId = btn.getAttribute("data-printer-id") || "";
+
+        if (!printersData || printersData.length === 0) {
+            alert("⚠️ Немає підключених принтерів у фермі!");
+            return;
+        }
+
+        const targetPrinter = printersData.find(p => p.id === origPrinterId || p.name === origPrinterName || (p.name && origPrinterName && p.name.toLowerCase().includes(origPrinterName.toLowerCase()))) || printersData[0];
+
+        const confirmed = confirm(`🚀 Повторно кинути на друк модель "${taskName}"?\n\nПринтер: ${targetPrinter.name}`);
+        if (!confirmed) return;
+
+        triggerHaptic("medium");
+
+        try {
+            let partsList = [];
+            try {
+                const partsRes = await fetch("/api/parts");
+                const partsData = await partsRes.json();
+                partsList = Object.values(partsData || {});
+            } catch (e) {
+                console.error("Failed fetching parts for reprint:", e);
+            }
+
+            const normTask = taskName.trim().toLowerCase();
+            const matchedPart = partsList.find(p => {
+                if (!p.name) return false;
+                const normP = p.name.trim().toLowerCase();
+                return normP === normTask || normTask.includes(normP) || normP.includes(normTask);
+            });
+
+            if (matchedPart && matchedPart.id) {
+                const res = await fetch(`/api/parts/${matchedPart.id}/print/${targetPrinter.id}`, { method: "POST" });
+                const result = await res.json().catch(() => ({}));
+                if (res.ok && result.status === "ok") {
+                    alert(`✅ Модель "${taskName}" успішно відправлено на друк на принтер ${targetPrinter.name}!`);
+                } else {
+                    alert(`⚠️ Помилка запуску друку: ${result.error || `HTTP ${res.status}`}`);
+                }
+            } else {
+                let filesList = [];
+                try {
+                    const filesRes = await fetch("/api/files");
+                    const filesData = await filesRes.json();
+                    filesList = Array.isArray(filesData.files) ? filesData.files : [];
+                } catch (e) {}
+
+                const matchedFile = filesList.find(f => {
+                    const fName = (f.filename || f.name || "").trim().toLowerCase();
+                    return fName === normTask || normTask.includes(fName) || fName.includes(normTask);
+                });
+
+                if (matchedFile && (matchedFile.file_token || matchedFile.filename)) {
+                    const fileToken = matchedFile.file_token || matchedFile.filename;
+                    const res = await fetch(`/api/printers/${targetPrinter.id}/print_file`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ file_token: fileToken, filename: matchedFile.filename || taskName })
+                    });
+                    const result = await res.json().catch(() => ({}));
+                    if (res.ok && result.status === "ok") {
+                        alert(`✅ Файл "${taskName}" успішно відправлено на друк на принтер ${targetPrinter.name}!`);
+                    } else {
+                        alert(`⚠️ Помилка запуску друку: ${result.error || `HTTP ${res.status}`}`);
+                    }
+                } else {
+                    alert(`⚠️ Модель або файл "${taskName}" не знайдено в Складі деталей чи Завантаженнях. Неможливо заново запустити друк.`);
+                }
+            }
+        } catch (err) {
+            console.error("Reprint error:", err);
+            alert("⚠️ Помилка зв'язку при запуску повторного друку.");
+        }
+    }
+
+    function initEventDelegation() {
+        // 1. Printers Grid delegation
+        const pGrid = document.getElementById("printers-grid");
+        if (pGrid && !pGrid._delegated) {
+            pGrid._delegated = true;
+            pGrid.addEventListener("click", (e) => {
+                const gearBtn = e.target.closest(".btn-card-gear");
+                if (gearBtn) {
+                    e.stopPropagation();
+                    const pId = gearBtn.getAttribute("data-id");
+                    if (pId) openPrinterSettingsModal(pId);
+                    return;
+                }
+                const pauseBtn = e.target.closest(".btn-cockpit-pause-resume");
+                if (pauseBtn) {
+                    e.stopPropagation();
+                    const pId = pauseBtn.getAttribute("data-id");
+                    if (pId) handleQuickPauseResume(pId, pauseBtn, e);
+                    return;
+                }
+                const peekBtn = e.target.closest(".btn-cockpit-cam-peek");
+                if (peekBtn) {
+                    e.stopPropagation();
+                    const pId = peekBtn.getAttribute("data-id");
+                    if (pId) handleQuickCamPeek(pId, peekBtn, e);
+                    return;
+                }
+                const lightBtn = e.target.closest(".btn-cockpit-light");
+                if (lightBtn) {
+                    e.stopPropagation();
+                    const pId = lightBtn.getAttribute("data-id");
+                    if (pId) handleQuickLightToggle(pId, lightBtn, e);
+                    return;
+                }
+                const speedBtn = e.target.closest(".btn-cockpit-speed");
+                if (speedBtn) {
+                    e.stopPropagation();
+                    const pId = speedBtn.getAttribute("data-id");
+                    if (pId) handleQuickSpeedCycle(pId, speedBtn, e);
+                    return;
+                }
+                const card = e.target.closest(".printer-card");
+                if (card) {
+                    const pId = card.getAttribute("data-id");
+                    if (pId) openPrinterModal(pId);
+                    return;
+                }
+            });
+        }
+
+        // 2. Dashboard Grid delegation
+        const dGrid = document.getElementById("dashboard-grid");
+        if (dGrid && !dGrid._delegated) {
+            dGrid._delegated = true;
+            dGrid.addEventListener("click", (e) => {
+                const card = e.target.closest(".glass-card[data-id]");
+                if (card) {
+                    const pId = card.getAttribute("data-id");
+                    if (pId) openPrinterModal(pId);
+                }
+            });
+        }
+
+        // 3. Spools Warehouse delegation
+        const sList = document.getElementById("spools-list");
+        if (sList && !sList._delegated) {
+            sList._delegated = true;
+            sList.addEventListener("click", async (e) => {
+                const histBtn = e.target.closest(".btn-history-spool");
+                if (histBtn) {
+                    const id = histBtn.getAttribute("data-id");
+                    if (id && window.openSpoolMovementsFor) window.openSpoolMovementsFor(id);
+                    return;
+                }
+                const assignBtn = e.target.closest(".btn-assign-spool");
+                if (assignBtn) {
+                    const id = assignBtn.getAttribute("data-id");
+                    const spools = window._cachedSpoolsMap || window.spoolsData || {};
+                    selectedSpoolForAssign = spools[id];
+                    openAssignSpoolModal(window._cachedPrintersForSpools || printersData || []);
+                    return;
+                }
+                const editBtn = e.target.closest(".btn-edit-spool");
+                if (editBtn) {
+                    const id = editBtn.getAttribute("data-id");
+                    const spools = window._cachedSpoolsMap || window.spoolsData || {};
+                    const s = spools[id];
+                    if (s && window.openAddSpoolModal) window.openAddSpoolModal(s);
+                    return;
+                }
+                const delBtn = e.target.closest(".btn-delete-spool");
+                if (delBtn) {
+                    const id = delBtn.getAttribute("data-id");
+                    if (confirm("Видалити цю котушку зі складу?")) {
+                        await fetch(`/api/spools/${id}`, { method: "DELETE" });
+                        loadMaterials();
+                    }
+                    return;
+                }
+            });
+        }
+
+        // 4. History Table delegation
+        const hTbody = document.getElementById("history-table-body");
+        if (hTbody && !hTbody._delegated) {
+            hTbody._delegated = true;
+            hTbody.addEventListener("click", async (e) => {
+                const reprintBtn = e.target.closest(".btn-reprint-history");
+                if (reprintBtn) {
+                    handleReprintFromHistory(reprintBtn);
+                    return;
+                }
+                const delBtn = e.target.closest(".btn-delete-history-entry");
+                if (delBtn) {
+                    const ts = delBtn.getAttribute("data-ts");
+                    if (ts && confirm("Видалити цей запис із історії?")) {
+                        await fetch(`/api/history?timestamp=${encodeURIComponent(ts)}`, { method: "DELETE" });
+                        loadHistory();
+                    }
+                    return;
+                }
+                const scrapBtn = e.target.closest(".btn-mark-scrap");
+                if (scrapBtn) {
+                    const data = {
+                        ts: scrapBtn.getAttribute("data-ts"),
+                        weight: parseFloat(scrapBtn.getAttribute("data-weight")) || 0,
+                        task: scrapBtn.getAttribute("data-task") || "Модель",
+                        printer: scrapBtn.getAttribute("data-printer") || "Принтер",
+                        printerId: scrapBtn.getAttribute("data-printer-id") || "",
+                        slotKey: scrapBtn.getAttribute("data-slot") || "",
+                        spoolId: scrapBtn.getAttribute("data-spool-id") || "",
+                        date: scrapBtn.getAttribute("data-date") || "-",
+                    };
+                    openScrapModal(data);
+                    return;
+                }
+            });
+        }
+
+        // 5. Parts List delegation
+        const pList = document.getElementById("parts-list");
+        if (pList && !pList._delegated) {
+            pList._delegated = true;
+            pList.addEventListener("click", async (e) => {
+                const decBtn = e.target.closest(".btn-part-qty-dec");
+                if (decBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const id = decBtn.getAttribute("data-id");
+                    if (id && partsData[id]) {
+                        const current = parseInt(partsData[id].count || partsData[id].quantity || 0, 10);
+                        const newCount = Math.max(0, current - 1);
+                        await savePartApi({ ...partsData[id], count: newCount, quantity: newCount });
+                        loadParts();
+                    }
+                    return;
+                }
+                const incBtn = e.target.closest(".btn-part-qty-inc");
+                if (incBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const id = incBtn.getAttribute("data-id");
+                    if (id && partsData[id]) {
+                        const current = parseInt(partsData[id].count || partsData[id].quantity || 0, 10);
+                        const newCount = current + 1;
+                        await savePartApi({ ...partsData[id], count: newCount, quantity: newCount });
+                        loadParts();
+                    }
+                    return;
+                }
+                const printBtn = e.target.closest(".btn-print-part");
+                if (printBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const id = printBtn.getAttribute("data-id");
+                    if (id) triggerPrintPartById(id);
+                    return;
+                }
+                const editBtn = e.target.closest(".btn-edit-part");
+                if (editBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const id = editBtn.getAttribute("data-id");
+                    if (id && partsData[id] && window.openAddPartModal) window.openAddPartModal(partsData[id]);
+                    return;
+                }
+                const delBtn = e.target.closest(".btn-delete-part");
+                if (delBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const id = delBtn.getAttribute("data-id");
+                    if (id && confirm("Видалити цю деталь зі складу?")) {
+                        await fetch(`/api/parts/${id}`, { method: "DELETE" });
+                        loadParts();
+                    }
+                    return;
+                }
+                const infoEl = e.target.closest(".part-card-main-info, .part-card-file-row");
+                if (infoEl) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const id = infoEl.getAttribute("data-id");
+                    if (id && window.showPartDetails) window.showPartDetails(id);
+                    return;
+                }
+            });
+        }
+
+        // 6. Commercial Presets delegation
+        const cpList = document.getElementById("commercial-presets-list");
+        if (cpList && !cpList._delegated) {
+            cpList._delegated = true;
+            cpList.addEventListener("click", async (e) => {
+                const editBtn = e.target.closest(".btn-edit-preset");
+                if (editBtn) {
+                    e.stopPropagation();
+                    const pId = editBtn.getAttribute("data-id");
+                    const p = currentPresets[pId];
+                    if (!p) return;
+
+                    editingPresetId = pId;
+                    const titleEl = document.getElementById("preset-modal-title");
+                    if (titleEl) titleEl.textContent = "✏️ Редагувати пресет";
+
+                    document.getElementById("preset-name").value = p.name || "";
+                    document.getElementById("preset-price-g").value = p.price_per_g !== undefined ? p.price_per_g : 0.85;
+                    const elecEl = document.getElementById("preset-elec-rate");
+                    if (elecEl) elecEl.value = p.electricity_rate_uah !== undefined ? p.electricity_rate_uah : 4.32;
+                    document.getElementById("preset-power").value = p.power_watts !== undefined ? p.power_watts : 120;
+                    document.getElementById("preset-depreciation").value = p.depreciation_val || "10";
+                    document.getElementById("preset-consumables").value = p.consumables_val || "5";
+                    document.getElementById("preset-profit").value = p.profit_val || "100%";
+
+                    triggerHaptic("light");
+                    const presetModal = document.getElementById("preset-modal");
+                    if (presetModal) presetModal.classList.add("active");
+                    return;
+                }
+                const delBtn = e.target.closest(".btn-delete-preset");
+                if (delBtn) {
+                    e.stopPropagation();
+                    const pId = delBtn.getAttribute("data-id");
+                    if (confirm("Видалити цей пресет?")) {
+                        await fetch(`/api/commercial/presets/${pId}`, { method: "DELETE" });
+                        loadCommercialPresets();
+                    }
+                    return;
+                }
+            });
+        }
+    }
+
     function renderPrinters(printers) {
         updateFilterBadges(printers);
         populatePrinterSettingsSelect(printers);
@@ -1729,13 +2062,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }).join("");
 
-        // Attach click listeners to cards & settings gear buttons
-        document.querySelectorAll("#printers-grid .printer-card").forEach(card => {
-            card.addEventListener("click", () => {
-                const pId = card.getAttribute("data-id");
-                openPrinterModal(pId);
-            });
-        });
+        // Card clicks handled via container event delegation
 
         // Render Dashboard Grid
         const dashboardGrid = document.getElementById("dashboard-grid");
@@ -1783,50 +2110,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 `;
             }).join("");
             
-            // Attach click listeners to dashboard cards
-            document.querySelectorAll("#dashboard-grid .glass-card").forEach(card => {
-                card.addEventListener("click", () => {
-                    const pId = card.getAttribute("data-id");
-                    openPrinterModal(pId);
-                });
-            });
         }
-
-        document.querySelectorAll(".btn-card-gear").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                const pId = btn.getAttribute("data-id");
-                openPrinterSettingsModal(pId);
-            });
-        });
-
-        document.querySelectorAll(".btn-cockpit-pause-resume").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                const pId = btn.getAttribute("data-id");
-                handleQuickPauseResume(pId, btn, e);
-            });
-        });
-
-        document.querySelectorAll(".btn-cockpit-cam-peek").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                const pId = btn.getAttribute("data-id");
-                handleQuickCamPeek(pId, btn, e);
-            });
-        });
-
-        document.querySelectorAll(".btn-cockpit-light").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                const pId = btn.getAttribute("data-id");
-                handleQuickLightToggle(pId, btn, e);
-            });
-        });
-
-        document.querySelectorAll(".btn-cockpit-speed").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                const pId = btn.getAttribute("data-id");
-                handleQuickSpeedCycle(pId, btn, e);
-            });
-        });
+        // Action buttons & cards handled via container event delegation
 
         applyPrinterFilters();
     }
@@ -6024,6 +6309,7 @@ document.addEventListener("DOMContentLoaded", () => {
         fetchPrinters();
     });
 
+    initEventDelegation();
     // Initial Load: fetch printers immediately; load commercial presets and calculate immediately
     fetchPrinters();
     loadCommercialPresets();

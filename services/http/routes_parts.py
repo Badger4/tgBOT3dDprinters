@@ -39,8 +39,7 @@ async def handle_get_parts(request: web.Request) -> web.Response:
                     sp = dir_path / fname
                     if sp.exists() and sp.is_file():
                         try:
-                            content = await asyncio.to_thread(sp.read_bytes)
-                            meta = await asyncio.to_thread(parse_3mf_file, content, three_mf_name or sp.name)
+                            meta = await asyncio.to_thread(parse_3mf_file, sp, three_mf_name or sp.name)
                             if meta.get("printer_model") and meta.get("printer_model") != "Unknown":
                                 part["printer_model"] = meta["printer_model"]
                                 modified = True
@@ -112,8 +111,7 @@ async def handle_save_part(request: web.Request) -> web.Response:
             if not save_path.exists():
                 save_path = config.STORAGE_DIR / "parts_files" / new_three_mf
             if save_path.exists():
-                content = await asyncio.to_thread(save_path.read_bytes)
-                meta = await asyncio.to_thread(parse_3mf_file, content, save_path.name)
+                meta = await asyncio.to_thread(parse_3mf_file, save_path, save_path.name)
                 if meta.get("printer_model") and meta.get("printer_model") != "Unknown":
                     printer_model = meta["printer_model"]
                 if meta.get("filament_type"):

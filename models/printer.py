@@ -634,9 +634,12 @@ class BambuPrinter:
 
         client_uid = f"t_{self.id}"
         try:
-            self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=client_uid)
+            self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_uid)
         except Exception:
-            self._client = mqtt.Client(client_id=client_uid)
+            try:
+                self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=client_uid)
+            except Exception:
+                self._client = mqtt.Client(client_id=client_uid)
         try:
             acc_code_str = str(self.access_code or "")[:128]
             self._client.username_pw_set("bblp", acc_code_str)
@@ -678,8 +681,10 @@ class BambuPrinter:
             except Exception as e:
                 logger.warning(f"Failed to request pushall for [{self.name}]: {e}")
 
-    def _on_connect(self, client: Any, userdata: Any, flags: Any, rc: int) -> None:
-        if rc == 0:
+    def _on_connect(self, client: Any, userdata: Any, flags: Any, *args: Any, **kwargs: Any) -> None:
+        rc = args[0] if args else kwargs.get("reason_code", kwargs.get("rc", 0))
+        is_success = (rc == 0) or (getattr(rc, "is_failure", False) is False and getattr(rc, "value", 0) == 0)
+        if is_success:
             self.is_mqtt_connected = True
             self.last_mqtt_msg_time = time.time()
             if self.gcode_state in ["OFFLINE", "UNKNOWN", "DISCONNECTED"]:
@@ -692,7 +697,8 @@ class BambuPrinter:
             self.is_mqtt_connected = False
             logger.error(f"❌ MQTT connection error [{self.name}] code: {rc}")
 
-    def _on_disconnect(self, client: Any, userdata: Any, rc: int) -> None:
+    def _on_disconnect(self, client: Any, userdata: Any, *args: Any, **kwargs: Any) -> None:
+        rc = args[1] if len(args) >= 2 else (args[0] if args else kwargs.get("reason_code", kwargs.get("rc", 0)))
         self.is_mqtt_connected = False
         self.gcode_state = "OFFLINE"
         logger.warning(f"⚠️ MQTT disconnected for [{self.name}] (code: {rc})")
@@ -1052,8 +1058,21 @@ class BambuPrinter:
                 if self.subtask_name and is_valid_print_job:
                     now_ts = time.time()
                     last_l = getattr(self, "_last_saved_context_layer", -1)
+                    last_p = getattr(self, "_last_saved_context_progress", -1)
                     last_t = getattr(self, "_last_saved_context_time", 0.0)
-                    if self.layer_num != last_l or (now_ts - last_t >= 30.0):
+                    curr_p = int(self.mc_percent or 0)
+
+                    progress_delta = abs(curr_p - last_p)
+                    layer_delta = abs((self.layer_num or 0) - last_l)
+                    time_elapsed = now_ts - last_t
+
+                    should_save = (
+                        last_p < 0
+                        or progress_delta >= 2
+                        or (self.total_layer_num > 0 and layer_delta >= 5)
+                        or time_elapsed >= 900.0
+                    )
+                    if should_save:
                         from utils.spool_fingerprint import build_spool_fingerprint, save_active_print_context
 
                         active_print_context = {
@@ -1069,6 +1088,7 @@ class BambuPrinter:
                         }
                         save_active_print_context(self.id, active_print_context)
                         self._last_saved_context_layer = self.layer_num
+                        self._last_saved_context_progress = curr_p
                         self._last_saved_context_time = now_ts
 
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
@@ -2152,3 +2172,29 @@ class BambuPrinter:
                 })
 
         return backups
+
+    def flush_active_print_context(self) -> None:
+        """Immediately flushes active print context to disk if a valid print is in progress."""
+        if not getattr(self, "subtask_name", None) or getattr(self, "gcode_state", "") not in ["RUNNING", "PAUSE", "PREPARE"]:
+            return
+        try:
+            from utils.spool_fingerprint import build_spool_fingerprint, save_active_print_context
+            now_ts = time.time()
+            active_print_context = {
+                "printer_id": self.id,
+                "subtask_name": self.subtask_name,
+                "total_layers": self.total_layer_num,
+                "saved_layer": self.layer_num,
+                "saved_progress": self.mc_percent,
+                "spool_fingerprint": build_spool_fingerprint(self),
+                "job_grams": self._current_job_grams,
+                "job_deducted": self._job_deducted,
+                "timestamp": now_ts,
+            }
+            save_active_print_context(self.id, active_print_context)
+            self._last_saved_context_layer = self.layer_num
+            self._last_saved_context_progress = int(self.mc_percent or 0)
+            self._last_saved_context_time = now_ts
+            logger.info(f"💾 Flushed active print context for [{self.name}] to disk")
+        except Exception as e:
+            logger.warning(f"Failed to flush active print context for [{self.name}]: {e}")

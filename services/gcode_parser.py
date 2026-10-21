@@ -8,6 +8,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 import zipfile
+from pathlib import Path
 from typing import Any
 
 from config import logger
@@ -239,13 +240,52 @@ def extract_bambu_gcode_objects(gcode_source: Any) -> list[dict[str, Any]]:
     return objects
 
 
-def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
+def parse_3mf_file(file_input: bytes | str | Path, filename: str = "") -> dict[str, Any]:
     """
-    Parses a .3mf file bytes to extract Bambu Studio / OrcaSlicer slice metadata.
+    Parses a .3mf file bytes or file path to extract Bambu Studio / OrcaSlicer slice metadata.
+    Accepts bytes or file path (str | Path) to prevent excessive RAM allocation on SBCs (Raspberry Pi Zero/3/4).
     Returns dict with keys: printer_model, filament_type, weight_g, time_mins, filename, plate_name.
     """
     objects_list: list[dict[str, Any]] = []
     bbox_list: list[dict[str, Any]] = []
+    
+    if isinstance(file_input, (str, Path)):
+        fpath = Path(file_input)
+        if not filename:
+            filename = fpath.name
+        if not fpath.exists():
+            return {
+                "filename": filename,
+                "printer_model": "Unknown",
+                "nozzle_diameter": "0.4",
+                "filament_type": "PLA",
+                "tray_info_idx": "",
+                "filament_color": "",
+                "filament_name": "",
+                "filaments": [],
+                "weight_g": 0.0,
+                "time_mins": 0,
+                "plate_name": "plate_1.gcode",
+                "objects": objects_list,
+                "valid": False,
+                "error": "Файл не знайдено.",
+            }
+        is_zip = zipfile.is_zipfile(str(fpath))
+        prefix_bytes = b""
+        if not is_zip:
+            try:
+                with open(str(fpath), "rb") as f_peek:
+                    prefix_bytes = f_peek.read(500)
+            except Exception:
+                pass
+        zip_target = str(fpath)
+        file_bytes = None
+    else:
+        file_bytes = file_input
+        is_zip = bool(file_bytes and (file_bytes.startswith(b"PK\x03\x04") or zipfile.is_zipfile(io.BytesIO(file_bytes))))
+        prefix_bytes = file_bytes[:500] if file_bytes else b""
+        zip_target = io.BytesIO(file_bytes)
+
     result: dict[str, Any] = {
         "filename": filename,
         "printer_model": "Unknown",
@@ -263,25 +303,26 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
         "error": "",
     }
 
-    is_zip = bool(file_bytes and (file_bytes.startswith(b"PK\x03\x04") or zipfile.is_zipfile(io.BytesIO(file_bytes))))
     if filename and not filename.lower().endswith(".3mf") and not filename.lower().endswith(".gcode"):
         if "." in filename and not is_zip:
             result["error"] = "Дозволено завантажувати тільки файли .3mf або .gcode від Bambu Studio / OrcaSlicer."
             return result
-        elif not is_zip and not (b";" in file_bytes[:500]):
+        elif not is_zip and not (b";" in prefix_bytes):
             result["error"] = "Дозволено завантажувати тільки файли .3mf або .gcode від Bambu Studio / OrcaSlicer."
             return result
 
     try:
-        if zipfile.is_zipfile(io.BytesIO(file_bytes)):
-            with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
-                # Zip bomb / decompression protection for single-board computers (RPi Zero/3/4)
+        if is_zip:
+            with zipfile.ZipFile(zip_target) as zf:
+                # Zip bomb & path traversal protection for single-board computers (RPi Zero/3/4)
+                namelist = zf.namelist()
+                if any(".." in name or name.startswith("/") or name.startswith("\\") for name in namelist):
+                    result["error"] = "Архів .3mf містить неприпустимі шляхи до файлів."
+                    return result
                 total_uncompressed = sum(info.file_size for info in zf.infolist())
                 if total_uncompressed > 100 * 1024 * 1024 or any(info.file_size > 50 * 1024 * 1024 for info in zf.infolist()):
                     result["error"] = "Архів .3mf перевищує безпечний ліміт розміру (100MB)."
                     return result
-
-                namelist = zf.namelist()
 
                 # 0. Plate JSON Extraction: extract 2D bounding boxes for visual diagram (do NOT populate objects_list)
                 plate_json_files = [f for f in namelist if ("plate_" in f and f.endswith(".json"))]
@@ -590,7 +631,11 @@ def parse_3mf_file(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
                         logger.warning(f"Error parsing embedded gcode {gf}: {e}")
         else:
             # Raw G-code text processing (when file is plain .gcode from SD card / FTPS)
-            gcode_text = file_bytes.decode("utf-8", errors="ignore")
+            if isinstance(file_input, (str, Path)):
+                with open(str(file_input), "r", encoding="utf-8", errors="ignore") as f_gc:
+                    gcode_text = f_gc.read(10 * 1024 * 1024)
+            else:
+                gcode_text = (file_bytes or b"").decode("utf-8", errors="ignore")
             gc_objs = extract_bambu_gcode_objects(gcode_text)
             objects_list.extend(gc_objs)
             from services.ftps_client import parse_weight_from_gcode_text

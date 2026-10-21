@@ -62,6 +62,10 @@ async def handle_file_upload(request: web.Request) -> web.Response:
             return web.json_response({"error": "Illegal file path"}, status=400)
 
         max_bytes = 50 * 1024 * 1024
+        if request.content_length and request.content_length > max_bytes:
+            return web.json_response(
+                {"error": "Файл перевищує максимальний дозволений розмір 50 MB"}, status=413
+            )
         total_bytes = 0
         first_chunk = None
 
@@ -86,10 +90,7 @@ async def handle_file_upload(request: web.Request) -> web.Response:
             save_path.unlink(missing_ok=True)
             return web.json_response({"error": "Недійсний підпис .3mf файлу"}, status=400)
 
-        content = save_path.read_bytes()
-        meta = parse_3mf_file(content, safe_filename)
-        del content
-        gc.collect()
+        meta = parse_3mf_file(save_path, safe_filename)
 
         if not meta.get("valid"):
             save_path.unlink(missing_ok=True)
@@ -218,11 +219,10 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
         if not (save_path.is_relative_to(uploads_dir) and save_path.exists() and save_path.is_file()):
             return web.json_response({"error": "Uploaded file not found"}, status=404)
 
-        file_bytes = save_path.read_bytes()
         filename = data.get("filename") or file_token.split("_", 1)[-1]
 
-        # Parse 3MF / Gcode metadata for current job weight & plate_name
-        meta = parse_3mf_file(file_bytes, filename)
+        # Parse 3MF / Gcode metadata for current job weight & plate_name directly from disk
+        meta = parse_3mf_file(save_path, filename)
         job_w = float(meta.get("weight_g", 0.0))
         plate_name = meta.get("plate_name", "plate_1.gcode")
 
@@ -248,6 +248,7 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
             return web.json_response({"error": f"🛑 Друк заблоковано: {reason}"}, status=400)
 
         chosen_slot = data.get("ams_slot") or comp.get("matched_ams_slot")
+        file_bytes = save_path.read_bytes()
         ok, msg = await p.start_print_job_async(
             file_bytes, filename, plate_name=plate_name, ams_slot=chosen_slot, weight_g=job_w
         )
