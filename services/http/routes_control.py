@@ -309,17 +309,22 @@ async def handle_fleet_lights(request: web.Request) -> web.Response:
 
     app_obj = request.app["app_obj"]
     mode = "toggle"
+    printer_ids = None
     try:
         if request.can_read_body:
             data = await request.json()
             if isinstance(data, dict):
                 mode = str(data.get("mode", "toggle")).lower()
+                if isinstance(data.get("printer_ids"), list):
+                    printer_ids = {str(x) for x in data["printer_ids"]}
     except Exception:
         mode = "toggle"
 
     updated = []
     skipped = []
     for pid, p in app_obj.printers.items():
+        if printer_ids is not None and str(pid) not in printer_ids:
+            continue
         is_online = getattr(p, "is_online", True) and getattr(p, "mapped_state", "ONLINE") != "OFFLINE"
         if not is_online:
             skipped.append({"id": pid, "name": getattr(p, "name", pid), "reason": "offline"})
@@ -356,10 +361,21 @@ async def handle_fleet_calibrate(request: web.Request) -> web.Response:
         return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
+    printer_ids = None
+    try:
+        if request.can_read_body:
+            data = await request.json()
+            if isinstance(data, dict) and isinstance(data.get("printer_ids"), list):
+                printer_ids = {str(x) for x in data["printer_ids"]}
+    except Exception:
+        printer_ids = None
+
     calibrated = []
     skipped = []
 
     for pid, p in app_obj.printers.items():
+        if printer_ids is not None and str(pid) not in printer_ids:
+            continue
         is_online = getattr(p, "is_online", True) and getattr(p, "mapped_state", "ONLINE") != "OFFLINE"
         p_name = getattr(p, "name", pid)
         if not is_online:

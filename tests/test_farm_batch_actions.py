@@ -129,6 +129,17 @@ class TestFleetHTTPRoutes(AioHTTPTestCase):
         self.p1.toggle_chamber_light.assert_called_with("off")
 
     @patch("services.http.routes_control.check_auth", new_callable=AsyncMock, return_value=True)
+    async def test_fleet_lights_selected_printers(self, mock_auth):
+        """Verify selective printer_ids filtering in /api/fleet/lights."""
+        resp = await self.client.post("/api/fleet/lights", json={"mode": "on", "printer_ids": ["p2"]})
+        self.assertEqual(resp.status, 200)
+        data = await resp.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["updated_count"], 1)
+        self.p2.toggle_chamber_light.assert_called_once_with("on")
+        self.p1.toggle_chamber_light.assert_not_called()
+
+    @patch("services.http.routes_control.check_auth", new_callable=AsyncMock, return_value=True)
     async def test_fleet_calibrate_idle_only(self, mock_auth):
         """Verify calibration only triggers for idle online printers, never busy or offline."""
         resp = await self.client.post("/api/fleet/calibrate", json={})

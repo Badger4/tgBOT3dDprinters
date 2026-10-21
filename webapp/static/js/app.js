@@ -810,7 +810,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    const pillBtns = document.querySelectorAll(".filter-pills .pill-btn");
+    const pillBtns = document.querySelectorAll("#tab-printers .filter-pills .pill-btn");
     pillBtns.forEach(btn => {
         btn.addEventListener("click", () => {
             triggerHaptic("light");
@@ -819,6 +819,31 @@ document.addEventListener("DOMContentLoaded", () => {
             applyPrinterFilters();
         });
     });
+
+    const btnViewDetailed = document.getElementById("btn-view-detailed");
+    const btnViewCompact = document.getElementById("btn-view-compact");
+    if (btnViewDetailed && btnViewCompact) {
+        btnViewDetailed.addEventListener("click", () => {
+            triggerHaptic("selection");
+            btnViewDetailed.className = "btn btn-xs btn-primary";
+            btnViewCompact.className = "btn btn-xs btn-outline";
+            btnViewCompact.style.border = "none";
+            const pGrid = document.getElementById("printers-grid");
+            const dGrid = document.getElementById("dashboard-grid");
+            if (pGrid) pGrid.style.display = "";
+            if (dGrid) dGrid.style.display = "none";
+        });
+        btnViewCompact.addEventListener("click", () => {
+            triggerHaptic("selection");
+            btnViewCompact.className = "btn btn-xs btn-primary";
+            btnViewDetailed.className = "btn btn-xs btn-outline";
+            btnViewDetailed.style.border = "none";
+            const pGrid = document.getElementById("printers-grid");
+            const dGrid = document.getElementById("dashboard-grid");
+            if (pGrid) pGrid.style.display = "none";
+            if (dGrid) dGrid.style.display = "grid";
+        });
+    }
 
     // 2. Navigation & Tabs, Pull-to-Refresh & Mobile Bottom Sheet Gestures
 
@@ -1091,8 +1116,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!mins || mins <= 0) return "";
         const h = Math.floor(mins / 60);
         const m = mins % 60;
-        if (h > 0) return `${h}г ${m}хв`;
-        return `${m} хв`;
+        const durStr = h > 0 ? `${h}г ${m}хв` : `${m} хв`;
+        const finishDate = new Date(Date.now() + mins * 60000);
+        const hh = String(finishDate.getHours()).padStart(2, "0");
+        const mm = String(finishDate.getMinutes()).padStart(2, "0");
+        return `${durStr} (до ${hh}:${mm})`;
     }
 
     function cleanSubtaskName(subtask, isPrinting) {
@@ -1148,10 +1176,10 @@ document.addEventListener("DOMContentLoaded", () => {
     function applyPrinterFilters() {
         const searchInput = document.getElementById("printer-search-input");
         const rawQuery = (searchInput?.value || "").trim().toLowerCase();
-        const activeBtn = document.querySelector(".filter-pills .pill-btn.active");
+        const activeBtn = document.querySelector("#tab-printers .filter-pills .pill-btn.active");
         const filterState = activeBtn?.dataset.filter || "all";
 
-        document.querySelectorAll(".printer-card").forEach(card => {
+        document.querySelectorAll(".printer-card, #dashboard-grid .glass-card").forEach(card => {
             const name = (card.getAttribute("data-name") || "").toLowerCase();
             const state = (card.getAttribute("data-state") || "ONLINE").toUpperCase();
             const statusInfo = getPrinterStatusInfo(state);
@@ -1727,7 +1755,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 let thumbSrc = `/api/printers/${p.id}/snapshot${initDataParam}`;
                 
                 return `
-                    <div class="glass-card" data-id="${p.id}" style="padding: 10px; cursor: pointer; display: flex; flex-direction: column; position: relative;">
+                    <div class="glass-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-state="${statusInfo.code}" style="padding: 10px; cursor: pointer; display: flex; flex-direction: column; position: relative;">
                         <div style="font-size: 13px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px;">
                             ${escapeHtml(p.name)}
                         </div>
@@ -2538,71 +2566,118 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // Fleet Batch Controls (Lights & Calibration)
+    // Fleet Batch Controls (Lights & Calibration with All or Checkbox Selection)
     const btnFleetLightOn = document.getElementById("fleet-light-on-btn");
     const btnFleetLightOff = document.getElementById("fleet-light-off-btn");
     const btnFleetCalibrate = document.getElementById("fleet-calibrate-btn");
+    const fleetBatchModal = document.getElementById("fleet-batch-modal");
+    const closeFleetBatchModalBtn = document.getElementById("close-fleet-batch-modal");
+    const fleetBatchSelectAll = document.getElementById("fleet-batch-select-all");
+    const fleetBatchRunAllBtn = document.getElementById("fleet-batch-run-all-btn");
+    const fleetBatchRunSelectedBtn = document.getElementById("fleet-batch-run-selected-btn");
+    let currentFleetBatchAction = null;
 
-    if (btnFleetLightOn) {
-        btnFleetLightOn.addEventListener("click", async () => {
-            triggerHaptic("medium");
-            try {
+    function updateFleetBatchSelectedCount() {
+        const chks = document.querySelectorAll(".fleet-batch-printer-chk:not(:disabled)");
+        const checked = document.querySelectorAll(".fleet-batch-printer-chk:not(:disabled):checked");
+        const countEl = document.getElementById("fleet-batch-selected-count");
+        if (countEl) countEl.textContent = `Обрано: ${checked.length} з ${chks.length}`;
+        if (fleetBatchSelectAll) {
+            fleetBatchSelectAll.checked = chks.length > 0 && checked.length === chks.length;
+        }
+        if (fleetBatchRunSelectedBtn) {
+            fleetBatchRunSelectedBtn.disabled = checked.length === 0;
+        }
+    }
+
+    function openFleetBatchModal(actionType) {
+        currentFleetBatchAction = actionType;
+        if (!fleetBatchModal) return;
+
+        const titleEl = document.getElementById("fleet-batch-modal-title");
+        const runAllLabel = document.getElementById("fleet-batch-run-all-label");
+        const runSelLabel = document.getElementById("fleet-batch-run-selected-label");
+        const listEl = document.getElementById("fleet-batch-printers-list");
+
+        if (actionType === "light_on") {
+            if (titleEl) titleEl.innerHTML = `<i class="fa-regular fa-lightbulb color-amber"></i> Увімкнути світло`;
+            if (runAllLabel) runAllLabel.textContent = "💡 Увімкнути усі";
+            if (runSelLabel) runSelLabel.textContent = "Увімкнути для вибраних";
+        } else if (actionType === "light_off") {
+            if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-lightbulb color-blue"></i> Вимкнути світло`;
+            if (runAllLabel) runAllLabel.textContent = "🌑 Вимкнути усі";
+            if (runSelLabel) runSelLabel.textContent = "Вимкнути для вибраних";
+        } else if (actionType === "calibrate") {
+            if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-crosshairs color-green"></i> Автокалібрування`;
+            if (runAllLabel) runAllLabel.textContent = "🎯 Калібрувати усі вільні";
+            if (runSelLabel) runSelLabel.textContent = "Калібрувати вибрані";
+        }
+
+        if (listEl) {
+            const printers = printersData || [];
+            if (printers.length === 0) {
+                listEl.innerHTML = `<p class="text-muted text-center p-2">Немає підключених принтерів</p>`;
+            } else {
+                listEl.innerHTML = printers.map(p => {
+                    const stInfo = getPrinterStatusInfo(p.state);
+                    const isOffline = stInfo.code === "OFFLINE";
+                    const isBusy = stInfo.code === "RUNNING" || stInfo.code === "PAUSE";
+                    const disabled = isOffline || (actionType === "calibrate" && isBusy);
+                    const lightState = String(p.chamber_light_state || "off").toLowerCase() === "on";
+                    const extraBadge = actionType === "calibrate"
+                        ? (isBusy ? `<span class="badge badge-warning" style="font-size:10px;">Друкує (пропуск)</span>` : stInfo.label)
+                        : `<span class="badge badge-secondary" style="font-size:10px;">${lightState ? "💡 Увімк" : "🌑 Вимк"}</span>`;
+
+                    return `
+                        <label class="spool-item glass-card p-2 mb-2 d-flex justify-content-between align-items-center" style="cursor: ${disabled ? 'not-allowed' : 'pointer'}; opacity: ${disabled ? '0.5' : '1'};">
+                            <div class="d-flex align-items-center gap-2">
+                                <input type="checkbox" class="fleet-batch-printer-chk" value="${escapeHtml(p.id)}" ${disabled ? "disabled" : "checked"} style="width: 18px; height: 18px; accent-color: #3b82f6;">
+                                <span style="font-weight: 600; font-size: 13px;">${escapeHtml(p.name)}</span>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <span style="font-size: 11px;">${extraBadge}</span>
+                            </div>
+                        </label>`;
+                }).join("");
+
+                listEl.querySelectorAll(".fleet-batch-printer-chk").forEach(chk => {
+                    chk.addEventListener("change", updateFleetBatchSelectedCount);
+                });
+            }
+        }
+
+        updateFleetBatchSelectedCount();
+        fleetBatchModal.classList.add("active");
+    }
+
+    async function executeFleetBatchAction(actionType, selectedIds) {
+        triggerHaptic("medium");
+        if (fleetBatchModal) fleetBatchModal.classList.remove("active");
+
+        try {
+            if (actionType === "light_on" || actionType === "light_off") {
+                const mode = actionType === "light_on" ? "on" : "off";
+                const payload = { mode };
+                if (Array.isArray(selectedIds)) payload.printer_ids = selectedIds;
                 const res = await fetch("/api/fleet/lights", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ mode: "on" })
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
                 if (data.status === "ok") {
                     await fetchPrinters();
-                    alert(`💡 Світло увімкнено на ${data.updated_count} принтерах!`);
+                    alert(`${mode === "on" ? "💡 Світло увімкнено" : "🌑 Світло вимкнено"} на ${data.updated_count} принтерах!`);
                 } else {
                     alert("Помилка: " + (data.error || "Невідомо"));
                 }
-            } catch (e) {
-                console.error("Fleet light error:", e);
-                alert("Помилка зв'язку при керуванні світлом.");
-            }
-        });
-    }
-
-    if (btnFleetLightOff) {
-        btnFleetLightOff.addEventListener("click", async () => {
-            triggerHaptic("medium");
-            try {
-                const res = await fetch("/api/fleet/lights", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ mode: "off" })
-                });
-                const data = await res.json();
-                if (data.status === "ok") {
-                    await fetchPrinters();
-                    alert(`🌑 Світло вимкнено на ${data.updated_count} принтерах!`);
-                } else {
-                    alert("Помилка: " + (data.error || "Невідомо"));
-                }
-            } catch (e) {
-                console.error("Fleet light error:", e);
-                alert("Помилка зв'язку при керуванні світлом.");
-            }
-        });
-    }
-
-    if (btnFleetCalibrate) {
-        btnFleetCalibrate.addEventListener("click", async () => {
-            triggerHaptic("heavy");
-            const conf = confirm(
-                "Запустити повне автокалібрування (G32 / вібрації та стіл) на ВСІХ вільних принтерах ферми?\n\n" +
-                "🛡️ Принтери, які зараз друкують або стоять на паузі, будуть автоматично пропущені."
-            );
-            if (!conf) return;
-
-            try {
+            } else if (actionType === "calibrate") {
+                const payload = {};
+                if (Array.isArray(selectedIds)) payload.printer_ids = selectedIds;
                 const res = await fetch("/api/fleet/calibrate", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({})
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
                 if (data.status === "ok") {
@@ -2615,10 +2690,60 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else {
                     alert("Помилка: " + (data.error || "Невідомо"));
                 }
-            } catch (e) {
-                console.error("Fleet calibrate error:", e);
-                alert("Помилка зв'язку при запуску калібрування.");
             }
+        } catch (e) {
+            console.error("Fleet batch action error:", e);
+            alert("Помилка зв'язку під час виконання групової дії.");
+        }
+    }
+
+    if (btnFleetLightOn) {
+        btnFleetLightOn.addEventListener("click", () => {
+            triggerHaptic("light");
+            openFleetBatchModal("light_on");
+        });
+    }
+    if (btnFleetLightOff) {
+        btnFleetLightOff.addEventListener("click", () => {
+            triggerHaptic("light");
+            openFleetBatchModal("light_off");
+        });
+    }
+    if (btnFleetCalibrate) {
+        btnFleetCalibrate.addEventListener("click", () => {
+            triggerHaptic("light");
+            openFleetBatchModal("calibrate");
+        });
+    }
+    if (closeFleetBatchModalBtn) {
+        closeFleetBatchModalBtn.addEventListener("click", () => {
+            if (fleetBatchModal) fleetBatchModal.classList.remove("active");
+        });
+    }
+    if (fleetBatchModal) {
+        fleetBatchModal.addEventListener("click", (e) => {
+            if (e.target === fleetBatchModal) fleetBatchModal.classList.remove("active");
+        });
+    }
+    if (fleetBatchSelectAll) {
+        fleetBatchSelectAll.addEventListener("change", () => {
+            const checked = fleetBatchSelectAll.checked;
+            document.querySelectorAll(".fleet-batch-printer-chk:not(:disabled)").forEach(chk => {
+                chk.checked = checked;
+            });
+            updateFleetBatchSelectedCount();
+        });
+    }
+    if (fleetBatchRunAllBtn) {
+        fleetBatchRunAllBtn.addEventListener("click", () => {
+            if (currentFleetBatchAction) executeFleetBatchAction(currentFleetBatchAction, null);
+        });
+    }
+    if (fleetBatchRunSelectedBtn) {
+        fleetBatchRunSelectedBtn.addEventListener("click", () => {
+            const selectedIds = Array.from(document.querySelectorAll(".fleet-batch-printer-chk:not(:disabled):checked")).map(c => c.value);
+            if (selectedIds.length === 0) return;
+            if (currentFleetBatchAction) executeFleetBatchAction(currentFleetBatchAction, selectedIds);
         });
     }
 
@@ -2723,16 +2848,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (btnActionDelete) {
         btnActionDelete.addEventListener("click", async () => {
-            if (!selectedPrinterId) return;
+            const targetId = document.getElementById("ps-modal-printer-id")?.value || selectedPrinterId;
+            if (!targetId) return;
             if (confirm("Ви дійсно хочете ВИДАЛИТИ цей принтер з системи?")) {
                 triggerHaptic("medium");
                 try {
-                    const res = await fetch(`/api/printers/${selectedPrinterId}`, {
+                    const res = await fetch(`/api/printers/${targetId}`, {
                         method: "DELETE"
                     });
                     const data = await res.json();
                     if (data.status === "ok") {
-                        printerModal.classList.remove("active");
+                        document.getElementById("printer-settings-modal")?.classList.remove("active");
+                        printerModal?.classList.remove("active");
                         selectedPrinterId = null;
                         fetchPrinters();
                     } else {
@@ -2917,84 +3044,146 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             }
 
-            // Render Spool Inventory
-            const spoolsList = document.getElementById("spools-list");
-            const spoolsArray = Object.values(spools || {}).filter(s => !s.assigned_printer_id && (s.quantity || 1) > 0);
-            if (spoolsArray.length === 0) {
-                spoolsList.innerHTML = `<p class="text-muted text-center p-3">Склад порожній. Натисніть "+ Нова котушка", щоб додати.</p>`;
-            } else {
-                spoolsList.innerHTML = spoolsArray.map(s => `
-                    <div class="spool-item glass-card p-3 mb-2 d-flex justify-content-between align-items-center">
-                        <div class="spool-left d-flex align-items-center gap-2">
-                            ${renderVisualSpoolSvg(s.color || '#3b82f6', s.remaining_grams, s.initial_grams || s.total_grams, 44)}
-                            <div class="spool-details">
-                                <h4 style="margin:0; font-size:14px;">
-                                    ${escapeHtml(s.name)} 
-                                    <span class="badge badge-secondary" style="font-size:10px; font-weight:500; margin-left:4px;">📦 ${s.quantity || 1} шт</span>
-                                </h4>
-                                <small class="text-muted">${escapeHtml(s.type || 'PLA')} • ${s.price_per_kg || s.price_uah || 650} ₴/кг • ⚡ ${s.remaining_grams || 1000}g</small>
-                            </div>
-                        </div>
-                        <div class="spool-right d-flex align-items-center gap-2">
-                            <button class="btn btn-xs btn-outline btn-history-spool" data-id="${s.id}" title="Історія аудиту руху">
-                                <i class="fa-solid fa-clock-rotate-left"></i>
-                            </button>
-                            <button class="btn btn-xs btn-primary btn-assign-spool" data-id="${s.id}" title="Встановити на принтер">
-                                <i class="fa-solid fa-truck-ramp-box"></i> На принтер
-                            </button>
-                            <button class="btn btn-xs btn-outline btn-edit-spool" data-id="${s.id}" title="Редагувати">
-                                <i class="fa-solid fa-pen-to-square"></i>
-                            </button>
-                            <button class="btn btn-xs btn-outline-danger btn-delete-spool" data-id="${s.id}" title="Видалити">
-                                <i class="fa-solid fa-trash"></i>
-                            </button>
-                        </div>
-                    </div>`).join("");
-
-                // Audit history of spool
-                document.querySelectorAll(".btn-history-spool").forEach(b => {
-                    b.addEventListener("click", () => {
-                        const id = b.getAttribute("data-id");
-                        window.openSpoolMovementsFor(id);
-                    });
-                });
-
-                // Assign spool to printer
-                document.querySelectorAll(".btn-assign-spool").forEach(b => {
-                    b.addEventListener("click", () => {
-                        const id = b.getAttribute("data-id");
-                        selectedSpoolForAssign = spools[id];
-                        openAssignSpoolModal(printers);
-                    });
-                });
-
-                // Edit spool
-                document.querySelectorAll(".btn-edit-spool").forEach(b => {
-                    b.addEventListener("click", () => {
-                        const id = b.getAttribute("data-id");
-                        const s = spools[id];
-                        if (s) {
-                            window.openAddSpoolModal(s);
-                        }
-                    });
-                });
-
-                // Delete spool
-                document.querySelectorAll(".btn-delete-spool").forEach(b => {
-                    b.addEventListener("click", async () => {
-                        const id = b.getAttribute("data-id");
-                        if (confirm("Видалити цю котушку зі складу?")) {
-                            await fetch(`/api/spools/${id}`, { method: "DELETE" });
-                            loadMaterials();
-                        }
-                    });
-                });
-            }
+            // Render Spool Inventory with Search & Material Type Filters
+            window._cachedSpoolsMap = spools || {};
+            window._cachedPrintersForSpools = printers || [];
+            renderFilteredSpoolsInventory();
 
         } catch (e) {
             console.error("Error loading materials:", e);
         }
     }
+
+    function renderFilteredSpoolsInventory() {
+        const spoolsList = document.getElementById("spools-list");
+        if (!spoolsList) return;
+        const spools = window._cachedSpoolsMap || window.spoolsData || {};
+        const printers = window._cachedPrintersForSpools || printersData || [];
+        const allUnassigned = Object.values(spools).filter(s => !s.assigned_printer_id && (s.quantity || 1) > 0);
+
+        if (allUnassigned.length === 0) {
+            spoolsList.innerHTML = `<p class="text-muted text-center p-3">Склад порожній. Натисніть "+ Нова котушка", щоб додати.</p>`;
+            return;
+        }
+
+        const searchEl = document.getElementById("spool-search-input");
+        const query = (searchEl?.value || "").trim().toLowerCase();
+        const activeMatBtn = document.querySelector("#spool-filter-pills .pill-btn.active");
+        const matFilter = (activeMatBtn?.getAttribute("data-mat-filter") || "all").toUpperCase();
+
+        const filtered = allUnassigned.filter(s => {
+            const sType = String(s.type || "PLA").toUpperCase();
+            const sName = String(s.name || "").toLowerCase();
+            const sColor = String(s.color || "").toLowerCase();
+
+            const matchesQuery = !query || sName.includes(query) || sType.toLowerCase().includes(query) || sColor.includes(query);
+            if (!matchesQuery) return false;
+
+            if (matFilter === "ALL") return true;
+            if (matFilter === "PLA") return sType.includes("PLA");
+            if (matFilter === "PETG") return sType.includes("PETG") || sType.includes("PCTG") || sType.includes("PET");
+            if (matFilter === "TPU") return sType.includes("TPU");
+            if (matFilter === "ABS/ASA") return sType.includes("ABS") || sType.includes("ASA");
+            if (matFilter === "OTHER") {
+                return !(sType.includes("PLA") || sType.includes("PETG") || sType.includes("PCTG") || sType.includes("PET") || sType.includes("TPU") || sType.includes("ABS") || sType.includes("ASA"));
+            }
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            spoolsList.innerHTML = `<p class="text-muted text-center p-3">За вибраним фільтром котушок не знайдено.</p>`;
+            return;
+        }
+
+        spoolsList.innerHTML = filtered.map(s => `
+            <div class="spool-item glass-card p-3 mb-2 d-flex justify-content-between align-items-center">
+                <div class="spool-left d-flex align-items-center gap-2">
+                    ${renderVisualSpoolSvg(s.color || '#3b82f6', s.remaining_grams, s.initial_grams || s.total_grams, 44)}
+                    <div class="spool-details">
+                        <h4 style="margin:0; font-size:14px;">
+                            ${escapeHtml(s.name)} 
+                            <span class="badge badge-secondary" style="font-size:10px; font-weight:500; margin-left:4px;">📦 ${s.quantity || 1} шт</span>
+                        </h4>
+                        <small class="text-muted">${escapeHtml(s.type || 'PLA')} • ${s.price_per_kg || s.price_uah || 650} ₴/кг • ⚡ ${s.remaining_grams || 1000}g</small>
+                    </div>
+                </div>
+                <div class="spool-right d-flex align-items-center gap-2">
+                    <button class="btn btn-xs btn-outline btn-history-spool" data-id="${s.id}" title="Історія аудиту руху">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                    </button>
+                    <button class="btn btn-xs btn-primary btn-assign-spool" data-id="${s.id}" title="Встановити на принтер">
+                        <i class="fa-solid fa-truck-ramp-box"></i> На принтер
+                    </button>
+                    <button class="btn btn-xs btn-outline btn-edit-spool" data-id="${s.id}" title="Редагувати">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-danger btn-delete-spool" data-id="${s.id}" title="Видалити">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            </div>`).join("");
+
+        document.querySelectorAll(".btn-history-spool").forEach(b => {
+            b.addEventListener("click", () => {
+                const id = b.getAttribute("data-id");
+                window.openSpoolMovementsFor(id);
+            });
+        });
+
+        document.querySelectorAll(".btn-assign-spool").forEach(b => {
+            b.addEventListener("click", () => {
+                const id = b.getAttribute("data-id");
+                selectedSpoolForAssign = spools[id];
+                openAssignSpoolModal(printers);
+            });
+        });
+
+        document.querySelectorAll(".btn-edit-spool").forEach(b => {
+            b.addEventListener("click", () => {
+                const id = b.getAttribute("data-id");
+                const s = spools[id];
+                if (s) window.openAddSpoolModal(s);
+            });
+        });
+
+        document.querySelectorAll(".btn-delete-spool").forEach(b => {
+            b.addEventListener("click", async () => {
+                const id = b.getAttribute("data-id");
+                if (confirm("Видалити цю котушку зі складу?")) {
+                    await fetch(`/api/spools/${id}`, { method: "DELETE" });
+                    loadMaterials();
+                }
+            });
+        });
+    }
+
+    const spoolSearchInputEl = document.getElementById("spool-search-input");
+    const spoolSearchClearBtn = document.getElementById("spool-search-clear-btn");
+    if (spoolSearchInputEl) {
+        spoolSearchInputEl.addEventListener("input", () => {
+            if (spoolSearchClearBtn) {
+                spoolSearchClearBtn.style.display = spoolSearchInputEl.value ? "flex" : "none";
+            }
+            renderFilteredSpoolsInventory();
+        });
+    }
+    if (spoolSearchClearBtn) {
+        spoolSearchClearBtn.addEventListener("click", () => {
+            if (spoolSearchInputEl) {
+                spoolSearchInputEl.value = "";
+                spoolSearchClearBtn.style.display = "none";
+                renderFilteredSpoolsInventory();
+            }
+        });
+    }
+    document.querySelectorAll("#spool-filter-pills .pill-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            triggerHaptic("light");
+            document.querySelectorAll("#spool-filter-pills .pill-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            renderFilteredSpoolsInventory();
+        });
+    });
 
     function roundToTwo(num) {
         return Math.round((num + Number.EPSILON) * 100) / 100;
@@ -4351,22 +4540,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const dict = {
             uk: {
-                nav_printers: "Принтери",
+                nav_printers: "Ферма",
+                nav_materials: "Філамент",
+                nav_parts: "Деталі",
                 nav_commercial: "Комерція",
-                nav_materials: "Склад",
                 nav_history: "Історія",
-                nav_settings: "Налаштування",
+                nav_settings: "Опції",
                 farm_status_title: "Стан ферми",
                 add_printer_btn: "Додати принтер",
                 active_label: "активні",
                 filter_all: "Всі",
                 filter_running: "Друкує 🟢",
                 filter_pause: "Пауза ⏸️",
-                filter_idle: "Онлайн ⚪",
+                filter_idle: "Вільні ⚪",
                 filter_offline: "Офлайн 🔴",
-                fleet_lights_on: "Все світло УВІМК",
-                fleet_lights_off: "Все світло ВИМК",
-                fleet_calibrate_all: "Калібрувати всі",
+                fleet_lights_on: "💡 Світло Увімк",
+                fleet_lights_off: "🌑 Світло Вимк",
+                fleet_calibrate_all: "🎯 Калібрувати",
                 loading_printers: "Завантаження принтерів...",
                 commercial_title: "Комерція & Калькулятор",
                 new_preset_btn: "Новий пресет",
@@ -4888,7 +5078,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const data = await res.json();
 
                 uploadBtn.disabled = false;
-                uploadBtn.innerHTML = `<i class="fa-solid fa-file-arrow-up"></i> 📥 Файл`;
+                uploadBtn.innerHTML = `🚀 Завантажити .3mf`;
                 fileInput.value = "";
 
                 if (data.status === "ok") {
@@ -4914,7 +5104,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             } catch (err) {
                 uploadBtn.disabled = false;
-                uploadBtn.innerHTML = `<i class="fa-solid fa-file-arrow-up"></i> 📥 Файл`;
+                uploadBtn.innerHTML = `🚀 Завантажити .3mf`;
                 console.error("File upload error:", err);
                 alert(`Не вдалося завантажити файл: ${err.message || err}`);
             }

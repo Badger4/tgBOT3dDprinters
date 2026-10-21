@@ -38,7 +38,7 @@ NAVIGATION_CANCEL_TEXTS = [
     "🧵 філамент & ams", "філамент & ams", "🧵 філамент", "філамент", "🧵 filament", "filament",
     "🖨️ принтери", "принтери", "🖨️ printers", "printers",
     "📊 стан ферми", "стан ферми", "📊 farm status", "farm status", "ферма",
-    "🧩 склад деталей", "склад деталей", "🧩 parts stock", "parts stock",
+    "🧩 склад деталей", "склад деталей", "🧩 деталі", "деталі", "🧩 parts stock", "parts stock",
     "➕ додати котушку", "додати котушку", "➕ додати", "додати", "➕ add spool", "add spool",
     "/start", "/menu", "/printers", "/warehouse", "/farm",
 ]
@@ -99,7 +99,7 @@ async def cancel_add_part_and_navigate(message: Message, state: FSMContext, app:
     elif text_low in ["📊 стан ферми", "стан ферми", "📊 farm status", "farm status", "ферма"]:
         from bot.handlers.dashboard import handle_dashboard
         await handle_dashboard(message, app, state)
-    elif text_low in ["🧩 склад деталей", "склад деталей", "🧩 parts stock", "parts stock"]:
+    elif text_low in ["🧩 склад деталей", "склад деталей", "🧩 деталі", "деталі", "🧩 parts stock", "parts stock"]:
         await open_parts_list(message, state, app, lang)
     elif text_low in ["/start"]:
         from bot.handlers.start import cmd_start

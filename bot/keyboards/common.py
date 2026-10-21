@@ -26,14 +26,15 @@ def get_main_keyboard(is_admin: bool, lang: str = "uk") -> ReplyKeyboardMarkup:
 
     keyboard.extend(
         [
-            [KeyboardButton(text=t("btn_printers", lang)), KeyboardButton(text=t("btn_farm_status", lang))],
+            [KeyboardButton(text=t("btn_farm_status", lang)), KeyboardButton(text=t("btn_printers", lang))],
             [KeyboardButton(text=t("btn_warehouse", lang)), KeyboardButton(text=t("btn_parts_warehouse", lang))],
             [KeyboardButton(text=t("btn_history", lang)), KeyboardButton(text=t("btn_commercial", lang))],
-            [KeyboardButton(text=t("btn_notify_settings", lang))],
         ]
     )
     if is_admin:
-        keyboard.append([KeyboardButton(text=t("btn_admin", lang))])
+        keyboard.append([KeyboardButton(text=t("btn_notify_settings", lang)), KeyboardButton(text=t("btn_admin", lang))])
+    else:
+        keyboard.append([KeyboardButton(text=t("btn_notify_settings", lang))])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 

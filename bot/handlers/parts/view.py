@@ -100,7 +100,7 @@ async def open_parts_list(message: Message, state: FSMContext, app: Any, lang: s
         await message.answer("Список деталей:", reply_markup=inline_keyboard)
 
 
-@router.message(F.text.in_(["🧩 Склад деталей", "🧩 Parts Stock", "Склад деталей", "3Д"]))
+@router.message(F.text.in_(["🧩 Склад деталей", "🧩 Деталі", "Деталі", "🧩 Parts Stock", "Склад деталей", "3Д"]))
 async def handle_parts_warehouse_btn(message: Message, state: FSMContext, app: Any) -> None:
     await state.clear()
     u_data = await app.storage.load_user(message.from_user.id)
@@ -360,7 +360,7 @@ SEARCH_NAVIGATION_TEXTS = [
     "🧵 філамент & ams", "філамент & ams", "🧵 філамент", "філамент", "🧵 filament", "filament",
     "🖨️ принтери", "принтери", "🖨️ printers", "printers",
     "📊 стан ферми", "стан ферми", "📊 farm status", "farm status", "ферма",
-    "🧩 склад деталей", "склад деталей", "🧩 parts stock", "parts stock",
+    "🧩 склад деталей", "склад деталей", "🧩 деталі", "деталі", "🧩 parts stock", "parts stock",
     "➕ додати котушку", "додати котушку", "➕ add spool", "add spool",
     "➕ добавити", "добавити", "➕ додати", "додати", "➕ add", "add", "➕ нова деталь", "нова деталь", "додати деталь", "добавити деталь",
     "/start", "/printers", "/warehouse", "/farm",
@@ -523,7 +523,7 @@ async def process_search_part_query(message: Message, state: FSMContext, app: An
         elif text_lower in ["📊 стан ферми", "стан ферми", "📊 farm status", "farm status", "ферма"]:
             from bot.handlers.dashboard import handle_dashboard
             await handle_dashboard(message, app, state)
-        elif text_lower in ["🧩 склад деталей", "склад деталей", "🧩 parts stock", "parts stock"]:
+        elif text_lower in ["🧩 склад деталей", "склад деталей", "🧩 деталі", "деталі", "🧩 parts stock", "parts stock"]:
             await open_parts_list(message, state, app, lang)
         elif text_lower in ["➕ добавити", "добавити", "➕ додати", "додати", "➕ add", "add", "➕ нова деталь", "нова деталь", "додати деталь", "добавити деталь"]:
             from bot.handlers.parts.add import handle_add_part_start

@@ -32,6 +32,12 @@ class TestWebappFleetFilteringUI(unittest.TestCase):
         self.assertIn('id="count-filter-running"', content)
         self.assertIn('id="count-filter-pause"', content)
         self.assertIn('id="count-filter-idle"', content)
+        self.assertIn("Вільні ⚪", content)
+        self.assertIn('id="btn-view-detailed"', content)
+        self.assertIn('id="btn-view-compact"', content)
+        self.assertIn('id="fleet-batch-modal"', content)
+        self.assertIn('id="spool-search-input"', content)
+        self.assertIn('id="spool-filter-pills"', content)
 
     def test_app_js_valid_syntax(self):
         self.assertTrue(self.js_path.exists(), "webapp/static/js/app.js should exist")

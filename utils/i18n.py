@@ -19,11 +19,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "📊 Farm Status",
     },
     "btn_warehouse": {
-        "uk": "📦 Склад",
+        "uk": "🧵 Філамент",
         "en": "📦 Warehouse",
     },
     "btn_parts_warehouse": {
-        "uk": "🧩 Склад деталей",
+        "uk": "🧩 Деталі",
         "en": "🧩 Parts Stock",
     },
     "btn_history": {
@@ -35,7 +35,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "💰 Commercial",
     },
     "btn_notify_settings": {
-        "uk": "🔔 Налаштування сповіщень",
+        "uk": "🔔 Сповіщення",
         "en": "🔔 Notification Settings",
     },
     "btn_admin": {
@@ -93,7 +93,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "📷 Camera",
     },
     "btn_control": {
-        "uk": "🎛️ Керування принтером",
+        "uk": "🎛️ Керування",
         "en": "🎛️ Printer Control",
     },
     "btn_filament": {
@@ -113,7 +113,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "🧹 Reset Maintenance",
     },
     "btn_edit_printer": {
-        "uk": "⚙️ Налаштування принтера",
+        "uk": "⚙️ Налаштування",
         "en": "⚙️ Printer Settings",
     },
     "btn_edit_p_name": {

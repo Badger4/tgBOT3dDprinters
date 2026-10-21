@@ -9,7 +9,7 @@ from utils.i18n import get_user_lang, t
 
 class TestI18n(unittest.TestCase):
     def test_translation_uk(self):
-        self.assertEqual(t("btn_warehouse", "uk"), "📦 Склад")
+        self.assertEqual(t("btn_warehouse", "uk"), "🧵 Філамент")
         self.assertEqual(t("btn_printers", "uk"), "🖨️ Принтери")
 
     def test_translation_en(self):
