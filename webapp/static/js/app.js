@@ -5062,58 +5062,6 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        const printerChoices = printersData.map((p, idx) => {
-            const targetM = part.printer_model || '';
-            const partFilament = part.filament_type || '';
-            const printerFilament = p.filament_type || '';
-            let isComp = true;
-            let reasons = [];
-
-            const corexyFamily = ["@BBL P1P", "@BBL P1S", "@BBL P2S", "@BBL X1C", "@BBL X1E"];
-            let isModelWarn = false;
-
-            if (targetM && targetM !== 'Unknown') {
-                const targetCode = getBambuModelCode(targetM);
-                const pModel = p.printer_model || p.model || p.name;
-                const printerCode = getBambuModelCode(pModel);
-                if (targetCode !== 'UNKNOWN' && printerCode !== 'UNKNOWN' && targetCode !== printerCode) {
-                    if (corexyFamily.includes(targetCode) && corexyFamily.includes(printerCode)) {
-                        isModelWarn = true;
-                        reasons.push(`⚠️ різна модель: ${targetM} ➔ ${pModel}`);
-                    } else {
-                        isComp = false;
-                        reasons.push(`нарізано для ${targetM}`);
-                    }
-                }
-            }
-
-            if (partFilament) {
-                if (!printerFilament || printerFilament === 'Невизначено') {
-                    isComp = false;
-                    reasons.push(`пластик не встановлено (потрібен ${partFilament})`);
-                } else {
-                    const normPartFil = normalizeFilamentName(partFilament);
-                    const normPrinterFil = normalizeFilamentName(printerFilament);
-                    if (normPartFil && normPrinterFil && normPartFil !== normPrinterFil) {
-                        isComp = false;
-                        reasons.push(`пластик: ${printerFilament} vs ${partFilament}`);
-                    }
-                }
-            }
-
-            const partNozzle = part.nozzle_diameter ? parseFloat(part.nozzle_diameter) : null;
-            const printerNozzle = p.nozzle_diameter ? parseFloat(p.nozzle_diameter) : 0.4;
-            if (partNozzle && Math.abs(partNozzle - printerNozzle) > 0.01) {
-                isComp = false;
-                reasons.push(`сопло: ${printerNozzle}мм vs ${partNozzle}мм`);
-            }
-
-            let compTag = ' ✅ СУМІСНИЙ';
-            if (!isComp) {
-                compTag = ` 🛑 НЕСУМІСНИЙ (${reasons.join('; ')})`;
-            } else if (isModelWarn) {
-                compTag = ` ⚠️ УМОВНО СУМІСНИЙ (${reasons.join('; ')})`;
-            }
         // Build interactive modal for printer selection
         const existingModal = document.getElementById("select-printer-part-modal");
         if (existingModal) existingModal.remove();
