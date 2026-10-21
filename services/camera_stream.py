@@ -33,7 +33,7 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
     clean_code = str(access_code or "").strip()
     try:
         raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        raw_socket.settimeout(4.0)
+        raw_socket.settimeout(2.0)
 
         context = ssl.create_default_context()
         context.check_hostname = False
@@ -112,7 +112,7 @@ async def capture_real_camera_photo(ip: str, access_code: str) -> bytes | None:
         frame = await asyncio.to_thread(_fetch_bambu_port6000_jpeg, clean_ip, clean_code)
         if frame:
             return frame
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.2)
 
     # HTTP Fallback if Port 6000 TLS stream did not return a valid frame
     is_80_open = await check_tcp_port_open(clean_ip, 80, timeout=0.8)
@@ -146,16 +146,17 @@ def stream_bambu_port6000_jpegs(ip: str, access_code: str, max_frames: int = 500
     """
     raw_socket = None
     ssl_sock = None
+    clean_ip = str(ip or "").strip()
     try:
         raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        raw_socket.settimeout(5.0)
+        raw_socket.settimeout(2.0)
 
         context = ssl.create_default_context()
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
 
         ssl_sock = context.wrap_socket(raw_socket)
-        ssl_sock.connect((ip, 6000))
+        ssl_sock.connect((clean_ip, 6000))
 
         username = b"bblp"
         password = str(access_code or "").encode("utf-8")[:32]
@@ -195,7 +196,7 @@ def stream_bambu_port6000_jpegs(ip: str, access_code: str, max_frames: int = 500
                     yield jpeg_bytes
                     frames_yielded += 1
     except Exception as e:
-        logger.warning(f"Port 6000 stream error for {ip}: {e}")
+        logger.warning(f"Port 6000 stream error for {clean_ip}: {e}")
     finally:
         if ssl_sock:
             try:
@@ -209,16 +210,25 @@ def stream_bambu_port6000_jpegs(ip: str, access_code: str, max_frames: int = 500
                 pass
 
 
-async def async_stream_camera_frames(ip: str, access_code: str) -> Any:
+async def async_stream_camera_frames(ip: str, access_code: str, request: Any = None) -> Any:
     """
     Async generator yielding live JPEG frames from Bambu Lab camera.
     Retries Port 6000 TLS stream or falls back to HTTP camera snapshots.
+    Exits cleanly if client disconnects or if camera is repeatedly unreachable.
     """
     if not ip or not access_code:
         return
 
-    while True:
-        is_6000_open = await check_tcp_port_open(ip, 6000, timeout=1.0)
+    consecutive_failures = 0
+    max_consecutive_failures = 3
+
+    while consecutive_failures < max_consecutive_failures:
+        if request is not None and (getattr(request, "transport", None) is None or request.transport.is_closing()):
+            logger.debug(f"Client disconnected from camera stream for {ip}")
+            return
+
+        is_6000_open = await check_tcp_port_open(ip, 6000, timeout=0.8)
+        yielded_in_loop = False
         if is_6000_open:
             def _get_frame_gen() -> Any:
                 return iter(stream_bambu_port6000_jpegs(ip, access_code, max_frames=500))
@@ -229,16 +239,27 @@ async def async_stream_camera_frames(ip: str, access_code: str) -> Any:
             try:
                 gen = await asyncio.to_thread(_get_frame_gen)
                 while True:
+                    if request is not None and (getattr(request, "transport", None) is None or request.transport.is_closing()):
+                        return
                     frame = await asyncio.to_thread(_fetch_next, gen)
                     if not frame:
                         break
                     yield frame
-                    await asyncio.sleep(0.03)  # Smooth FPS throttle
+                    yielded_in_loop = True
+                    consecutive_failures = 0
+                    await asyncio.sleep(0.04)
             except Exception as stream_err:
-                logger.warning(f"Live camera stream reconnecting for {ip}: {stream_err}")
+                logger.debug(f"Live camera stream reconnecting for {ip}: {stream_err}")
 
-        # Fallback single frame capture if stream drops
-        frame = await capture_real_camera_photo(ip, access_code)
-        if frame:
-            yield frame
-        await asyncio.sleep(1.0)
+        if not yielded_in_loop:
+            # Fallback single frame capture if stream drops
+            frame = await capture_real_camera_photo(ip, access_code)
+            if frame:
+                yield frame
+                consecutive_failures = 0
+                await asyncio.sleep(0.5)
+            else:
+                consecutive_failures += 1
+                await asyncio.sleep(1.0)
+
+    logger.info(f"Camera stream unavailable for {ip} after {consecutive_failures} failures. Ending stream.")

@@ -283,7 +283,7 @@ async def handle_get_camera_stream(request: web.Request) -> web.StreamResponse:
     await response.prepare(request)
 
     try:
-        async for jpeg_bytes in async_stream_camera_frames(p.ip, p.access_code):
+        async for jpeg_bytes in async_stream_camera_frames(p.ip, p.access_code, request=request):
             if request.transport and request.transport.is_closing():
                 break
 

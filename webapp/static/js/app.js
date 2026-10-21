@@ -2348,19 +2348,10 @@ document.addEventListener("DOMContentLoaded", () => {
             if (cameraImg.nextElementSibling) cameraImg.nextElementSibling.style.display = "none";
             if (!cameraImg.src.includes(`/api/printers/${pId}/stream`)) {
                 cameraImg.src = streamUrl;
-                let cRetries = 0;
                 cameraImg.onerror = () => {
-                    if (cRetries < 3) {
-                        cRetries++;
-                        setTimeout(() => {
-                            if (selectedPrinterId === pId && cameraImg) {
-                                cameraImg.src = `/api/printers/${pId}/stream?t=${Date.now()}${tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : ""}`;
-                            }
-                        }, 2000 * cRetries);
-                    } else {
-                        cameraImg.style.display = "none";
-                        if (cameraImg.nextElementSibling) cameraImg.nextElementSibling.style.display = "flex";
-                    }
+                    cameraImg.src = "";
+                    cameraImg.style.display = "none";
+                    if (cameraImg.nextElementSibling) cameraImg.nextElementSibling.style.display = "flex";
                 };
             }
         }
@@ -2370,19 +2361,10 @@ document.addEventListener("DOMContentLoaded", () => {
             if (fullscreenCamImg.nextElementSibling) fullscreenCamImg.nextElementSibling.style.display = "none";
             if (!fullscreenCamImg.src.includes(`/api/printers/${pId}/stream`)) {
                 fullscreenCamImg.src = streamUrl;
-                let fsRetries = 0;
                 fullscreenCamImg.onerror = () => {
-                    if (fsRetries < 3) {
-                        fsRetries++;
-                        setTimeout(() => {
-                            if (selectedPrinterId === pId && fullscreenCamImg) {
-                                fullscreenCamImg.src = `/api/printers/${pId}/stream?t=${Date.now()}${tg?.initData ? "&initData=" + encodeURIComponent(tg.initData) : ""}`;
-                            }
-                        }, 2000 * fsRetries);
-                    } else {
-                        fullscreenCamImg.style.display = "none";
-                        if (fullscreenCamImg.nextElementSibling) fullscreenCamImg.nextElementSibling.style.display = "flex";
-                    }
+                    fullscreenCamImg.src = "";
+                    fullscreenCamImg.style.display = "none";
+                    if (fullscreenCamImg.nextElementSibling) fullscreenCamImg.nextElementSibling.style.display = "flex";
                 };
             }
         }
