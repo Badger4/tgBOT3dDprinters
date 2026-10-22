@@ -24,7 +24,7 @@ class BaseStorage:
 
     def __init__(self, base_dir: Path | str):
         self.base_dir = Path(base_dir)
-        self.users_dir = base_dir / "users"
+        self.users_dir = self.base_dir / "users"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.users_dir.mkdir(parents=True, exist_ok=True)
 

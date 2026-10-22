@@ -65,7 +65,8 @@ def format_live_dashboard_text(app: Any, lang: str = "uk") -> str:
         dash_txt += f"{st_emoji} <b>{p_name}</b> | <code>{st_str}</code>{spd_str}\n"
 
         if not is_p_online or mapped_st == "OFFLINE":
-            dash_txt += f"   🔌 <i>{'Вимкнений або немає зв\'язку' if not is_en else 'Offline / Powered off'}</i>\n\n"
+            offline_msg = "Offline / Powered off" if is_en else "Вимкнений або немає зв'язку"
+            dash_txt += f"   🔌 <i>{offline_msg}</i>\n\n"
         elif mapped_st in ["RUNNING", "PAUSE"]:
             from bot.handlers.printers.view import format_remaining_time, get_finish_time_str
             sub_task = html.escape(p.subtask_name or ("Model" if is_en else "Модель"))

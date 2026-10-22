@@ -684,6 +684,12 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
                 <span>{html.escape(v_det)}</span>
             </div>"""
 
+        client_order_html = (
+            f'<div style="grid-column: 1 / -1; background: #e0f2fe; padding: 6px; border-radius: 4px; border: 1px solid #bae6fd; color: #0369a1;"><strong>👤 Клієнт / Номер замовлення:</strong> {html.escape(client_order)}</div>'
+            if client_order
+            else ''
+        )
+
         html_content = f"""<!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -746,7 +752,7 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
         <div style="font-size: 11px; color: #64748b; text-align: right;"><strong>Дата:</strong> {date_str}</div>
     </div>
     <div class="summary-grid">
-        {f'<div style="grid-column: 1 / -1; background: #e0f2fe; padding: 6px; border-radius: 4px; border: 1px solid #bae6fd; color: #0369a1;"><strong>👤 Клієнт / Номер замовлення:</strong> {html.escape(client_order)}</div>' if client_order else ''}
+        {client_order_html}
         <div><strong>Пресет:</strong> {html.escape(preset_name)}</div>
         <div><strong>Вага нитки:</strong> {weight_g:.1f} г</div>
         <div><strong>Час друку:</strong> {time_mins} хв</div>
@@ -767,26 +773,26 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
                     <td>🧵 Пластик (матеріал)</td>
                     <td>Вага: {weight_g:.1f} г (з відходом: {calc.get('total_weight_g', weight_g):.1f} г)</td>
                     <td>{pr_g:.2f} ₴/г ({pr_kg:.0f} ₴/кг)</td>
-                    <td style="text-align:right;">{calc.get("filament_cost", 0):.2f} ₴</td>
+                    <td style="text-align:right;">{calc.get('filament_cost', 0):.2f} ₴</td>
                 </tr>
                 {hw_row_html}
                 <tr>
                     <td>⚡ Електроенергія</td>
                     <td>Час: ~{time_mins} хв ({time_hours:.2f} год)</td>
                     <td>{power_w:.0f} Вт | {elec_rate:.2f} ₴/кВт·год</td>
-                    <td style="text-align:right;">{calc.get("electricity_cost", 0):.2f} ₴</td>
+                    <td style="text-align:right;">{calc.get('electricity_cost', 0):.2f} ₴</td>
                 </tr>
                 <tr>
                     <td>🔧 Амортизація обладнання</td>
                     <td>{depr_model}</td>
                     <td>{depr_preset}</td>
-                    <td style="text-align:right;">{calc.get("depreciation_cost", 0):.2f} ₴</td>
+                    <td style="text-align:right;">{calc.get('depreciation_cost', 0):.2f} ₴</td>
                 </tr>
                 <tr>
                     <td>🧼 Витратні матеріали та ТО</td>
                     <td>{cons_model}</td>
                     <td>{cons_preset}</td>
-                    <td style="text-align:right;">{calc.get("consumables_cost", 0):.2f} ₴</td>
+                    <td style="text-align:right;">{calc.get('consumables_cost', 0):.2f} ₴</td>
                 </tr>
                 {labor_row_html}
                 {pack_row_html}
@@ -794,19 +800,19 @@ async def handle_export_commercial_pdf(request: web.Request) -> web.Response:
                     <td>💵 Собівартість ({'1 шт' if mode == 'serial' else 'прямі витрати'})</td>
                     <td>{weight_g:.1f} г | ~{time_mins} хв</td>
                     <td>Повна собівартість одиниці</td>
-                    <td style="text-align:right;">{calc.get("cost_per_unit", calc.get("cost_before_profit", 0)):.2f} ₴</td>
+                    <td style="text-align:right;">{calc.get('cost_per_unit', calc.get('cost_before_profit', 0)):.2f} ₴</td>
                 </tr>
                 <tr style="font-weight:bold; color:#16a34a; background:#f8fafc;">
                     <td>💼 Прибуток (Маржа)</td>
-                    <td>База: {calc.get("cost_per_unit", calc.get("cost_before_profit", 0)):.2f} ₴</td>
+                    <td>База: {calc.get('cost_per_unit', calc.get('cost_before_profit', 0)):.2f} ₴</td>
                     <td>Націнка: {formatted_profit}</td>
-                    <td style="text-align:right; color:#16a34a;">{calc.get("profit_cost", 0):.2f} ₴</td>
+                    <td style="text-align:right; color:#16a34a;">{calc.get('profit_cost', 0):.2f} ₴</td>
                 </tr>
             </tbody>
         </table>
     </div>
     <div class="total-box">
-        Підсумкова ціна ({'за 1 шт' if mode == 'serial' else 'для клієнта'}): {calc.get("total_price", 0):.2f} ₴
+        Підсумкова ціна ({'за 1 шт' if mode == 'serial' else 'для клієнта'}): {calc.get('total_price', 0):.2f} ₴
     </div>
     {serial_html}
     {verdict_html}

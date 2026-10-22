@@ -127,11 +127,16 @@ def build_movements_page_text(
     if total_count == 0:
         if has_filters:
             filter_summary = " | ".join(badges) if badges else f"🧵 {html.escape(spool_name_filter)}"
+            action_hint = (
+                'Click "Filter" below to adjust criteria or "Clear" to view all records.'
+                if is_en
+                else 'Натисніть «Фільтри» нижче щоб змінити критерії або «Скинути» для показу всіх записів.'
+            )
             msg = (
                 f"🔍 <b>{'Movement Audit' if is_en else 'Аудит руху'}:</b>\n\n"
                 f"ℹ️ {'No movements found matching the active filters' if is_en else 'Не знайдено записів руху за обраними фільтрами'}:\n"
                 f"<b>{filter_summary}</b>\n\n"
-                f"<i>{'Click \"Filter\" below to adjust criteria or \"Clear\" to view all records.' if is_en else 'Натисніть «Фільтри» нижче щоб змінити критерії або «Скинути» для показу всіх записів.'}</i>"
+                f"<i>{action_hint}</i>"
             )
         else:
             msg = (

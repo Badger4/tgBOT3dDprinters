@@ -1,4 +1,4 @@
-﻿"""
+"""
 Bambu Lab HMS (Health Management System) error code decoder.
 Converts raw bit-packed HMS payloads into human-readable Ukrainian error descriptions.
 """
