@@ -113,7 +113,6 @@ ignore = [
     "E402", # module level import not at top of file (used after dotenv setup)
     "E731", # do not assign a lambda expression
     "UP042", # Class inherits from both str and Enum (for backwards compatibility)
-    "UP038", # Use X | Y in isinstance call instead of (X, Y)
     "B007", # Loop control variable not used within loop body
 ]
 

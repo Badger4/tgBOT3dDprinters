@@ -17,25 +17,35 @@ ENV/
 logs/
 *.log
 
-# Coverage artifacts
+# Coverage & testing artifacts
 .coverage
+.coverage.*
 coverage.xml
 coverage.json
 htmlcov/
-
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Environment variables & runtime storage
 .env
+.env*.tmp
+.cloudflared_quick_url
 printers_storage/
 printers_storage/*
 !printers_storage/.gitkeep
+test_edit_p_storage/
 
-
-# Temporary executables & scratch
+# Temporary executables, tools & scratchpads
 cloudflared.exe
 scratch/
+tools/
 tools/scratch_scripts/
 NUL
 .gemini/
-test_edit_p_storage/
 
+# OS Artifacts
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
