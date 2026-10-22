@@ -33,6 +33,18 @@
     --radius-lg: 20px;
     --shadow-soft: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
     --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    /* Centralized Semantic Stacking Context Layering */
+    --z-base: 1;
+    --z-header: 100;
+    --z-nav: 150;
+    --z-pull-refresh: 950;
+    --z-floating-bar: 950;
+    --z-modal-backdrop: 1000;
+    --z-modal: 1010;
+    --z-modal-nested: 1020;
+    --z-modal-fullscreen: 1050;
+    --z-popover: 1500;
+    --z-toast: 2000;
 }
 
 * {
@@ -238,3 +250,70 @@ body {
         font-size: 16px !important;
     }
 }
+
+/* Flex Utilities */
+.d-flex { display: flex; }
+.hidden, .d-flex.hidden { display: none !important; }
+.gap-2 { gap: 8px !important; }
+.align-items-center { align-items: center !important; }
+
+
+/* ==========================================================================
+   Mobile Smartphone Screen Optimization (< 600px)
+   ========================================================================== */
+@media (max-width: 600px) {
+    html, body {
+        max-width: 100vw;
+        overflow-x: hidden;
+    }
+    body {
+        padding-bottom: 80px;
+    }
+    .app-header {
+        padding: 10px 14px;
+    }
+    .brand-titles h1 {
+        font-size: 15px;
+    }
+    .brand-logo {
+        width: 34px;
+        height: 34px;
+        font-size: 16px;
+    }
+    .app-content {
+        padding: 10px;
+    }
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    .section-header > div,
+    .section-header .d-flex {
+        width: 100%;
+        display: flex !important;
+        flex-wrap: wrap;
+        gap: 6px !important;
+    }
+    .section-header .d-flex .btn,
+    .section-header .d-flex a.btn {
+        flex: 1 1 auto;
+        min-width: 85px;
+        padding: 6px 8px;
+        font-size: 11px;
+        text-align: center;
+        justify-content: center;
+    }
+    .glass-card {
+        padding: 14px 12px;
+    }
+    .form-row {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .form-row .col {
+        width: 100%;
+    }
+}
+
+

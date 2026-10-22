@@ -133,3 +133,397 @@
 .mt-3 { margin-top: 12px; }
 .mt-4 { margin-top: 16px; }
 .mb-4 { margin-bottom: 16px; }
+
+/* Bottom Nav */
+.app-nav {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 600px;
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding: 0 4px env(safe-area-inset-bottom, 0px) 4px;
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-glass);
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    z-index: 150;
+}
+
+.nav-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    font-size: 9.5px;
+    font-weight: 500;
+    cursor: pointer;
+    flex: 1;
+    min-width: 0;
+    padding: 6px 2px;
+    position: relative;
+    transition: var(--transition);
+    touch-action: manipulation;
+}
+
+.nav-btn i {
+    font-size: 16px;
+    transition: transform 0.2s ease;
+}
+
+.nav-btn span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    display: block;
+    line-height: 1.1;
+}
+
+.nav-btn.active {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.nav-btn.active i {
+    transform: translateY(-1px);
+    filter: drop-shadow(0 0 8px var(--primary-glow));
+}
+
+.nav-btn.active::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 3px;
+    border-radius: 0 0 4px 4px;
+    background: var(--primary);
+    box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+
+/* Maintenance Detailed Points */
+.maint-list-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.maint-item-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.maint-item-card.overdue {
+    border-color: rgba(239, 68, 68, 0.5);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.maint-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.maint-item-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.maint-item-inputs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.maint-input-interval {
+    width: 55px;
+    padding: 2px 6px;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--glass-border);
+    border-radius: 4px;
+    color: #38bdf8;
+    text-align: center;
+}
+
+
+/* Parts Warehouse Card Flex Layout */
+.part-item-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.part-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.part-card-main-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.part-preview-thumb {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.part-preview-placeholder {
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.part-card-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.part-card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.part-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.part-card-file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.part-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-glass);
+}
+
+.part-card-qty-counter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+
+/* History Filters Bar Styling */
+.history-filters-card {
+    background: rgba(30, 41, 59, 0.5);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 16px;
+    margin-top: 16px;
+    margin-bottom: 20px;
+}
+
+.history-filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    align-items: flex-end;
+}
+
+.history-filter-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.history-filter-item label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+}
+
+.history-filter-item .form-control {
+    width: 100%;
+    height: 42px;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #f8fafc;
+    padding: 8px 12px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.history-filter-item .form-control:focus {
+    border-color: #3b82f6;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+.history-filter-item input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+    cursor: pointer;
+}
+
+
+/* ==========================================================================
+   Visual Spool Graphic Widget (SVG / CSS)
+   ========================================================================== */
+.visual-spool-container {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.visual-spool-svg {
+    filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.35));
+    transition: transform 0.2s ease;
+}
+
+.visual-spool-container:hover .visual-spool-svg {
+    transform: scale(1.06);
+}
+
+.spool-svg-pulse {
+    animation: spoolPulse 1.8s infinite ease-in-out;
+}
+
+@keyframes spoolPulse {
+    0%, 100% {
+        filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.4));
+    }
+    50% {
+        filter: drop-shadow(0 0 9px rgba(239, 68, 68, 0.9));
+    }
+}
+
+/* Scrap Accounting Badges & Buttons */
+.badge-scrap {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.badge-order-ref {
+    background: rgba(2, 132, 199, 0.15);
+    color: #38bdf8;
+    border: 1px solid rgba(2, 132, 199, 0.35);
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.btn-mark-scrap {
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 4px;
+    border: 1px solid rgba(245, 158, 11, 0.5);
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-mark-scrap:hover {
+    background: #f59e0b;
+    color: #0f172a;
+}
+
+/* Light Spool Contrast Enhancement */
+.visual-spool-container.light-spool .visual-spool-svg {
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.45));
+}
+
+
+/* Pull-to-Refresh Indicator */
+.ptr-indicator {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translate(-50%, -70px);
+    z-index: 9500;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid var(--primary);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.ptr-indicator.visible {
+    opacity: 1;
+}
+
+

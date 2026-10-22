@@ -1,64 +1,289 @@
 /**
  * 3D Farm Manager - API Client Module
- * Provides unified HTTP client with automatic auth headers (Telegram initData & Web session tokens).
+ * Provides unified HTTP client with automatic auth headers & centralized backend route callers.
  */
 
 export function getSessionToken() {
-    return localStorage.getItem("3d_farm_session") || "";
+    return localStorage.getItem("3d_farm_session") || localStorage.getItem("web_session_token") || "";
 }
 
 export function getTelegramInitData() {
     return window.Telegram?.WebApp?.initData || "";
 }
 
+export function setupFetchInterceptor() {
+    const originalFetch = window.fetch;
+    window.fetch = function(url, options = {}) {
+        options = options || {};
+        let h = options.headers;
+        if (!h) {
+            h = new Headers();
+        } else if (!(h instanceof Headers)) {
+            h = new Headers(h);
+        }
+        h.set("Bypass-Tunnel-Reminder", "true");
+        const initData = getTelegramInitData();
+        if (initData) {
+            h.set("X-Telegram-Init-Data", initData);
+        }
+        const token = getSessionToken();
+        if (token) {
+            if (!h.has("Authorization")) h.set("Authorization", `Bearer ${token}`);
+            if (!h.has("X-Session-Token")) h.set("X-Session-Token", token);
+        }
+        options.headers = h;
+        return originalFetch(url, options);
+    };
+}
+
 export async function apiFetch(url, options = {}) {
-    const opts = { ...options };
-    opts.headers = { ...(opts.headers || {}) };
-
-    const token = getSessionToken();
-    if (token && !opts.headers["X-Session-Token"] && !opts.headers["Authorization"]) {
-        opts.headers["X-Session-Token"] = token;
-    }
-
-    const initData = getTelegramInitData();
-    if (initData && !opts.headers["X-Telegram-Init-Data"]) {
-        opts.headers["X-Telegram-Init-Data"] = initData;
-    }
-
-    // Bypass localtunnel reminder screen
-    opts.headers["Bypass-Tunnel-Reminder"] = "true";
-
-    const res = await fetch(url, opts);
-    if (res.status === 401) {
+    const res = await window.fetch(url, options);
+    if (res.status === 401 || res.status === 403) {
         if (!window.Telegram?.WebApp?.initData) {
-            window.location.href = "/login";
+            const currentPath = window.location.pathname;
+            if (currentPath !== "/login" && !currentPath.startsWith("/login")) {
+                window.location.href = "/login";
+            }
         }
     }
     return res;
 }
 
-export function initSseStream(onEvent, onError) {
-    const initData = getTelegramInitData();
-    const token = getSessionToken();
-    let url = "/api/events";
-    const params = [];
-    if (initData) params.push(`initData=${encodeURIComponent(initData)}`);
-    if (token) params.push(`token=${encodeURIComponent(token)}`);
-    if (params.length > 0) {
-        url += "?" + params.join("&");
-    }
+// Printers API
+export async function fetchPrintersApi() {
+    const res = await apiFetch("/api/printers");
+    return res.json();
+}
 
-    const evtSource = new EventSource(url);
-    evtSource.onmessage = (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            if (onEvent) onEvent(data);
-        } catch (err) {
-            console.error("SSE parse error:", err);
-        }
-    };
-    evtSource.onerror = (err) => {
-        if (onError) onError(err);
-    };
-    return evtSource;
+export async function controlPrinterApi(printerId, action, params = {}) {
+    const res = await apiFetch(`/api/printers/${printerId}/control`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...params })
+    });
+    return res.json();
+}
+
+export async function fetchPrinterSettingsApi(printerId) {
+    const res = await apiFetch(`/api/printers/${printerId}/settings`);
+    return res.json();
+}
+
+export async function savePrinterSettingsApi(printerId, settings) {
+    const res = await apiFetch(`/api/printers/${printerId}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings)
+    });
+    return res.json();
+}
+
+export async function deletePrinterApi(printerId) {
+    const res = await apiFetch(`/api/printers/${printerId}`, { method: "DELETE" });
+    return res.json();
+}
+
+export async function sendFleetLightsApi(action = "on", printerIds = null) {
+    const payload = { action };
+    if (printerIds && Array.isArray(printerIds)) payload.printer_ids = printerIds;
+    const res = await apiFetch("/api/fleet/lights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    });
+    return res.json();
+}
+
+export async function sendFleetCalibrateApi(printerIds = null) {
+    const payload = {};
+    if (printerIds && Array.isArray(printerIds)) payload.printer_ids = printerIds;
+    const res = await apiFetch("/api/fleet/calibrate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    });
+    return res.json();
+}
+
+// Spools API
+export async function fetchSpoolsApi() {
+    const res = await apiFetch("/api/spools");
+    return res.json();
+}
+
+export async function saveSpoolApi(spoolData) {
+    const res = await apiFetch("/api/spools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(spoolData)
+    });
+    return res.json();
+}
+
+export async function deleteSpoolApi(spoolId) {
+    const res = await apiFetch(`/api/spools/${spoolId}`, { method: "DELETE" });
+    return res.json();
+}
+
+export async function fetchSpoolMovementsApi() {
+    const res = await apiFetch("/api/spools/movements");
+    return res.json();
+}
+
+export function getMovementsPdfExportUrl(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.spool_id) params.set("spool_id", filters.spool_id);
+    if (filters.action) params.set("action", filters.action);
+    if (filters.period) params.set("period", filters.period);
+    if (filters.q) params.set("q", filters.q);
+    const token = getSessionToken();
+    if (token) params.set("token", token);
+    const initData = getTelegramInitData();
+    if (initData) params.set("initData", initData);
+    return `/api/spools/movements/export_pdf?${params.toString()}`;
+}
+
+// Parts API
+export async function fetchPartsApi() {
+    const res = await apiFetch("/api/parts");
+    return res.json();
+}
+
+export async function savePartApi(partData) {
+    const res = await apiFetch("/api/parts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(partData)
+    });
+    return res.json();
+}
+
+export async function deletePartApi(partId) {
+    const res = await apiFetch(`/api/parts/${partId}`, { method: "DELETE" });
+    return res.json();
+}
+
+export async function printPartApi(partId, printerId) {
+    const res = await apiFetch(`/api/parts/${partId}/print/${printerId}`, {
+        method: "POST"
+    });
+    return res.json();
+}
+
+// Files & Uploads API
+export async function uploadFileApi(formData) {
+    const res = await apiFetch("/api/files/upload", {
+        method: "POST",
+        body: formData
+    });
+    return res.json();
+}
+
+export async function uploadImageApi(formData) {
+    const res = await apiFetch("/api/files/upload_image", {
+        method: "POST",
+        body: formData
+    });
+    return res.json();
+}
+
+// History API
+export async function fetchHistoryApi() {
+    const res = await apiFetch("/api/history");
+    return res.json();
+}
+
+export async function deleteHistoryItemApi(timestamp) {
+    const res = await apiFetch(`/api/history?timestamp=${encodeURIComponent(timestamp)}`, {
+        method: "DELETE"
+    });
+    return res.json();
+}
+
+export async function clearAllHistoryApi() {
+    const res = await apiFetch("/api/history", { method: "DELETE" });
+    return res.json();
+}
+
+export async function markScrapApi(scrapData) {
+    const res = await apiFetch("/api/history/mark_scrap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(scrapData)
+    });
+    return res.json();
+}
+
+// Commercial Presets API
+export async function fetchCommercialPresetsApi() {
+    const res = await apiFetch("/api/commercial/presets");
+    return res.json();
+}
+
+export async function saveCommercialPresetApi(presetData) {
+    const res = await apiFetch("/api/commercial/presets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(presetData)
+    });
+    return res.json();
+}
+
+export async function deleteCommercialPresetApi(presetId) {
+    const res = await apiFetch(`/api/commercial/presets/${presetId}`, {
+        method: "DELETE"
+    });
+    return res.json();
+}
+
+export async function calculateCommercialApi(params) {
+    const res = await apiFetch("/api/commercial/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params)
+    });
+    return res.json();
+}
+
+// User & Settings API
+export async function fetchUserSettingsApi() {
+    const res = await apiFetch("/api/user/settings");
+    return res.json();
+}
+
+export async function saveUserSettingsApi(settings) {
+    const res = await apiFetch("/api/user/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings)
+    });
+    return res.json();
+}
+
+export async function fetchGlobalSettingsApi() {
+    const res = await apiFetch("/api/settings");
+    return res.json();
+}
+
+export async function fetchUsersApi() {
+    const res = await apiFetch("/api/users");
+    return res.json();
+}
+
+export async function saveUserAccessApi(userData) {
+    const res = await apiFetch("/api/users/access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(userData)
+    });
+    return res.json();
+}
+
+export async function deleteUserApi(userId) {
+    const res = await apiFetch("/api/users/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId })
+    });
+    return res.json();
 }
