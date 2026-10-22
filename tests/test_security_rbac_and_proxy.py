@@ -284,3 +284,91 @@ class TestSecurityRbacAndProxy(AioHTTPTestCase):
             # Request came from 127.0.0.1 (trusted proxy), so X-Forwarded-For client IP is TRUSTED
             detected_ip = get_client_ip(req_trusted)
             assert detected_ip == "203.0.113.195"
+
+    def test_trusted_proxy_handles_empty_and_invalid_entries(self):
+        # Empty string, spaces, or invalid CIDR in trusted list
+        trusted = ["", "   ", "not_a_valid_ip_or_cidr", "127.0.0.1"]
+        assert is_trusted_proxy("127.0.0.1", trusted) is True
+        assert is_trusted_proxy("10.0.0.1", trusted) is False
+
+    def test_get_client_ip_cf_connecting_ip_handling(self):
+        req_cf = MagicMock(spec=web.Request)
+        req_cf.remote = "127.0.0.1"
+        req_cf.headers = {
+            "CF-Connecting-IP": "198.51.100.42",
+            "X-Forwarded-For": "203.0.113.195",
+        }
+
+        with patch("config.get_trusted_proxies", return_value=["127.0.0.1", "::1"]):
+            # CF-Connecting-IP takes precedence when behind trusted proxy
+            detected_ip = get_client_ip(req_cf)
+            assert detected_ip == "198.51.100.42"
+
+        # Invalid CF-Connecting-IP should fall back to X-Forwarded-For
+        req_invalid_cf = MagicMock(spec=web.Request)
+        req_invalid_cf.remote = "127.0.0.1"
+        req_invalid_cf.headers = {
+            "CF-Connecting-IP": "not_an_ip_string",
+            "X-Forwarded-For": "203.0.113.195",
+        }
+        with patch("config.get_trusted_proxies", return_value=["127.0.0.1", "::1"]):
+            detected_fallback = get_client_ip(req_invalid_cf)
+            assert detected_fallback == "203.0.113.195"
+
+    def test_get_client_ip_invalid_forwarded_for_fallback_to_remote(self):
+        req_bad_forward = MagicMock(spec=web.Request)
+        req_bad_forward.remote = "127.0.0.1"
+        req_bad_forward.headers = {"X-Forwarded-For": "garbage_ip, another_bad_ip"}
+
+        with patch("config.get_trusted_proxies", return_value=["127.0.0.1", "::1"]):
+            # Invalid IP syntax falls back to request.remote
+            assert get_client_ip(req_bad_forward) == "127.0.0.1"
+
+    async def test_middleware_cors_preflight_and_redirects(self):
+        from services.http.middleware import security_and_ratelimit_middleware
+
+        # 1. OPTIONS preflight
+        req_options = MagicMock(spec=web.Request)
+        req_options.method = "OPTIONS"
+        req_options.headers = {"Origin": "https://web.telegram.org"}
+        req_options.path = "/api/printers"
+
+        handler = AsyncMock()
+        resp = await security_and_ratelimit_middleware(req_options, handler)
+        assert resp.status == 204
+        assert resp.headers.get("Access-Control-Allow-Origin") == "https://web.telegram.org"
+        assert "Strict-Transport-Security" in resp.headers
+
+        # 2. Insecure HTTP to HTTPS redirect
+        req_redirect = MagicMock(spec=web.Request)
+        req_redirect.method = "GET"
+        req_redirect.headers = {"X-Forwarded-Proto": "http"}
+        req_redirect.path = "/webapp"
+        req_redirect.rel_url = "/webapp"
+        req_redirect.host = "farm.local"
+
+        with patch("config.WEBAPP_URL", "https://printerfarm.example.com/webapp"):
+            resp_redirect = await security_and_ratelimit_middleware(req_redirect, handler)
+            assert resp_redirect.status == 301
+            assert resp_redirect.headers["Location"] == "https://printerfarm.example.com/webapp"
+
+    def test_apply_cors_headers_and_static_caching(self):
+        from services.http.middleware import _apply_cors_and_security_headers
+
+        # Allowed Origin
+        req = MagicMock(spec=web.Request)
+        req.headers = {"Origin": "https://web.telegram.org"}
+        req.path = "/static/icons/printer.svg"
+        resp = web.Response()
+        _apply_cors_and_security_headers(req, resp)
+        assert resp.headers["Access-Control-Allow-Origin"] == "https://web.telegram.org"
+        assert "public, max-age=" in resp.headers["Cache-Control"]
+
+        # Disallowed Origin
+        req_bad = MagicMock(spec=web.Request)
+        req_bad.headers = {"Origin": "https://malicious-site.com"}
+        req_bad.path = "/api/data"
+        resp_bad = web.Response()
+        _apply_cors_and_security_headers(req_bad, resp_bad)
+        assert resp_bad.headers["Access-Control-Allow-Origin"] == "null"
+        assert "no-cache" in resp_bad.headers["Cache-Control"]
