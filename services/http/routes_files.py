@@ -260,14 +260,17 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
             if job_w > 0:
                 p._current_job_grams = job_w
                 try:
-                    import json
-                    cache_file = config.STORAGE_DIR / "last_sliced_weight.json"
                     cache_payload = {
                         "filename": filename,
                         "weight": job_w,
                         "timestamp": time.time(),
                     }
-                    cache_file.write_text(json.dumps(cache_payload), encoding="utf-8")
+                    if hasattr(app_obj, "storage") and hasattr(app_obj.storage, "set_sliced_weight_cache"):
+                        await app_obj.storage.set_sliced_weight_cache(cache_payload)
+                    else:
+                        import json
+                        cache_file = config.STORAGE_DIR / "last_sliced_weight.json"
+                        cache_file.write_text(json.dumps(cache_payload), encoding="utf-8")
                 except Exception as cache_err:
                     logger.warning(f"Failed writing weight cache: {cache_err}")
 

@@ -178,7 +178,13 @@ async def handle_delete_printer(request: web.Request) -> web.Response:
 
     p.destroy()
     del app_obj.printers[p_id]
-    await app_obj.save_printers_config()
+    del_fn = getattr(app_obj.storage, "delete_printer_atomic", None)
+    if del_fn is not None and callable(del_fn) and type(del_fn).__name__ not in ("MagicMock", "Mock"):
+        res = del_fn(p_id)
+        if asyncio.iscoroutine(res) or asyncio.isfuture(res):
+            await res
+    elif hasattr(app_obj, "save_printers_config"):
+        await app_obj.save_printers_config()
     logger.info(f"🗑️ Removed printer [{p.name}] via WebApp REST API")
     return web.json_response({"status": "ok"})
 

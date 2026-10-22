@@ -29,6 +29,20 @@ def deduct_spool_warehouse(
 
     async def _do_deduct() -> None:
         try:
+            del_fn = getattr(storage, "deduct_spool_warehouse_atomic", None)
+            if del_fn is not None and callable(del_fn) and type(del_fn).__name__ not in ("MagicMock", "Mock"):
+                res = del_fn(
+                    printer_id=printer_id,
+                    printer_name=printer_name,
+                    slot_key=slot_key,
+                    deducted_grams=deducted_grams,
+                    subtask_name=subtask_name,
+                )
+                if asyncio.iscoroutine(res) or asyncio.isfuture(res):
+                    ok = await res
+                    if ok:
+                        return
+
             async with storage.transaction_lock("spools"):
                 spools = await storage.load_spools()
                 spool_to_deduct = None

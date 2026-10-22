@@ -265,7 +265,7 @@ async def handle_select_part_view(callback: CallbackQuery, state: FSMContext, ap
 
     if current_state == PartEditingStates.select_part_for_delete:
         del parts[part_id]
-        await app.storage.save_json(app.storage.parts_file, parts)
+        await app.storage.save_parts(parts)
         await callback.message.answer("✅ <b>Деталь успішно видалено!</b>", parse_mode=ParseMode.HTML)
         await open_parts_list(callback.message, state, app, lang)
         await callback.answer()

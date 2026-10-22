@@ -84,17 +84,23 @@ async def handle_skip_objects_menu(message: Message, app):
             objects = target_printer.get_clean_job_objects()
 
     if not objects:
-        import json
-        from config import STORAGE_DIR
-        cache_file = STORAGE_DIR / "last_sliced_weight.json"
-        if cache_file.exists():
-            try:
-                c_data = json.loads(cache_file.read_text(encoding="utf-8"))
-                if isinstance(c_data.get("objects"), list) and c_data["objects"]:
-                    target_printer.current_job_objects = c_data["objects"]
-                    objects = target_printer.current_job_objects
-            except Exception:
-                pass
+        c_data = None
+        if hasattr(app, "storage") and hasattr(app.storage, "get_sliced_weight_cache"):
+            c_data = await app.storage.get_sliced_weight_cache()
+        elif hasattr(target_printer, "storage") and hasattr(target_printer.storage, "get_sliced_weight_cache_sync"):
+            c_data = target_printer.storage.get_sliced_weight_cache_sync()
+        if c_data is None:
+            import json
+            from config import STORAGE_DIR
+            cache_file = STORAGE_DIR / "last_sliced_weight.json"
+            if cache_file.exists():
+                try:
+                    c_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+        if c_data and isinstance(c_data.get("objects"), list) and c_data["objects"]:
+            target_printer.current_job_objects = c_data["objects"]
+            objects = target_printer.current_job_objects
 
     if not objects:
         await message.answer(

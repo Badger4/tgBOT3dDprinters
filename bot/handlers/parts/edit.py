@@ -116,7 +116,7 @@ async def process_confirm_property_edit(message: Message, state: FSMContext, app
         if draft:
             draft["updated_at"] = time.time()
             parts[part_id] = draft
-            await app.storage.save_json(app.storage.parts_file, parts)
+            await app.storage.save_parts(parts)
             await message.answer("✅ <b>Зміни деталі успішно збережено!</b>", parse_mode=ParseMode.HTML)
         else:
             await message.answer("Збережено!")

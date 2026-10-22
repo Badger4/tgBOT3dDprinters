@@ -29,7 +29,7 @@ async def handle_delete_part_start(message: Message, state: FSMContext, app: Any
 
     if part_id and part_id in parts:
         del parts[part_id]
-        await app.storage.save_json(app.storage.parts_file, parts)
+        await app.storage.save_parts(parts)
         await message.answer("✅ <b>Деталь успішно видалено!</b>", parse_mode="HTML")
         from bot.handlers.parts.view import open_parts_list
         u_data = await app.storage.load_user(message.from_user.id)

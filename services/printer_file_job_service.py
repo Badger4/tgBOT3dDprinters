@@ -199,16 +199,19 @@ async def start_print_job(
         printer.skipped_objects = []
         w_g = float(m_info.get("weight_g") or 0.0)
 
-        # Persist objects & weight into last_sliced_weight.json cache
+        # Persist objects & weight into last_sliced_weight.json cache (SSOT SQLite + atomic replica)
         try:
-            cache_file = storage_dir / "last_sliced_weight.json"
             cache_payload = {
                 "filename": filename,
                 "weight": w_g,
                 "timestamp": time.time(),
                 "objects": printer.current_job_objects,
             }
-            cache_file.write_text(json.dumps(cache_payload, ensure_ascii=False), encoding="utf-8")
+            if hasattr(printer, "storage") and hasattr(printer.storage, "set_sliced_weight_cache_sync"):
+                printer.storage.set_sliced_weight_cache_sync(cache_payload)
+            else:
+                cache_file = storage_dir / "last_sliced_weight.json"
+                cache_file.write_text(json.dumps(cache_payload, ensure_ascii=False), encoding="utf-8")
             logger.info(f"🧩 Persisted {len(printer.current_job_objects)} objects to weight cache for [{printer.name}]")
         except Exception as e_cache:
             logger.warning(f"Failed writing weight/objects cache: {e_cache}")

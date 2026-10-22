@@ -186,7 +186,7 @@ async def handle_skip_part_callback(callback: CallbackQuery, state: FSMContext, 
             "filament_type": "PLA",
             "updated_at": time.time(),
         }
-        await app.storage.save_json(app.storage.parts_file, parts)
+        await app.storage.save_parts(parts)
         if callback.message:
             await callback.message.answer("✅ <b>Деталь успішно додано!</b>", parse_mode=ParseMode.HTML)
             await open_parts_list(callback.message, state, app, lang)
@@ -363,7 +363,7 @@ async def add_part_three_mf(message: Message, state: FSMContext, app: Any) -> No
         "updated_at": time.time(),
     }
 
-    await app.storage.save_json(app.storage.parts_file, parts)
+    await app.storage.save_parts(parts)
 
     success_text = "✅ <b>Деталь успішно додано!</b>"
     details = []

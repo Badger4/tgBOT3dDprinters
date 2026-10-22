@@ -610,10 +610,18 @@ class PrinterBotApp:
                                 final_weight = extract_subtask_weight(p.subtask_name)
 
                             if final_weight == 0.0:
-                                cache_file = STORAGE_DIR / "last_sliced_weight.json"
-                                if cache_file.exists():
+                                c_data = None
+                                if hasattr(self, "storage") and hasattr(self.storage, "get_sliced_weight_cache_sync"):
+                                    c_data = self.storage.get_sliced_weight_cache_sync()
+                                if c_data is None:
+                                    cache_file = STORAGE_DIR / "last_sliced_weight.json"
+                                    if cache_file.exists():
+                                        try:
+                                            c_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                                        except Exception:
+                                            pass
+                                if c_data:
                                     try:
-                                        c_data = json.loads(cache_file.read_text(encoding="utf-8"))
                                         c_w = float(c_data.get("weight", 0.0))
                                         if c_w > 0:
                                             final_weight = c_w

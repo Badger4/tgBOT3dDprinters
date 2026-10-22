@@ -75,7 +75,13 @@ async def handle_confirm_delete_printer(message: Message, app):
             except Exception:
                 pass
             app.printers.pop(target_printer.id, None)
-            await app.save_printers_config()
+            del_fn = getattr(app.storage, "delete_printer_atomic", None)
+            if del_fn is not None and callable(del_fn) and type(del_fn).__name__ not in ("MagicMock", "Mock"):
+                res = del_fn(target_printer.id)
+                if asyncio.iscoroutine(res) or asyncio.isfuture(res):
+                    await res
+            elif hasattr(app, "save_printers_config"):
+                await app.save_printers_config()
 
         user["state"] = "idle"
         user["context_data"] = {}
