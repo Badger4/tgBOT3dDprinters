@@ -2,36 +2,49 @@
 Add spool wizard handlers.
 """
 
+from __future__ import annotations
+
 import html
+import re
 import uuid
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup
-from bot.keyboards import (
-    get_filament_menu_keyboard,
-    get_spool_presets_inline_keyboard,
-    get_filament_types_keyboard,
-    get_wizard_nav_keyboard,
-    get_spool_price_keyboard,
-    get_spool_edit_fields_keyboard,
-    get_confirm_delete_spool_keyboard,
-    get_printers_keyboard,
-    get_printers_mount_keyboard,
-    get_ams_slots_keyboard,
-    get_filament_colors_keyboard,
-    get_spool_quantity_keyboard,
-    get_single_printer_filament_keyboard,
-    get_printer_menu_keyboard,
-    get_spools_keyboard,
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
 )
-from utils.math_eval import safe_eval_math
+
+from bot.handlers.filament.delete import DELETE_STATES, handle_delete_states
+from bot.handlers.filament.edit import EDIT_STATES, handle_edit_states
+from bot.handlers.filament.mount import (
+    MOUNT_STATES,
+    assign_spool_to_slot,
+    handle_mount_states,
+    unassign_spool_from_slot,
+)
+from bot.keyboards import (
+    get_filament_colors_keyboard,
+    get_filament_menu_keyboard,
+    get_filament_types_keyboard,
+    get_printer_menu_keyboard,
+    get_single_printer_filament_keyboard,
+    get_spool_presets_inline_keyboard,
+    get_spool_price_keyboard,
+    get_spool_quantity_keyboard,
+    get_wizard_nav_keyboard,
+)
 from utils.filament_utils import (
     extract_filament_type_from_name,
-    parse_filament_color,
-    get_color_emoji,
     get_color_display_name,
+    get_color_emoji,
+    parse_filament_color,
 )
+from utils.math_eval import safe_eval_math
 
 DEFAULT_SPOOL_PRESETS = {
     "bambu_pla_black": {"name": "Bambu PLA Black", "type": "PLA", "color": "#000000", "price_per_kg": 850.0, "weight_g": 1000.0},
@@ -42,135 +55,111 @@ DEFAULT_SPOOL_PRESETS = {
 
 router = Router()
 
+GLOBAL_MENU_KEYWORDS = {
+    "📊 стан ферми", "📊 farm status", "стан ферми", "farm status",
+    "🖨️ принтери", "🖨️ printers", "принтери", "printers",
+    "🧵 філамент", "🧵 filament", "філамент", "filament", "📦 склад", "📦 warehouse",
+    "🧩 деталі", "🧩 parts", "деталі", "parts", "🧩 склад деталей",
+    "📜 історія друку", "📜 print history", "історія друку", "print history",
+    "💰 комерція", "💰 commercial", "комерція", "commercial",
+    "🔔 сповіщення", "🔔 notifications", "сповіщення", "notifications",
+    "👑 адмінка", "👑 admin panel", "адмінка", "admin",
+}
+
+CANCEL_KEYWORDS = {
+    "відміна", "відмінити", "скасувати", "стоп", "назад", "⬅️ назад",
+    "cancel", "/cancel", "back", "⬅️ back", "❌ скасувати", "❌ cancel",
+    "головне меню", "⬅️ головне меню", "main menu", "⬅️ main menu",
+    "повернутись в меню", "назад в меню", "⬅️ назад в меню",
+}
+STEP_BACK_KEYWORDS = {"↩️ крок назад", "крок назад", "step back", "↩️ step back"}
+
+ADD_SPOOL_STATES = {
+    "add_spool_name",
+    "add_spool_type",
+    "add_spool_color",
+    "add_spool_grams",
+    "add_spool_price",
+    "add_spool_total_price",
+    "add_spool_quantity",
+    "confirm_quick_spool",
+}
+
+FILAMENT_STATES = {
+    *ADD_SPOOL_STATES,
+    *MOUNT_STATES,
+    *EDIT_STATES,
+    *DELETE_STATES,
+}
 
 
-def unassign_spool_from_slot(spools: dict, selected_item: dict, target_p, slot_k: str) -> tuple[str, bool]:
+def parse_quick_spool_text(text: str) -> dict | None:
     """
-    Unmounts a spool from a printer slot.
-    Checks if weight changed from initial_grams:
-    - If weight NOT changed: returns to parent batch (increments quantity by 1, deletes copy).
-    - If weight CHANGED: saved as a separate started spool with its new weight (quantity=1).
-    Returns (result_description, returned_to_batch: bool).
+    Attempts to parse full spool info from a single text line, e.g.:
+    'Bambu PLA Basic Black 1000g 850грн'
+    'Sunlu PETG White 1kg 700 uah 2pcs'
+    'eSUN PLA+ Grey 1000g 650 грн'
+    Returns parsed dict or None if text is just a name.
     """
-    spool_id = selected_item.get("spool_id")
-    target_spool = spools.get(spool_id) if spool_id else None
+    if not text:
+        return None
+    raw = text.strip()
 
-    if not target_spool and target_p:
-        for s in spools.values():
-            if s.get("assigned_printer_id") == target_p.id and str(s.get("assigned_slot_key")) == str(slot_k):
-                target_spool = s
-                break
+    weight_m = re.search(r'(?:^|\s)(\d+(?:[.,]\d+)?)\s*(kg|кг|g|г|gram|grams|грамм|грам)(?:\s|$|[,\.;])', raw, re.IGNORECASE)
+    price_m = re.search(r'(?:^|\s)(\d+(?:[.,]\d+)?)\s*(?:грн|uah|₴|usd|\$|€|eur)(?:\s|$|[,\.;])', raw, re.IGNORECASE)
 
-    rem_g = float(selected_item.get("remaining_grams", 1000.0))
+    if not weight_m and not price_m:
+        return None
 
-    if not target_spool:
-        new_id = f"spool_{str(uuid.uuid4())[:8]}"
-        p_price = float(getattr(target_p, "price_per_kg", 850.0) or 850.0) if target_p else 850.0
-        spools[new_id] = {
-            "id": new_id,
-            "name": selected_item.get("name", "Spool"),
-            "type": selected_item.get("material", "PLA"),
-            "color": selected_item.get("color", "#3B82F6"),
-            "remaining_grams": round(rem_g, 1),
-            "initial_grams": round(rem_g, 1),
-            "price_per_kg": p_price,
-            "assigned_printer_id": None,
-            "assigned_slot_key": None,
-            "quantity": 1,
-        }
-        return f"{rem_g}g (1 шт)", False
+    weight_g = 1000.0
+    if weight_m:
+        try:
+            val = float(weight_m.group(1).replace(",", "."))
+            unit = weight_m.group(2).lower()
+            weight_g = val * 1000.0 if unit in ["kg", "кг"] else val
+        except (ValueError, TypeError):
+            weight_g = 1000.0
 
-    init_g = float(target_spool.get("initial_grams", target_spool.get("remaining_grams", 1000.0)))
-    weight_unchanged = round(rem_g, 1) >= round(init_g, 1)
+    price_uah = 850.0
+    if price_m:
+        try:
+            price_uah = float(price_m.group(1).replace(",", "."))
+        except (ValueError, TypeError):
+            price_uah = 850.0
 
-    if weight_unchanged:
-        parent_id = target_spool.get("parent_spool_id")
-        parent_spool = spools.get(parent_id) if parent_id else None
+    qty_m = re.search(r'(?:^|\s)(\d+)\s*(?:шт|pcs|x|х)(?:\s|$|[,\.;])', raw, re.IGNORECASE)
+    qty = 1
+    if qty_m:
+        try:
+            qty = max(1, int(qty_m.group(1)))
+        except (ValueError, TypeError):
+            qty = 1
 
-        if not parent_spool:
-            for s_id, s in spools.items():
-                if (
-                    not s.get("assigned_printer_id")
-                    and s.get("name") == target_spool.get("name")
-                    and s.get("type") == target_spool.get("type")
-                    and s.get("color") == target_spool.get("color")
-                    and round(float(s.get("remaining_grams", 0)), 1) == round(init_g, 1)
-                ):
-                    parent_spool = s
-                    break
+    clean_name = raw
+    if weight_m:
+        clean_name = re.sub(re.escape(weight_m.group(0).strip()), "", clean_name, flags=re.IGNORECASE)
+    if price_m:
+        clean_name = re.sub(re.escape(price_m.group(0).strip()), "", clean_name, flags=re.IGNORECASE)
+    if qty_m:
+        clean_name = re.sub(re.escape(qty_m.group(0).strip()), "", clean_name, flags=re.IGNORECASE)
+    clean_name = " ".join(clean_name.split()).strip(" ,.;-")
 
-        if parent_spool and not parent_spool.get("assigned_printer_id"):
-            parent_spool["quantity"] = int(parent_spool.get("quantity", 1)) + 1
-            spools[parent_spool["id"]] = parent_spool
-            if target_spool["id"] != parent_spool["id"] and target_spool["id"] in spools:
-                del spools[target_spool["id"]]
-            return f"повернуто до пачки (разом: {parent_spool['quantity']} шт)", True
-        else:
-            target_spool["assigned_printer_id"] = None
-            target_spool["assigned_slot_key"] = None
-            target_spool["remaining_grams"] = round(init_g, 1)
-            target_spool["quantity"] = max(1, int(target_spool.get("quantity", 1)))
-            spools[target_spool["id"]] = target_spool
-            return f"повернуто на Склад ({target_spool['quantity']} шт)", True
-    else:
-        target_spool["assigned_printer_id"] = None
-        target_spool["assigned_slot_key"] = None
-        target_spool["remaining_grams"] = round(rem_g, 1)
-        target_spool["quantity"] = 1
-        target_spool.pop("parent_spool_id", None)
-        spools[target_spool["id"]] = target_spool
-        return f"розпочата котушка: {round(rem_g, 1)}g (1 шт)", False
+    fil_type = extract_filament_type_from_name(clean_name or raw)
+    hex_code, color_label = parse_filament_color(clean_name or raw)
 
+    if not clean_name:
+        clean_name = f"Spool {fil_type} {color_label or ''}".strip()
 
-def assign_spool_to_slot(spools: dict, src_spool: dict, target_p, slot_key: str) -> tuple[dict, int]:
-    """
-    Assigns a spool to a printer slot.
-    If src_spool has quantity > 1, decrements warehouse batch quantity by 1,
-    and creates a new mounted instance with quantity=1 and parent_spool_id.
-    Returns (mounted_spool, remaining_warehouse_qty).
-    """
-    slot_str = str(slot_key)
-    for s_id, s in list(spools.items()):
-        if s.get("assigned_printer_id") == target_p.id and str(s.get("assigned_slot_key")) == slot_str and s_id != src_spool.get("id"):
-            prev_grams = target_p.get_slot_grams(slot_key) if hasattr(target_p, "get_slot_grams") else s.get("remaining_grams", 1000.0)
-            unassign_spool_from_slot(spools, {"spool_id": s_id, "remaining_grams": prev_grams}, target_p, slot_str)
-
-    src_id = src_spool["id"]
-    db_src = spools.get(src_id, src_spool)
-    qty = max(1, int(db_src.get("quantity", 1) or 1))
-
-    if qty > 1:
-        db_src["quantity"] = qty - 1
-        spools[src_id] = db_src
-
-        new_id = f"spool_{str(uuid.uuid4())[:8]}"
-        mounted = db_src.copy()
-        mounted["id"] = new_id
-        mounted["parent_spool_id"] = src_id
-        mounted["quantity"] = 1
-        mounted["assigned_printer_id"] = target_p.id
-        mounted["assigned_slot_key"] = slot_str
-        if "initial_grams" not in mounted:
-            mounted["initial_grams"] = float(mounted.get("remaining_grams", 1000.0))
-        spools[new_id] = mounted
-        rem_warehouse_qty = qty - 1
-        ret_spool = mounted
-    else:
-        db_src["assigned_printer_id"] = target_p.id
-        db_src["assigned_slot_key"] = slot_str
-        db_src["quantity"] = 1
-        if "initial_grams" not in db_src:
-            db_src["initial_grams"] = float(db_src.get("remaining_grams", 1000.0))
-        spools[src_id] = db_src
-        rem_warehouse_qty = 0
-        ret_spool = db_src
-
-    grams = float(ret_spool.get("remaining_grams", 1000.0))
-    target_p.set_slot_grams(grams, slot_id=slot_key)
-    if ret_spool.get("type"):
-        target_p.filament_type = str(ret_spool.get("type"))
-
-    return ret_spool, rem_warehouse_qty
+    return {
+        "name": clean_name,
+        "type": fil_type,
+        "color": hex_code,
+        "color_name": color_label,
+        "remaining_grams": weight_g,
+        "initial_grams": weight_g,
+        "price_per_kg": price_uah,
+        "quantity": qty,
+    }
 
 
 @router.message(F.text.lower().in_(["➕ додати котушку", "додати котушку", "➕ додати", "додати", "➕ add spool", "add spool", "➕ add", "add"]))
@@ -182,20 +171,39 @@ async def handle_add_spool_start(message: Message, app, state: FSMContext | None
     u_lang = user.get("language", "uk")
 
     user["state"] = "add_spool_name"
-    user["context_data"]["new_spool"] = {}
+    user.setdefault("context_data", {})["new_spool"] = {}
     await app.storage.save_user(user)
 
     kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="❌ Скасувати" if u_lang != "en" else "❌ Cancel")]],
         resize_keyboard=True,
     )
-    await message.answer(
+
+    presets = await app.storage.load_presets()
+    presets_kb = get_spool_presets_inline_keyboard(presets, lang=u_lang)
+
+    text_uk = (
         "➕ <b>Додавання нової котушки на Склад</b>\n\n"
-        "Введіть назву котушки (наприклад: <i>Bambu PLA Basic Black</i>):"
-        if u_lang != "en"
-        else "➕ <b>Add new spool to stock</b>\n\n"
-        "Enter spool name (e.g. <i>Bambu PLA Basic Black</i>):",
+        "Введіть назву котушки (наприклад: <code>Bambu PLA Basic Black</code>):\n\n"
+        "💡 <b>Розумне введення в один рядок:</b>\n"
+        "Введіть усе разом: <code>Bambu PLA Black 1000g 850грн</code>\n\n"
+        "⚡ <b>Або оберіть швидкий пресет в 1 клік нижче:</b>"
+    )
+    text_en = (
+        "➕ <b>Add new spool to stock</b>\n\n"
+        "Enter spool name (e.g. <code>Bambu PLA Basic Black</code>):\n\n"
+        "💡 <b>Smart one-line input:</b>\n"
+        "Enter all together: <code>Bambu PLA Black 1000g 850uah</code>\n\n"
+        "⚡ <b>Or choose a 1-click quick preset below:</b>"
+    )
+
+    await message.answer(
+        text_uk if u_lang != "en" else text_en,
         parse_mode=ParseMode.HTML,
+        reply_markup=presets_kb,
+    )
+    await message.answer(
+        "Введіть назву або 1 рядок:" if u_lang != "en" else "Enter name or 1-line text:",
         reply_markup=kb,
     )
 
@@ -249,9 +257,8 @@ async def handle_preset_callback(callback: CallbackQuery, app):
     user.get("context_data", {}).pop("new_spool", None)
     await app.storage.save_user(user)
 
-    await callback.answer(f"✅ Додано: {p_name}")
     await callback.message.answer(
-        f"✅ <b>Успішно додано котушку за пресетом!</b>\n\n"
+        f"✅ <b>Котушку додано за пресетом!</b>\n\n"
         f"📦 Назва: <b>{html.escape(p_name)}</b>\n"
         f"🎨 Тип: <b>{html.escape(p_type)}</b>\n"
         f"⚖️ Вага: <b>{p_grams}g</b>\n"
@@ -265,34 +272,107 @@ async def handle_preset_callback(callback: CallbackQuery, app):
         parse_mode=ParseMode.HTML,
         reply_markup=get_filament_menu_keyboard(lang=u_lang),
     )
+    if hasattr(callback, "answer"):
+        try:
+            await callback.answer("✅ Додано за пресетом!")
+        except Exception:
+            pass
 
 
-FILAMENT_STATES = {
-    "add_spool_name",
-    "add_spool_type",
-    "add_spool_color",
-    "add_spool_grams",
-    "add_spool_price",
-    "add_spool_total_price",
-    "add_spool_quantity",
-    "select_spool_to_mount",
-    "select_printer_for_mount",
-    "select_slot_for_mount",
-    "select_slot_for_weight",
-    "select_spool_to_unmount",
-    "select_spool_to_edit",
-    "select_spool_field",
-    "edit_spool_name",
-    "edit_spool_type",
-    "edit_spool_color",
-    "edit_spool_grams",
-    "edit_spool_price",
-    "edit_spool_quantity",
-    "select_spool_to_delete",
-    "confirm_delete_spool",
-    "edit_filament_weight",
-    "edit_filament_price",
-}
+@router.callback_query(F.data == "spool_quick_confirm")
+async def handle_quick_spool_confirm_callback(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    spool_data = user.get("context_data", {}).get("new_spool")
+    if not spool_data:
+        await callback.answer("⚠️ Дані котушки застаріли", show_alert=True)
+        return
+
+    spools = await app.storage.load_spools()
+    new_id = f"spool_{str(uuid.uuid4())[:8]}"
+    spool_data["id"] = new_id
+    spool_data["assigned_printer_id"] = None
+    spool_data["assigned_slot_key"] = None
+    spools[new_id] = spool_data
+    await app.storage.save_spools(spools)
+
+    grams = float(spool_data.get("remaining_grams", 1000.0))
+    await app.storage.record_spool_movement(
+        spool_id=new_id,
+        spool_name=spool_data["name"],
+        action="initial_stock",
+        weight_change_g=grams,
+        prev_weight_g=0.0,
+        new_weight_g=grams,
+        reason="Швидке додавання в 1 рядок (Telegram)",
+        user=user.get("username") or user.get("first_name") or f"TG:{callback.from_user.id}",
+    )
+
+    user["state"] = "idle"
+    user.get("context_data", {}).pop("new_spool", None)
+    await app.storage.save_user(user)
+
+    c_ico = get_color_emoji(spool_data.get("color_name") or spool_data.get("color", ""))
+    await callback.message.edit_text(
+        f"✅ <b>Котушку додано на Склад!</b>\n\n"
+        f"📦 {c_ico} <b>{html.escape(spool_data['name'])}</b> ({spool_data['type']}, {grams:g}g)\n"
+        f"💰 {spool_data['price_per_kg']:g} грн/кг • <b>{spool_data['quantity']} шт</b>"
+        if u_lang != "en" else
+        f"✅ <b>Spool added to stock!</b>\n\n"
+        f"📦 {c_ico} <b>{html.escape(spool_data['name'])}</b> ({spool_data['type']}, {grams:g}g)\n"
+        f"💰 {spool_data['price_per_kg']:g} UAH/kg • <b>{spool_data['quantity']} pcs</b>",
+        parse_mode=ParseMode.HTML,
+    )
+    await callback.message.answer(
+        "🧵 <b>Склад філаменту:</b>" if u_lang != "en" else "🧵 <b>Filament stock:</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_filament_menu_keyboard(lang=u_lang),
+    )
+    await callback.answer("✅ Додано на склад!")
+
+
+@router.callback_query(F.data == "spool_quick_wizard")
+async def handle_quick_spool_wizard_callback(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+    spool_data = user.get("context_data", {}).get("new_spool", {})
+
+    user["state"] = "add_spool_type"
+    await app.storage.save_user(user)
+
+    await callback.message.edit_text(
+        f"✏️ <b>Покрокове налаштування котушки {html.escape(spool_data.get('name', ''))}</b>",
+        parse_mode=ParseMode.HTML,
+    )
+    await callback.message.answer(
+        f"🎨 <b>Оберіть тип пластику для {html.escape(spool_data.get('name', ''))}:</b>"
+        if u_lang != "en"
+        else f"🎨 <b>Select filament type for {html.escape(spool_data.get('name', ''))}:</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_filament_types_keyboard(lang=u_lang),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "spool_quick_cancel")
+async def handle_quick_spool_cancel_callback(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    u_lang = user.get("language", "uk")
+
+    user["state"] = "idle"
+    user.get("context_data", {}).pop("new_spool", None)
+    await app.storage.save_user(user)
+
+    await callback.message.edit_text("❌ Додавання котушки скасовано.")
+    await callback.message.answer(
+        "🧵 <b>Склад філаменту:</b>" if u_lang != "en" else "🧵 <b>Filament stock:</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_filament_menu_keyboard(lang=u_lang),
+    )
+    await callback.answer("Скасовано")
 
 
 async def filament_state_filter(message: Message, app) -> bool:
@@ -300,7 +380,24 @@ async def filament_state_filter(message: Message, app) -> bool:
         return False
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
-    return user.get("state") in FILAMENT_STATES
+    state = user.get("state")
+    if state not in FILAMENT_STATES:
+        return False
+
+    text = message.text.strip().lower()
+    if text in GLOBAL_MENU_KEYWORDS or (text.startswith("/") and text not in ["/cancel", "/back"]):
+        # Reset state immediately so user is freed from wizard deadlock!
+        user["state"] = "idle"
+        for k in [
+            "new_spool", "edit_spool", "edit_spool_id", "delete_spool", "delete_spool_id",
+            "mount_spool", "mount_printer_id", "mount_source", "edit_weight_slot_key",
+            "edit_weight_slot_label", "pending_spool",
+        ]:
+            user.get("context_data", {}).pop(k, None)
+        await app.storage.save_user(user)
+        return False
+
+    return True
 
 
 @router.message(filament_state_filter)
@@ -314,8 +411,69 @@ async def handle_filament_states(message: Message, app) -> bool:
     selected_pid = ctx_data.get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
-    step_back_keywords = {"↩️ крок назад", "крок назад", "step back", "↩️ step back"}
-    if text.strip().lower() in step_back_keywords:
+    # Global menu button escape check (direct handler calls/safety)
+    if text.lower() in GLOBAL_MENU_KEYWORDS or (text.startswith("/") and text.lower() not in ["/cancel", "/back"]):
+        user["state"] = "idle"
+        for k in [
+            "new_spool", "edit_spool", "edit_spool_id", "delete_spool", "delete_spool_id",
+            "mount_spool", "mount_printer_id", "mount_source", "edit_weight_slot_key",
+            "edit_weight_slot_label", "pending_spool",
+        ]:
+            user.get("context_data", {}).pop(k, None)
+        await app.storage.save_user(user)
+        return False
+
+    # Global Cancel handling
+    if text.lower() in CANCEL_KEYWORDS:
+        if state in ["select_printer_for_mount", "select_slot_for_mount"] and text.lower() in ["назад", "⬅️ назад", "back", "⬅️ back"]:
+            pass  # Fall through to state-specific step back in mount
+        elif state in ["edit_spool_name", "edit_spool_type", "edit_spool_color", "edit_spool_quantity", "edit_spool_grams", "edit_spool_price"] and text.lower() in ["назад", "⬅️ назад", "back", "⬅️ back"]:
+            pass  # Fall through to state-specific step back in edit
+        else:
+            mount_src = user.get("context_data", {}).get("mount_source")
+            is_wh_cancel = (mount_src == "warehouse") or (not target_printer)
+            user["state"] = "printer_menu" if (target_printer and not is_wh_cancel) else "idle"
+            for k in [
+                "new_spool", "edit_spool", "edit_spool_id", "pending_spool", "delete_spool",
+                "delete_spool_id", "mount_spool", "mount_printer_id", "mount_source",
+                "edit_weight_slot_key", "edit_weight_slot_label",
+            ]:
+                user.get("context_data", {}).pop(k, None)
+            if is_wh_cancel:
+                user.get("context_data", {}).pop("selected_printer_id", None)
+            await app.storage.save_user(user)
+
+            if is_wh_cancel:
+                kb = get_filament_menu_keyboard(lang=u_lang)
+            elif target_printer and (state.startswith("edit_filament") or state.startswith("select_slot_for_weight")):
+                kb = get_single_printer_filament_keyboard(lang=u_lang)
+            elif target_printer:
+                kb = get_printer_menu_keyboard(target_printer, lang=u_lang)
+            else:
+                kb = get_filament_menu_keyboard(lang=u_lang)
+
+            await message.answer("Дію скасовано." if u_lang != "en" else "Action cancelled.", reply_markup=kb)
+            return True
+
+    # Delegate to domain modules
+    if state in MOUNT_STATES:
+        return await handle_mount_states(message, app, user, state, text)
+
+    if state in EDIT_STATES:
+        return await handle_edit_states(message, app, user, state, text)
+
+    if state in DELETE_STATES:
+        return await handle_delete_states(message, app, user, state, text)
+
+    # Handle Add Spool Wizard states
+    return await _handle_add_spool_state(message, app, user, state, text, u_lang, ctx_data, target_printer)
+
+
+async def _handle_add_spool_state(message: Message, app, user: dict, state: str, text: str, u_lang: str, ctx_data: dict, target_printer) -> bool:
+    chat_id = str(message.chat.id)
+
+    # Step Back navigation
+    if text.strip().lower() in STEP_BACK_KEYWORDS:
         if state == "add_spool_type":
             cur_name = user.get("context_data", {}).get("new_spool", {}).get("name", "")
             user["state"] = "add_spool_name"
@@ -384,23 +542,23 @@ async def handle_filament_states(message: Message, app) -> bool:
             return True
 
         if state == "add_spool_total_price":
-            cur_sp = user.get("context_data", {}).get("new_spool", {})
-            cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
             user["state"] = "add_spool_price"
             await app.storage.save_user(user)
+            cur_grams = float(user.get("context_data", {}).get("new_spool", {}).get("remaining_grams", 1000.0))
+            cur_pr = float(user.get("context_data", {}).get("new_spool", {}).get("price_per_kg", 850.0))
             kg = cur_grams / 1000.0
             kg_str = f"{kg:g}"
             prompt = (
-                f"💰 <b>Введіть ціну за 1 кг у грн:</b>\n\n"
-                f"💡 <i>Підказка: вага вашої котушки — {cur_grams:g}г ({kg_str} кг).\n"
-                f"Щоб вказати ціну за всю котушку, введіть суму та розділіть її на {kg_str} (наприклад: <code>1500/{kg_str}</code>).\n"
-                f"Або натисніть кнопку <b>«🏷️ Ціна за всю котушку»</b> нижче.</i>"
-                if u_lang != "en" else
-                f"💰 <b>Enter price per 1 kg in UAH:</b>\n\n"
-                f"💡 <i>Hint: spool weight is {cur_grams:g}g ({kg_str} kg).\n"
-                f"To enter total cost for {kg_str} kg, divide it by {kg_str} (e.g. <code>1500/{kg_str}</code>).\n"
-                f"Or tap <b>«🏷️ Price for entire spool»</b> below.</i>"
+                f"💰 <b>Введіть ціну за 1 кг у грн</b> (попередня: <code>{cur_pr:.1f} грн</code>):"
+                if u_lang != "en"
+                else f"💰 <b>Enter price per 1 kg in UAH</b> (previous: <code>{cur_pr:.1f} UAH</code>):"
             )
+            if u_lang != "en" and kg != 1:
+                prompt += (
+                    f"\n\n💡 <i>Підказка: вага вашої котушки — {cur_grams:g}г ({kg_str} кг).\n"
+                    f"Щоб вказати ціну за всю котушку, введіть суму та розділіть на {kg_str} (наприклад: <code>1500/{kg_str}</code>).\n"
+                    f"Або натисніть кнопку <b>«🏷️ Ціна за всю котушку»</b> нижче.</i>"
+                )
             await message.answer(
                 prompt,
                 parse_mode=ParseMode.HTML,
@@ -409,9 +567,8 @@ async def handle_filament_states(message: Message, app) -> bool:
             return True
 
         if state == "add_spool_quantity":
-            cur_sp = user.get("context_data", {}).get("new_spool", {})
-            cur_pr = cur_sp.get("price_per_kg", 850.0)
-            cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
+            cur_grams = float(user.get("context_data", {}).get("new_spool", {}).get("remaining_grams", 1000.0))
+            cur_pr = float(user.get("context_data", {}).get("new_spool", {}).get("price_per_kg", 850.0))
             user["state"] = "add_spool_price"
             await app.storage.save_user(user)
             kg = cur_grams / 1000.0
@@ -434,97 +591,128 @@ async def handle_filament_states(message: Message, app) -> bool:
             )
             return True
 
-    cancel_keywords = {
-        "відміна", "відмінити", "скасувати", "стоп", "назад", "⬅️ назад",
-        "cancel", "/cancel", "back", "⬅️ back", "❌ скасувати", "❌ cancel",
-        "головне меню", "⬅️ головне меню", "main menu", "⬅️ main menu",
-        "повернутись в меню", "назад в меню", "⬅️ назад в меню",
-    }
-    if text.lower() in cancel_keywords:
-        # For multi-step selection states, "назад" should step back rather than aborting entirely
-        if state in ["select_printer_for_mount", "select_slot_for_mount"] and text.lower() in ["назад", "⬅️ назад", "back", "⬅️ back"]:
-            pass  # Fall through to state-specific step back
-        else:
-            mount_src = user.get("context_data", {}).get("mount_source")
-            is_wh_cancel = (mount_src == "warehouse") or (not target_printer)
-            user["state"] = "printer_menu" if (target_printer and not is_wh_cancel) else "idle"
-            for k in ["new_spool", "edit_spool", "edit_spool_id", "pending_spool", "delete_spool", "delete_spool_id", "mount_spool", "mount_printer_id", "mount_source", "edit_weight_slot_key", "edit_weight_slot_label"]:
-                user.get("context_data", {}).pop(k, None)
-            if is_wh_cancel:
-                user.get("context_data", {}).pop("selected_printer_id", None)
-            await app.storage.save_user(user)
-
-            if is_wh_cancel:
-                kb = get_filament_menu_keyboard(lang=u_lang)
-            elif target_printer and (state.startswith("edit_filament") or state.startswith("select_slot_for_weight")):
-                kb = get_single_printer_filament_keyboard(lang=u_lang)
-            elif target_printer:
-                kb = get_printer_menu_keyboard(target_printer, lang=u_lang)
-            else:
-                kb = get_filament_menu_keyboard(lang=u_lang)
-
-            await message.answer("Дію скасовано." if u_lang != "en" else "Action cancelled.", reply_markup=kb)
-            return True
-
+    # 1. State: add_spool_name
     if state == "add_spool_name":
         if not text:
-            await message.answer("⚠️ Введіть назву котушки:" if u_lang != "en" else "⚠️ Enter spool name:")
+            await message.answer("⚠️ Назва не може бути порожньою. Введіть назву котушки:")
             return True
-        user.setdefault("context_data", {}).setdefault("new_spool", {})["name"] = text
+
+        quick = parse_quick_spool_text(text)
+        if quick:
+            user.setdefault("context_data", {})["new_spool"] = quick
+            user["state"] = "confirm_quick_spool"
+            await app.storage.save_user(user)
+
+            c_ico = get_color_emoji(quick.get("color_name") or quick.get("color", ""))
+            c_name = quick.get("color_name") or "Не вказано"
+            qty_str = f"{quick['quantity']} шт" if u_lang != "en" else f"{quick['quantity']} pcs"
+
+            kb_quick = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Підтвердити і додати" if u_lang != "en" else "✅ Confirm & Add",
+                            callback_data="spool_quick_confirm",
+                        ),
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="✏️ Покроково" if u_lang != "en" else "✏️ Step-by-step",
+                            callback_data="spool_quick_wizard",
+                        ),
+                        InlineKeyboardButton(
+                            text="❌ Скасувати" if u_lang != "en" else "❌ Cancel",
+                            callback_data="spool_quick_cancel",
+                        ),
+                    ],
+                ]
+            )
+            card = (
+                f"⚡ <b>Швидке розпізнавання котушки:</b>\n\n"
+                f"🏷️ Назва: <b>{html.escape(quick['name'])}</b>\n"
+                f"🎨 Тип: <b>{html.escape(quick['type'])}</b>\n"
+                f"🌈 Колір: {c_ico} <b>{c_name}</b>\n"
+                f"⚖️ Вага: <b>{quick['remaining_grams']:g}g</b>\n"
+                f"💰 Ціна за 1 кг: <b>{quick['price_per_kg']:g} грн</b>\n"
+                f"📦 Кількість: <b>{qty_str}</b>\n\n"
+                f"Зберегти цю котушку на Склад?"
+                if u_lang != "en" else
+                f"⚡ <b>Quick spool recognition:</b>\n\n"
+                f"🏷️ Name: <b>{html.escape(quick['name'])}</b>\n"
+                f"🎨 Type: <b>{html.escape(quick['type'])}</b>\n"
+                f"🌈 Color: {c_ico} <b>{c_name}</b>\n"
+                f"⚖️ Weight: <b>{quick['remaining_grams']:g}g</b>\n"
+                f"💰 Price per 1 kg: <b>{quick['price_per_kg']:g} UAH</b>\n"
+                f"📦 Quantity: <b>{qty_str}</b>\n\n"
+                f"Save this spool to stock?"
+            )
+            await message.answer(card, parse_mode=ParseMode.HTML, reply_markup=kb_quick)
+            return True
+
+        user.setdefault("context_data", {})["new_spool"] = {"name": text}
+        detected_type = extract_filament_type_from_name(text)
+        if detected_type and detected_type != "PLA":
+            user["context_data"]["new_spool"]["type"] = detected_type
         user["state"] = "add_spool_type"
         await app.storage.save_user(user)
+
         await message.answer(
-            "🎨 <b>Оберіть або введіть тип пластику (наприклад: PLA):</b>"
-            if u_lang != "en" else
-            "🎨 <b>Select or enter filament type (e.g. PLA):</b>",
+            f"🎨 <b>Оберіть або введіть тип пластику для котушки «{html.escape(text)}»:</b>"
+            if u_lang != "en"
+            else f"🎨 <b>Select or enter filament type for «{html.escape(text)}»:</b>",
             parse_mode=ParseMode.HTML,
-            reply_markup=get_filament_types_keyboard(lang=u_lang, include_step_back=True),
+            reply_markup=get_filament_types_keyboard(lang=u_lang),
         )
         return True
 
+    # 2. State: add_spool_type
     if state == "add_spool_type":
         if not text:
-            await message.answer("⚠️ Введіть тип пластику:" if u_lang != "en" else "⚠️ Enter filament type:")
+            await message.answer("⚠️ Оберіть або введіть тип пластику:")
             return True
         user.setdefault("context_data", {}).setdefault("new_spool", {})["type"] = text.upper()
         user["state"] = "add_spool_color"
         await app.storage.save_user(user)
+
+        cur_type = user["context_data"]["new_spool"]["type"]
         prompt = (
-            "🎨 <b>Оберіть базовий колір або напишіть будь-який відтінок текстом:</b>\n\n"
-            "💡 <i>Наприклад: <code>бірюзовий</code>, <code>графіт</code>, <code>хакі</code>, <code>бордовий</code>, <code>м'ятний</code>, <code>лаванда</code>, <code>бежевий</code>, <code>золотий</code> чи HEX (<code>#0D9488</code>)</i>"
-            if u_lang != "en" else
-            "🎨 <b>Select a base color or type any custom shade:</b>\n\n"
-            "💡 <i>E.g.: <code>turquoise</code>, <code>graphite</code>, <code>khaki</code>, <code>burgundy</code>, <code>mint</code>, <code>lavender</code>, <code>beige</code>, <code>gold</code> or HEX (<code>#0D9488</code>)</i>"
+            f"🎨 <b>Оберіть базовий колір пластику ({cur_type}) або напишіть будь-який відтінок текстом:</b>\n\n"
+            f"💡 <i>Наприклад: <code>бірюзовий</code>, <code>графіт</code>, <code>хакі</code>, <code>бордовий</code>, <code>м'ятний</code> або HEX (<code>#0D9488</code>)</i>"
+            if u_lang != "en"
+            else f"🎨 <b>Select a base filament color ({cur_type}) or enter any shade as text:</b>\n\n"
+            f"💡 <i>E.g.: <code>turquoise</code>, <code>graphite</code>, <code>khaki</code>, <code>burgundy</code>, <code>mint</code> or HEX (<code>#0D9488</code>)</i>"
         )
         await message.answer(
             prompt,
             parse_mode=ParseMode.HTML,
-            reply_markup=get_filament_colors_keyboard(lang=u_lang, include_step_back=True),
+            reply_markup=get_filament_colors_keyboard(lang=u_lang),
         )
         return True
 
+    # 3. State: add_spool_color
     if state == "add_spool_color":
         if not text:
-            await message.answer("⚠️ Оберіть або введіть колір:" if u_lang != "en" else "⚠️ Select or enter color:")
+            await message.answer("⚠️ Оберіть або введіть колір:")
             return True
         hex_code, color_label = parse_filament_color(text)
         user.setdefault("context_data", {}).setdefault("new_spool", {})["color"] = hex_code
-        user.setdefault("context_data", {}).setdefault("new_spool", {})["color_name"] = color_label
+        user["context_data"]["new_spool"]["color_name"] = color_label
         user["state"] = "add_spool_grams"
         await app.storage.save_user(user)
 
-        color_disp = get_color_display_name({"color": hex_code, "color_name": color_label}, lang=u_lang)
+        disp_col = get_color_display_name(user["context_data"]["new_spool"], lang=u_lang)
         await message.answer(
-            f"✅ <b>Обрано колір:</b> {color_disp}\n\n"
-            "⚖️ <b>Введіть початкову вагу котушки у грамах (наприклад: 1000):</b>"
-            if u_lang != "en" else
-            f"✅ <b>Selected color:</b> {color_disp}\n\n"
-            "⚖️ <b>Enter spool weight in grams (e.g. 1000):</b>",
+            f"Колір розпізнано як: <b>{disp_col}</b>\n\n"
+            f"Введіть початкову або залишкову вагу філаменту в грамах (наприклад <code>1000</code> або <code>850</code>):"
+            if u_lang != "en"
+            else f"Color recognized as: <b>{disp_col}</b>\n\n"
+            f"Enter initial or remaining filament weight in grams (e.g. <code>1000</code> or <code>850</code>):",
             parse_mode=ParseMode.HTML,
             reply_markup=get_wizard_nav_keyboard(lang=u_lang),
         )
         return True
 
+    # 4. State: add_spool_grams
     if state == "add_spool_grams":
         clean_text = text.replace("g", "").replace("г", "").strip()
         val = safe_eval_math(clean_text)
@@ -537,72 +725,57 @@ async def handle_filament_states(message: Message, app) -> bool:
                 reply_markup=get_wizard_nav_keyboard(lang=u_lang),
             )
             return True
-        grams_val = float(val)
-        user.setdefault("context_data", {}).setdefault("new_spool", {})["remaining_grams"] = grams_val
-        user.setdefault("context_data", {}).setdefault("new_spool", {})["initial_grams"] = grams_val
+
+        val = float(val)
+        user.setdefault("context_data", {}).setdefault("new_spool", {})["remaining_grams"] = val
+        user["context_data"]["new_spool"]["initial_grams"] = val
         user["state"] = "add_spool_price"
         await app.storage.save_user(user)
 
-        kg = grams_val / 1000.0
+        kg = val / 1000.0
         kg_str = f"{kg:g}"
-        if u_lang != "en":
-            if kg != 1:
-                prompt = (
-                    f"💰 <b>Введіть ціну за 1 кг у грн:</b>\n\n"
-                    f"💡 <i>Підказка: вага вашої котушки — {grams_val:g}г ({kg_str} кг).\n"
-                    f"Щоб вказати ціну за {kg_str} кг, введіть її вартість і розділіть на {kg_str} (наприклад: <code>1500/{kg_str}</code>).\n"
-                    f"Або натисніть кнопку <b>«🏷️ Ціна за всю котушку»</b> нижче.</i>"
-                )
-            else:
-                prompt = (
-                    "💰 <b>Введіть ціну за 1 кг у грн (наприклад: 850):</b>\n\n"
-                    "💡 <i>Підказка: ви також можете вказати математичний вираз (наприклад: <code>1700/2</code>) "
-                    "або натиснути <b>«🏷️ Ціна за всю котушку»</b> нижче.</i>"
-                )
-        else:
-            if kg != 1:
-                prompt = (
-                    f"💰 <b>Enter price per 1 kg in UAH:</b>\n\n"
-                    f"💡 <i>Hint: spool weight is {grams_val:g}g ({kg_str} kg).\n"
-                    f"To enter total cost for {kg_str} kg, divide it by {kg_str} (e.g. <code>1500/{kg_str}</code>).\n"
-                    f"Or tap <b>«🏷️ Price for entire spool»</b> below.</i>"
-                )
-            else:
-                prompt = (
-                    "💰 <b>Enter price per 1 kg in UAH (e.g. 850):</b>\n\n"
-                    "💡 <i>Hint: you can also enter a math expression (e.g. <code>1700/2</code>) "
-                    "or tap <b>«🏷️ Price for entire spool»</b> below.</i>"
-                )
+        prompt = (
+            f"💰 <b>Введіть вартість 1 кг пластику у грн</b> (наприклад: <code>850</code>):"
+            if u_lang != "en"
+            else f"💰 <b>Enter cost of 1 kg filament in UAH</b> (e.g. <code>850</code>):"
+        )
+        if u_lang != "en" and kg != 1:
+            prompt += (
+                f"\n\n💡 <i>Підказка: вага вашої котушки — {val:g}г ({kg_str} кг).\n"
+                f"Щоб вказати ціну за всю котушку, введіть суму та розділіть на {kg_str} (наприклад: <code>1500/{kg_str}</code>).\n"
+                f"Або натисніть кнопку <b>«🏷️ Ціна за всю котушку»</b> нижче.</i>"
+            )
         await message.answer(
             prompt,
             parse_mode=ParseMode.HTML,
-            reply_markup=get_spool_price_keyboard(grams_val, lang=u_lang),
+            reply_markup=get_spool_price_keyboard(val, lang=u_lang),
         )
         return True
 
+    # 5. State: add_spool_price
     if state == "add_spool_price":
-        low_t = text.strip().lower()
-        if "ціна за всю котушку" in low_t or "price for entire spool" in low_t or "всю котушку" in low_t:
-            cur_sp = user.get("context_data", {}).get("new_spool", {})
-            cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
-            kg = cur_grams / 1000.0
-            kg_str = f"{kg:g}"
+        low = text.lower()
+        if "ціна за всю котушку" in low or "price for entire spool" in low or "ціна за всю" in low:
             user["state"] = "add_spool_total_price"
             await app.storage.save_user(user)
+            cur_g = float(user.get("context_data", {}).get("new_spool", {}).get("remaining_grams", 1000.0))
             await message.answer(
-                f"🏷️ <b>Введіть вартість усієї котушки ({cur_grams:g}г / {kg_str} кг) у грн (наприклад: <code>1500</code>):</b>\n\n"
-                f"<i>Бот автоматично розрахує вартість 1 кг філаменту.</i>"
-                if u_lang != "en" else
-                f"🏷️ <b>Enter total price for the entire spool ({cur_grams:g}g / {kg_str} kg) in UAH (e.g. <code>1500</code>):</b>\n\n"
-                f"<i>The bot will automatically calculate the price per 1 kg.</i>",
+                f"🏷️ <b>Введіть вартість усієї котушки ({cur_g:g}г) у грн:</b>\n"
+                f"(наприклад: <code>1500</code> або <code>450</code>):"
+                if u_lang != "en"
+                else f"🏷️ <b>Enter price for the entire spool ({cur_g:g}g) in UAH:</b>\n"
+                f"(e.g. <code>1500</code> or <code>450</code>):",
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_wizard_nav_keyboard(lang=u_lang),
+                reply_markup=ReplyKeyboardMarkup(
+                    keyboard=[[KeyboardButton(text="↩️ Крок назад" if u_lang != "en" else "↩️ Step back"), KeyboardButton(text="❌ Скасувати" if u_lang != "en" else "❌ Cancel")]],
+                    resize_keyboard=True,
+                ),
             )
             return True
 
         clean_text = text.replace("грн", "").replace("uah", "").strip()
         val = safe_eval_math(clean_text)
-        if val is None or not isinstance(val, (int, float)) or val < 0:
+        if val is None or not isinstance(val, (int, float)) or val <= 0:
             cur_sp = user.get("context_data", {}).get("new_spool", {})
             cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
             await message.answer(
@@ -613,52 +786,56 @@ async def handle_filament_states(message: Message, app) -> bool:
                 reply_markup=get_spool_price_keyboard(cur_grams, lang=u_lang),
             )
             return True
-        user.setdefault("context_data", {}).setdefault("new_spool", {})["price_per_kg"] = float(val)
+
+        val = float(val)
+        user.setdefault("context_data", {}).setdefault("new_spool", {})["price_per_kg"] = val
         user["state"] = "add_spool_quantity"
         await app.storage.save_user(user)
+
         await message.answer(
-            "📦 <b>Введіть кількість таких котушок на Складі (наприклад: 1 або 7):</b>"
-            if u_lang != "en" else
-            "📦 <b>Enter quantity of such spools in stock (e.g. 1 or 7):</b>",
+            f"📦 <b>Введіть кількість таких котушок</b> (за замовчуванням <code>1</code> або оберіть кнопку нижче):"
+            if u_lang != "en"
+            else f"📦 <b>Enter spool quantity</b> (default <code>1</code> or select button below):",
             parse_mode=ParseMode.HTML,
             reply_markup=get_spool_quantity_keyboard(lang=u_lang),
         )
         return True
 
+    # 6. State: add_spool_total_price
     if state == "add_spool_total_price":
         clean_text = text.replace("грн", "").replace("uah", "").strip()
         val = safe_eval_math(clean_text)
-        if val is None or not isinstance(val, (int, float)) or val < 0:
+        if val is None or not isinstance(val, (int, float)) or val <= 0:
             await message.answer(
-                "⚠️ Будь ласка, введіть коректну вартість усієї котушки у грн (додатнє число або вираз, наприклад: <code>1500</code>):"
-                if u_lang != "en" else
-                "⚠️ Please enter a valid total spool price in UAH (positive number, e.g. <code>1500</code>):",
+                "⚠️ Некоректна ціна. Будь ласка, введіть суму у грн (наприклад: <code>1500</code>):"
+                if u_lang != "en"
+                else "⚠️ Invalid price. Please enter amount in UAH (e.g. <code>1500</code>):",
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_wizard_nav_keyboard(lang=u_lang),
             )
             return True
+
         total_price = float(val)
-        cur_sp = user.get("context_data", {}).get("new_spool", {})
-        cur_grams = float(cur_sp.get("remaining_grams", 1000.0))
-        calc_price_per_kg = round((total_price / cur_grams) * 1000.0, 2) if cur_grams > 0 else total_price
-        user.setdefault("context_data", {}).setdefault("new_spool", {})["price_per_kg"] = calc_price_per_kg
+        cur_grams = float(user.get("context_data", {}).get("new_spool", {}).get("remaining_grams", 1000.0))
+        price_per_kg = (total_price / (cur_grams / 1000.0)) if cur_grams > 0 else total_price
+
+        user.setdefault("context_data", {}).setdefault("new_spool", {})["price_per_kg"] = round(price_per_kg, 1)
         user["state"] = "add_spool_quantity"
         await app.storage.save_user(user)
-        kg = cur_grams / 1000.0
-        kg_str = f"{kg:g}"
+
         await message.answer(
-            f"✅ <b>Зафіксовано:</b> {total_price:g} грн за {cur_grams:g}г ({kg_str} кг) → "
-            f"ціна за 1 кг: <b>{calc_price_per_kg:g} грн/кг</b>\n\n"
-            f"📦 <b>Введіть кількість таких котушок на Складі (наприклад: 1 або 7):</b>"
-            if u_lang != "en" else
-            f"✅ <b>Recorded:</b> {total_price:g} UAH for {cur_grams:g}g ({kg_str} kg) → "
-            f"price per 1 kg: <b>{calc_price_per_kg:g} UAH/kg</b>\n\n"
-            f"📦 <b>Enter quantity of such spools in stock (e.g. 1 or 7):</b>",
+            f"✅ Вартість за всю котушку: <b>{total_price:g} грн</b>\n"
+            f"Розраховано за 1 кг: <b>{round(price_per_kg, 1):g} грн/кг</b>\n\n"
+            f"📦 <b>Введіть кількість таких котушок</b> (за замовчуванням <code>1</code> або оберіть кнопку нижче):"
+            if u_lang != "en"
+            else f"✅ Entire spool cost: <b>{total_price:g} UAH</b>\n"
+            f"Calculated per 1 kg: <b>{round(price_per_kg, 1):g} UAH/kg</b>\n\n"
+            f"📦 <b>Enter spool quantity</b> (default <code>1</code> or select button below):",
             parse_mode=ParseMode.HTML,
             reply_markup=get_spool_quantity_keyboard(lang=u_lang),
         )
         return True
 
+    # 7. State: add_spool_quantity
     if state == "add_spool_quantity":
         clean_text = text.replace("шт", "").replace("pcs", "").strip()
         val = safe_eval_math(clean_text)
@@ -672,1122 +849,112 @@ async def handle_filament_states(message: Message, app) -> bool:
             )
             return True
         qty = int(val)
+
         new_spool = user.get("context_data", {}).get("new_spool", {})
-        sp_name = new_spool.get("name", "Bambu Spool")
-        sp_type = new_spool.get("type", "PLA")
-        sp_color = new_spool.get("color", "#000000")
-        sp_color_name = new_spool.get("color_name") or get_color_display_name(sp_color, lang=u_lang)
-        sp_grams = new_spool.get("remaining_grams", 1000.0)
-        init_grams = new_spool.get("initial_grams", sp_grams)
-        pr_val = new_spool.get("price_per_kg", 850.0)
+        new_spool["quantity"] = qty
 
         spools = await app.storage.load_spools()
-        new_id = str(uuid.uuid4())
-        spools[new_id] = {
-            "id": new_id,
-            "name": sp_name,
-            "type": sp_type,
-            "color": sp_color,
-            "color_name": sp_color_name,
-            "initial_grams": init_grams,
-            "remaining_grams": sp_grams,
-            "price_per_kg": pr_val,
-            "assigned_printer_id": None,
-            "assigned_slot_key": None,
-            "quantity": qty,
-        }
-        await app.storage.save_spools(spools)
-        await app.storage.record_spool_movement(
-            spool_id=new_id,
-            spool_name=sp_name,
-            action="initial_stock",
-            weight_change_g=round(float(sp_grams) * qty, 2),
-            prev_weight_g=0.0,
-            new_weight_g=round(float(sp_grams), 2),
-            reason=f"Внесення на склад через Telegram бот ({qty} шт)",
-            user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
-        )
+        new_id = f"spool_{str(uuid.uuid4())[:8]}"
+        new_spool["id"] = new_id
+        new_spool["assigned_printer_id"] = None
+        new_spool["assigned_slot_key"] = None
 
-        target_pid = ctx_data.get("target_printer_id")
-        target_slot = ctx_data.get("target_slot_key")
-        auto_mount = ctx_data.get("auto_mount_on_create")
+        if "remaining_grams" not in new_spool:
+            new_spool["remaining_grams"] = 1000.0
+        if "initial_grams" not in new_spool:
+            new_spool["initial_grams"] = new_spool["remaining_grams"]
+        if "price_per_kg" not in new_spool:
+            new_spool["price_per_kg"] = 850.0
 
-        user["state"] = "idle"
-        user.get("context_data", {}).pop("new_spool", None)
-        user.get("context_data", {}).pop("auto_mount_on_create", None)
-        user.get("context_data", {}).pop("target_printer_id", None)
-        user.get("context_data", {}).pop("target_slot_key", None)
-        user.get("context_data", {}).pop("prefill_type", None)
-        await app.storage.save_user(user)
+        grams = float(new_spool["remaining_grams"])
 
-        color_disp = get_color_display_name({"color": sp_color, "color_name": sp_color_name}, lang=u_lang)
-        target_p = app.printers.get(target_pid) if target_pid else None
+        auto_mount = user.get("context_data", {}).get("auto_mount_on_create", False)
+        target_pid = user.get("context_data", {}).get("target_printer_id")
+        target_slot = user.get("context_data", {}).get("target_slot_key", "254")
 
-        if auto_mount and target_p and target_slot:
-            created_spool = spools[new_id]
-            mounted_spool, _ = assign_spool_to_slot(spools, created_spool, target_p, target_slot)
+        if auto_mount and target_pid and target_pid in app.printers:
+            target_p = app.printers[target_pid]
+            mounted_spool, rem_stock = assign_spool_to_slot(spools, new_spool, target_p, target_slot)
             await app.storage.save_spools(spools)
             await app.save_printers_config()
 
-            slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT (Зовнішній)"}
+            await app.storage.record_spool_movement(
+                spool_id=mounted_spool["id"],
+                spool_name=mounted_spool["name"],
+                action="initial_stock",
+                weight_change_g=grams,
+                prev_weight_g=0.0,
+                new_weight_g=grams,
+                reason="Внесення на склад (Telegram)",
+                user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
+            )
+
+            user["state"] = "idle"
+            for k in ["new_spool", "target_printer_id", "target_slot_key", "auto_mount_on_create", "prefill_type"]:
+                user.get("context_data", {}).pop(k, None)
+            await app.storage.save_user(user)
+
+            slot_names = {"0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": "VT"}
             s_label = slot_names.get(str(target_slot), f"Слот {target_slot}")
+            stock_info = f"\n📦 Залишок на складі: {rem_stock} шт." if rem_stock > 0 else ""
 
             await message.answer(
-                f"✅ <b>Котушку {color_disp} {html.escape(sp_name)} створено та автоматично встановлено на {html.escape(target_p.name)} [{s_label}]!</b>",
+                f"✅ <b>Котушку {html.escape(mounted_spool['name'])} створено та встановлено на {html.escape(target_p.name)} [{s_label}]!</b>{stock_info}"
+                if u_lang != "en"
+                else f"✅ <b>Spool {html.escape(mounted_spool['name'])} created and mounted on {html.escape(target_p.name)} [{s_label}]!</b>{stock_info}",
                 parse_mode=ParseMode.HTML,
-                reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
-            )
-            hw_kb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✅ Так, завантажити" if u_lang != "en" else "✅ Yes, Load", callback_data=f"hw_load:{target_p.id}:{target_slot}"),
-                    InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
-                ]
-            ])
-            await message.answer(
-                "❓ <b>Чи запустити функцію Load Filament на принтері?</b>"
-                if u_lang != "en" else
-                "❓ <b>Execute physical Load Filament on printer?</b>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=hw_kb,
+                reply_markup=get_filament_menu_keyboard(lang=u_lang),
             )
             return True
 
+        # Regular warehouse save
+        spools[new_id] = new_spool
+        await app.storage.save_spools(spools)
+
+        await app.storage.record_spool_movement(
+            spool_id=new_id,
+            spool_name=new_spool["name"],
+            action="initial_stock",
+            weight_change_g=grams,
+            prev_weight_g=0.0,
+            new_weight_g=grams,
+            reason="Внесення на склад (Telegram)",
+            user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
+        )
+
+        user["state"] = "idle"
+        user.get("context_data", {}).pop("new_spool", None)
+        await app.storage.save_user(user)
+
+        color_disp = get_color_display_name(new_spool, lang=u_lang)
         await message.answer(
-            f"✅ <b>Котушку {color_disp} {html.escape(sp_name)} успішно додано на Склад!</b>\n\n"
-            f"🎨 Тип: <b>{html.escape(sp_type)}</b>\n"
+            f"✅ <b>Котушку {color_disp} {html.escape(new_spool['name'])} успішно додано на Склад!</b>\n\n"
+            f"🎨 Тип: <b>{html.escape(new_spool['type'])}</b>\n"
             f"🌈 Колір: <b>{color_disp}</b>\n"
-            f"⚖️ Вага: <b>{sp_grams}g</b>\n"
-            f"💰 Ціна: <b>{pr_val} грн/кг</b>\n"
+            f"⚖️ Вага: <b>{new_spool['remaining_grams']}g</b>\n"
+            f"💰 Ціна: <b>{new_spool['price_per_kg']} грн/кг</b>\n"
             f"📦 Кількість: <b>{qty} шт</b>"
-            if u_lang != "en" else
-            f"✅ <b>Spool {color_disp} {html.escape(sp_name)} added to stock!</b>\n\n"
-            f"🎨 Type: <b>{html.escape(sp_type)}</b>\n"
+            if u_lang != "en"
+            else f"✅ <b>Spool {color_disp} {html.escape(new_spool['name'])} successfully added to stock!</b>\n\n"
+            f"🎨 Type: <b>{html.escape(new_spool['type'])}</b>\n"
             f"🌈 Color: <b>{color_disp}</b>\n"
-            f"⚖️ Weight: <b>{sp_grams}g</b>\n"
-            f"💰 Price: <b>{pr_val} UAH/kg</b>\n"
+            f"⚖️ Weight: <b>{new_spool['remaining_grams']}g</b>\n"
+            f"💰 Price: <b>{new_spool['price_per_kg']} UAH/kg</b>\n"
             f"📦 Quantity: <b>{qty} pcs</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=get_filament_menu_keyboard(lang=u_lang),
         )
         return True
 
-    if state == "select_spool_to_mount":
-        spools = await app.storage.load_spools()
-        selected = None
-        unassigned_spools = [s for s in spools.values() if not s.get("assigned_printer_id")]
-        for s in unassigned_spools:
-            s_id = s.get("id", "")
-            s_name = s.get("name", "Spool")
-            s_type = s.get("type", "")
-            s_grams = s.get("remaining_grams", 1000.0)
-            qty = max(1, int(s.get("quantity", 1) or 1))
-            color_emoji = get_color_emoji(s.get("color_name") or s.get("color", ""))
-            c_prefix = f"{color_emoji} " if color_emoji else ""
-            type_str = f"{s_type}, " if (s_type and s_type.lower() not in s_name.lower()) else ""
-            qty_unit = "pcs" if u_lang == "en" else "шт"
-            qty_str = f" [📦 {qty} {qty_unit}]" if qty > 1 else ""
-            qty_str_alt = f" [📦 {qty} {'шт' if qty_unit == 'pcs' else 'pcs'}]" if qty > 1 else ""
-            exact_title = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str}"
-            exact_title_alt = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str_alt}"
-
-            if text in [exact_title, exact_title_alt, s_name, s_id] or text.strip() == s_name.strip():
-                selected = s
-                break
-        if not selected:
-            for s in unassigned_spools:
-                s_name = s.get("name", "")
-                if s_name and (s_name.lower() in text.lower() or text.lower() in s_name.lower() or s.get("id") == text.strip()):
-                    selected = s
-                    break
-        if not selected:
-            for s in spools.values():
-                s_name = s.get("name", "")
-                if s_name and (s_name.lower() in text.lower() or text.lower() in s_name.lower() or s.get("id") == text.strip()):
-                    selected = s
-                    break
-
-        if selected:
-            user["context_data"]["mount_spool"] = selected
-            mount_src = user.get("context_data", {}).get("mount_source")
-            selected_pid = user.get("context_data", {}).get("selected_printer_id") if mount_src != "warehouse" else None
-            target_p = app.printers.get(selected_pid) if selected_pid else None
-
-            if target_p:
-                user["context_data"]["mount_printer_id"] = target_p.id
-                if getattr(target_p, "has_ams", False):
-                    user["state"] = "select_slot_for_mount"
-                    await app.storage.save_user(user)
-                    await message.answer(
-                        f"📍 <b>Оберіть слот AMS для {html.escape(target_p.name)}:</b>"
-                        if u_lang != "en" else
-                        f"📍 <b>Select AMS slot for {html.escape(target_p.name)}:</b>",
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=get_ams_slots_keyboard(target_p, lang=u_lang),
-                    )
-                else:
-                    slot_key = "254"
-                    mounted_spool, rem_stock = assign_spool_to_slot(spools, selected, target_p, slot_key)
-                    await app.storage.save_spools(spools)
-                    await app.save_printers_config()
-
-                    is_from_warehouse = (mount_src == "warehouse" or not selected_pid)
-                    if is_from_warehouse:
-                        user["state"] = "idle"
-                        user.get("context_data", {}).pop("selected_printer_id", None)
-                        user.get("context_data", {}).pop("mount_source", None)
-                        user.get("context_data", {}).pop("mount_spool", None)
-                        user.get("context_data", {}).pop("mount_printer_id", None)
-                        await app.storage.save_user(user)
-                        menu_kb = get_filament_menu_keyboard(lang=u_lang)
-                    else:
-                        user["state"] = "printer_menu"
-                        user.setdefault("context_data", {})["selected_printer_id"] = target_p.id
-                        user.get("context_data", {}).pop("mount_spool", None)
-                        user.get("context_data", {}).pop("mount_printer_id", None)
-                        await app.storage.save_user(user)
-                        menu_kb = get_single_printer_filament_keyboard(lang=u_lang)
-
-                    stock_info = f"\n📦 Залишок на Складі: <b>{rem_stock} шт</b>" if rem_stock > 0 else ""
-                    stock_info_en = f"\n📦 Remaining in stock: <b>{rem_stock} pcs</b>" if rem_stock > 0 else ""
-
-                    await message.answer(
-                        f"✅ <b>Котушку {html.escape(mounted_spool['name'])} встановлено на {html.escape(target_p.name)} [Зовнішній (VT)]!</b>{stock_info}"
-                        if u_lang != "en" else
-                        f"✅ <b>Spool {html.escape(mounted_spool['name'])} mounted on {html.escape(target_p.name)} [External (VT)]!</b>{stock_info_en}",
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=menu_kb,
-                    )
-                    hw_kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [
-                            InlineKeyboardButton(text="✅ Так, завантажити" if u_lang != "en" else "✅ Yes, Load", callback_data=f"hw_load:{target_p.id}:254"),
-                            InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
-                        ]
-                    ])
-                    await message.answer(
-                        "❓ <b>Чи запустити функцію Load Filament на принтері?</b>"
-                        if u_lang != "en" else
-                        "❓ <b>Execute physical Load Filament on printer?</b>",
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=hw_kb,
-                    )
-            else:
-                user["state"] = "select_printer_for_mount"
-                await app.storage.save_user(user)
-                await message.answer(
-                    f"🖨️ <b>Оберіть принтер для установки котушки {html.escape(selected['name'])}:</b>"
-                    if u_lang != "en" else
-                    f"🖨️ <b>Select printer to mount spool {html.escape(selected['name'])}:</b>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=get_printers_mount_keyboard(app.printers, lang=u_lang),
-                )
-        else:
-            await message.answer(
-                "⚠️ Оберіть котушку зі списку на клавіатурі."
-                if u_lang != "en" else
-                "⚠️ Please select a spool from the keyboard list."
-            )
-        return True
-
-    if state == "select_printer_for_mount":
-        selected_spool = ctx_data.get("mount_spool")
-        mount_src = ctx_data.get("mount_source")
-
-        # Check back navigation
-        if text.lower() in cancel_keywords or text.strip().lower() in step_back_keywords:
-            spools = await app.storage.load_spools()
-            available_spools = [s for s in spools.values() if not s.get("assigned_printer_id")]
-            user["state"] = "select_spool_to_mount"
-            user.get("context_data", {}).pop("mount_printer_id", None)
-            await app.storage.save_user(user)
-            await message.answer(
-                "🔗 <b>Оберіть котушку зі Складу для установки на принтер:</b>" if u_lang != "en" else "🔗 <b>Select spool from stock to mount:</b>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=get_spools_keyboard({s["id"]: s for s in available_spools}, lang=u_lang),
-            )
-            return True
-
-        target_p = None
-        for p in app.printers.values():
-            if text in [f"🖨️ {p.name}", p.name]:
-                target_p = p
-                break
-        if not target_p:
-            for p in app.printers.values():
-                if text.strip().lower() in [f"🖨️ {p.name}".lower(), p.name.lower()]:
-                    target_p = p
-                    break
-
-        if target_p and selected_spool:
-            user["context_data"]["mount_printer_id"] = target_p.id
-            if getattr(target_p, "has_ams", False):
-                user["state"] = "select_slot_for_mount"
-                await app.storage.save_user(user)
-                await message.answer(
-                    f"📍 <b>Оберіть слот AMS для {html.escape(target_p.name)}:</b>"
-                    if u_lang != "en" else
-                    f"📍 <b>Select AMS slot for {html.escape(target_p.name)}:</b>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=get_ams_slots_keyboard(target_p, lang=u_lang),
-                )
-            else:
-                slot_key = "254"
-                spools = await app.storage.load_spools()
-                mounted_spool, rem_stock = assign_spool_to_slot(spools, selected_spool, target_p, slot_key)
-                await app.storage.save_spools(spools)
-                await app.save_printers_config()
-
-                is_from_warehouse = (mount_src == "warehouse" or not selected_pid)
-                if is_from_warehouse:
-                    user["state"] = "idle"
-                    user.get("context_data", {}).pop("selected_printer_id", None)
-                    user.get("context_data", {}).pop("mount_source", None)
-                    user.get("context_data", {}).pop("mount_spool", None)
-                    user.get("context_data", {}).pop("mount_printer_id", None)
-                    await app.storage.save_user(user)
-                    menu_kb = get_filament_menu_keyboard(lang=u_lang)
-                else:
-                    user["state"] = "printer_menu"
-                    user.setdefault("context_data", {})["selected_printer_id"] = target_p.id
-                    user.get("context_data", {}).pop("mount_spool", None)
-                    user.get("context_data", {}).pop("mount_printer_id", None)
-                    await app.storage.save_user(user)
-                    menu_kb = get_single_printer_filament_keyboard(lang=u_lang)
-
-                stock_info = f"\n📦 Залишок на Складі: <b>{rem_stock} шт</b>" if rem_stock > 0 else ""
-                stock_info_en = f"\n📦 Remaining in stock: <b>{rem_stock} pcs</b>" if rem_stock > 0 else ""
-
-                await message.answer(
-                    f"✅ <b>Котушку {html.escape(mounted_spool['name'])} встановлено на {html.escape(target_p.name)} [Зовнішній (VT)]!</b>{stock_info}"
-                    if u_lang != "en" else
-                    f"✅ <b>Spool {html.escape(mounted_spool['name'])} mounted on {html.escape(target_p.name)} [External (VT)]!</b>{stock_info_en}",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=menu_kb,
-                )
-                hw_kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="✅ Так, завантажити" if u_lang != "en" else "✅ Yes, Load", callback_data=f"hw_load:{target_p.id}:254"),
-                        InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
-                    ]
-                ])
-                await message.answer(
-                    "❓ <b>Чи запустити функцію Load Filament на принтері?</b>"
-                    if u_lang != "en" else
-                    "❓ <b>Execute physical Load Filament on printer?</b>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=hw_kb,
-                )
-        else:
-            await message.answer(
-                "⚠️ Оберіть принтер зі списку на клавіатурі."
-                if u_lang != "en" else
-                "⚠️ Please select a printer from the keyboard list."
-            )
-        return True
-
-    if state == "select_slot_for_mount":
-        selected_spool = ctx_data.get("mount_spool")
-        p_id = ctx_data.get("mount_printer_id")
-        mount_src = ctx_data.get("mount_source")
-        target_p = app.printers.get(p_id) if p_id else None
-
-        # Check back navigation
-        if text.lower() in cancel_keywords or text.strip().lower() in step_back_keywords:
-            if mount_src == "warehouse":
-                user["state"] = "select_printer_for_mount"
-                user.get("context_data", {}).pop("mount_printer_id", None)
-                await app.storage.save_user(user)
-                spool_name = selected_spool.get("name", "котушки") if selected_spool else "котушки"
-                await message.answer(
-                    f"🖨️ <b>Оберіть принтер для установки котушки {html.escape(spool_name)}:</b>"
-                    if u_lang != "en" else
-                    f"🖨️ <b>Select printer to mount spool {html.escape(spool_name)}:</b>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=get_printers_mount_keyboard(app.printers, lang=u_lang),
-                )
-                return True
-            else:
-                user["state"] = "printer_menu"
-                user.get("context_data", {}).pop("mount_spool", None)
-                user.get("context_data", {}).pop("mount_printer_id", None)
-                await app.storage.save_user(user)
-                await message.answer(
-                    "Дію скасовано." if u_lang != "en" else "Action cancelled.",
-                    reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
-                )
-                return True
-
-        if not target_p or not selected_spool:
-            user["state"] = "idle"
-            await app.storage.save_user(user)
-            await message.answer("⚠️ Помилка: сесію скинуто.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-            return True
-
-        clean = text.lower()
-        is_valid_slot = any(k in clean for k in ["a1", "slot 1", "слот a1", "слот 1", "a2", "slot 2", "слот a2", "слот 2", "a3", "slot 3", "слот a3", "слот 3", "a4", "slot 4", "слот a4", "слот 4", "зовнішн", "vt", "external"])
-        if not is_valid_slot:
-            await message.answer(
-                "⚠️ Невідомий слот. Оберіть слот зі списку на клавіатурі (наприклад: 📍 Слот A1 або Зовнішній):"
-                if u_lang != "en" else
-                "⚠️ Unknown slot. Please select a slot from the keyboard (e.g. 📍 Slot A1 or External):"
-            )
-            return True
-
-        from bot.handlers.filament.mount import parse_slot_key_from_text
-        slot_key = parse_slot_key_from_text(text)
-        slot_label = (
-            "A1" if slot_key == "0"
-            else "A2" if slot_key == "1"
-            else "A3" if slot_key == "2"
-            else "A4" if slot_key == "3"
-            else "Зовнішній (VT)"
-        )
-
-        spools = await app.storage.load_spools()
-        mounted_spool, rem_stock = assign_spool_to_slot(spools, selected_spool, target_p, slot_key)
-        await app.storage.save_spools(spools)
-        await app.save_printers_config()
-
-        is_from_warehouse = (mount_src == "warehouse" or not selected_pid)
-        if is_from_warehouse:
-            user["state"] = "idle"
-            user.get("context_data", {}).pop("selected_printer_id", None)
-            user.get("context_data", {}).pop("mount_source", None)
-            user.get("context_data", {}).pop("mount_spool", None)
-            user.get("context_data", {}).pop("mount_printer_id", None)
-            await app.storage.save_user(user)
-            menu_kb = get_filament_menu_keyboard(lang=u_lang)
-        else:
-            user["state"] = "printer_menu"
-            user.setdefault("context_data", {})["selected_printer_id"] = target_p.id
-            user.get("context_data", {}).pop("mount_spool", None)
-            user.get("context_data", {}).pop("mount_printer_id", None)
-            await app.storage.save_user(user)
-            menu_kb = get_single_printer_filament_keyboard(lang=u_lang)
-
-        stock_info = f"\n📦 Залишок на Складі: <b>{rem_stock} шт</b>" if rem_stock > 0 else ""
-        stock_info_en = f"\n📦 Remaining in stock: <b>{rem_stock} pcs</b>" if rem_stock > 0 else ""
-
-        await message.answer(
-            f"✅ <b>Котушку {html.escape(mounted_spool['name'])} встановлено на {html.escape(target_p.name)} [{slot_label}]!</b>{stock_info}"
-            if u_lang != "en" else
-            f"✅ <b>Spool {html.escape(mounted_spool['name'])} mounted on {html.escape(target_p.name)} [{slot_label}]!</b>{stock_info_en}",
-            parse_mode=ParseMode.HTML,
-            reply_markup=menu_kb,
-        )
-        hw_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Так, завантажити" if u_lang != "en" else "✅ Yes, Load", callback_data=f"hw_load:{target_p.id}:{slot_key}"),
-                InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
-            ]
-        ])
-        await message.answer(
-            "❓ <b>Чи запустити функцію Load Filament на принтері?</b>"
-            if u_lang != "en" else
-            "❓ <b>Execute physical Load Filament on printer?</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=hw_kb,
-        )
-        return True
-
-    if state == "select_slot_for_weight":
-        if not target_printer:
-            user["state"] = "idle"
-            await app.storage.save_user(user)
-            await message.answer("⚠️ Помилка: принтер не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-            return True
-
-        clean = text.lower().strip()
-        is_valid_slot = (
-            clean in ["1", "2", "3", "4", "vt", "a1", "a2", "a3", "a4"]
-            or any(k in clean for k in ["a1", "slot 1", "слот 1", "слот a1", "a2", "slot 2", "слот 2", "слот a2", "a3", "slot 3", "слот 3", "слот a3", "a4", "slot 4", "слот 4", "слот a4", "зовнішн", "vt", "external", "котушкотримач"])
-        )
-        if not is_valid_slot:
-            await message.answer(
-                "⚠️ Невідомий слот. Оберіть слот зі списку на клавіатурі (наприклад: 📍 Слот A1 або Зовнішній):"
-                if u_lang != "en" else
-                "⚠️ Unknown slot. Please select a slot from the keyboard (e.g. 📍 Slot A1 or External):"
-            )
-            return True
-
-        from bot.handlers.filament.mount import parse_slot_key_from_text
-        slot_key = parse_slot_key_from_text(text)
-        slot_labels = {
-            "0": "A1" if u_lang == "en" else "Слот A1",
-            "1": "A2" if u_lang == "en" else "Слот A2",
-            "2": "A3" if u_lang == "en" else "Слот A3",
-            "3": "A4" if u_lang == "en" else "Слот A4",
-            "254": "VT (External)" if u_lang == "en" else "VT (Зовнішній)",
-        }
-        s_label = slot_labels.get(slot_key, f"Слот {slot_key}")
-
-        # Check tray material or mounted spool name
-        tray_info = (getattr(target_printer, "ams_trays_info", {}) or {}).get(str(slot_key), {})
-        mat_info = tray_info.get("name") or tray_info.get("type") or ""
-        spools = await app.storage.load_spools()
-        for s in spools.values():
-            if s.get("assigned_printer_id") == target_printer.id and str(s.get("assigned_slot_key")) in [str(slot_key), "255" if slot_key == "254" else str(slot_key)]:
-                sp_name = s.get("name") or s.get("type")
-                if sp_name:
-                    mat_info = sp_name
-                break
-
-        slot_display = f"{s_label} — {mat_info}" if mat_info else s_label
-        curr_g = target_printer.get_slot_grams(slot_key)
-        user.setdefault("context_data", {})["edit_weight_slot_key"] = slot_key
-        user["context_data"]["edit_weight_slot_label"] = s_label
-        user["state"] = "edit_filament_weight"
-        await app.storage.save_user(user)
-
-        await message.answer(
-            f"Поточний залишок для <b>{html.escape(target_printer.name)} ({slot_display})</b>: <b>{curr_g}g</b>\n\n"
-            f"Введіть нову залишкову вагу філаменту в грамах (наприклад <code>850</code>):"
-            if u_lang != "en"
-            else f"Current remaining for <b>{html.escape(target_printer.name)} ({slot_display})</b>: <b>{curr_g}g</b>\n\n"
-            f"Enter new filament remaining weight in grams (e.g. <code>850</code>):",
-            parse_mode=ParseMode.HTML,
-            reply_markup=ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")]],
-                resize_keyboard=True,
-            ),
-        )
-        return True
-
-    if state == "select_spool_to_unmount":
-        spools = await app.storage.load_spools()
-        from bot.handlers.filament.mount import get_mounted_spools_or_trays
-        mounted_list = get_mounted_spools_or_trays(app, spools)
-
-        selected_item = next(
-            (m for m in mounted_list if m["button_text"] == text or text in m["button_text"] or m["slot_label"] in text or m["name"] in text),
-            mounted_list[0] if len(mounted_list) == 1 else None,
-        )
-        if selected_item:
-            p_id = selected_item["printer_id"]
-            slot_k = selected_item["slot_key"]
-            target_p = app.printers.get(p_id)
-
-            res_desc, returned_to_batch = unassign_spool_from_slot(spools, selected_item, target_p, slot_k)
-            await app.storage.save_spools(spools)
-
-            if target_p:
-                target_p.set_slot_grams(0.0, slot_id=slot_k)
-                await app.save_printers_config()
-
-            user["state"] = "printer_menu" if target_printer else "idle"
-            await app.storage.save_user(user)
-
-            kb = get_single_printer_filament_keyboard(lang=u_lang) if target_printer else get_filament_menu_keyboard(lang=u_lang)
-            await message.answer(
-                f"✅ <b>Котушку успішно знято: {res_desc}!</b>"
-                if u_lang != "en" else
-                f"✅ <b>Spool successfully unmounted: {res_desc}!</b>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb,
-            )
-            hw_kb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✅ Так, вивантажити" if u_lang != "en" else "✅ Yes, Unload", callback_data=f"hw_unload:{p_id}:{slot_k}"),
-                    InlineKeyboardButton(text="❌ Ні, пропустити" if u_lang != "en" else "❌ No, Skip", callback_data="hw_skip"),
-                ]
-            ])
-            await message.answer(
-                "❓ <b>Чи запустити функцію Unload Filament на принтері?</b>"
-                if u_lang != "en" else
-                "❓ <b>Execute physical Unload Filament on printer?</b>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=hw_kb,
-            )
-        else:
-            await message.answer(
-                "⚠️ Оберіть котушку зі списку на клавіатурі."
-                if u_lang != "en" else
-                "⚠️ Please select a spool from the keyboard list."
-            )
-        return True
-
-    if state == "select_spool_to_edit":
-        spools = await app.storage.load_spools()
-        candidate_spools = [s for s in spools.values() if not s.get("assigned_printer_id")]
-        selected = None
-        for s in candidate_spools:
-            s_name = s.get("name", "Spool")
-            s_grams = s.get("remaining_grams", 1000.0)
-            s_type = s.get("type", "")
-            qty = max(1, int(s.get("quantity", 1) or 1))
-            color_emoji = get_color_emoji(s.get("color_name") or s.get("color", ""))
-            c_prefix = f"{color_emoji} " if color_emoji else ""
-            type_str = f"{s_type}, " if (s_type and s_type.lower() not in s_name.lower()) else ""
-            qty_unit = "pcs" if u_lang == "en" else "шт"
-            qty_str = f" [📦 {qty} {qty_unit}]" if qty > 1 else ""
-            qty_str_alt = f" [📦 {qty} {'шт' if qty_unit == 'pcs' else 'pcs'}]" if qty > 1 else ""
-            exact_title = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str}"
-            exact_title_alt = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str_alt}"
-
-            if text in [exact_title, exact_title_alt, s_name, s.get("id")] or text.strip() == s_name.strip():
-                selected = s
-                break
-        if not selected:
-            for s in candidate_spools:
-                s_name = s.get("name", "")
-                if s_name and (s_name.lower() in text.lower() or text.lower() in s_name.lower() or s.get("id") == text.strip()):
-                    selected = s
-                    break
-
-        if selected:
-            user["context_data"]["edit_spool_id"] = selected["id"]
-            user["state"] = "select_spool_field"
-            await app.storage.save_user(user)
-
-            is_en = u_lang == "en"
-            assigned_str = ""
-            p_id = selected.get("assigned_printer_id")
-            if p_id and p_id in app.printers:
-                p = app.printers[p_id]
-                assigned_str = (
-                    f"\n🖨️ Встановлено на: <b>{html.escape(p.name)}</b> (Слот {selected.get('assigned_slot_key', 'VT')})"
-                    if not is_en else
-                    f"\n🖨️ Mounted on: <b>{html.escape(p.name)}</b> (Slot {selected.get('assigned_slot_key', 'VT')})"
-                )
-
-            color_val = selected.get("color_name") or selected.get("color", "")
-            c_ico = get_color_emoji(color_val)
-            c_disp = get_color_display_name(selected, lang=u_lang)
-            qty_disp = f"{selected.get('quantity', 1)} шт" if not is_en else f"{selected.get('quantity', 1)} pcs"
-
-            card = (
-                f"✏️ <b>Редагування котушки: {c_ico} {html.escape(selected.get('name', 'Котушка'))}</b>\n\n"
-                f"🏷️ <b>Назва:</b> {html.escape(selected.get('name', ''))}\n"
-                f"🎨 <b>Тип:</b> {html.escape(selected.get('type', 'PLA'))}\n"
-                f"🌈 <b>Колір:</b> {c_disp}\n"
-                f"📦 <b>Кількість:</b> {qty_disp}\n"
-                f"⚖️ <b>Залишок:</b> {selected.get('remaining_grams', 1000.0)}g\n"
-                f"💰 <b>Ціна за 1 кг:</b> {selected.get('price_per_kg', 850.0)} грн"
-                f"{assigned_str}\n\n"
-                f"Оберіть параметр, який бажаєте змінити:"
-                if not is_en else
-                f"✏️ <b>Edit Spool: {c_ico} {html.escape(selected.get('name', 'Spool'))}</b>\n\n"
-                f"🏷️ <b>Name:</b> {html.escape(selected.get('name', ''))}\n"
-                f"🎨 <b>Type:</b> {html.escape(selected.get('type', 'PLA'))}\n"
-                f"🌈 <b>Color:</b> {c_disp}\n"
-                f"📦 <b>Quantity:</b> {qty_disp}\n"
-                f"⚖️ <b>Remaining:</b> {selected.get('remaining_grams', 1000.0)}g\n"
-                f"💰 <b>Price per 1 kg:</b> {selected.get('price_per_kg', 850.0)} UAH"
-                f"{assigned_str}\n\n"
-                f"Select parameter to modify:"
-            )
-            await message.answer(card, parse_mode=ParseMode.HTML, reply_markup=get_spool_edit_fields_keyboard(lang=u_lang))
-        else:
-            await message.answer(
-                "⚠️ Оберіть котушку зі списку на клавіатурі."
-                if u_lang != "en" else
-                "⚠️ Please select a spool from the keyboard list."
-            )
-        return True
-
-    if state == "select_spool_field":
-        spool_id = ctx_data.get("edit_spool_id")
-        spools = await app.storage.load_spools()
-        cur_spool = spools.get(spool_id)
-        if not cur_spool:
-            user["state"] = "idle"
-            await app.storage.save_user(user)
-            await message.answer("⚠️ Котушку не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-            return True
-
-        kb_back = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⬅️ Назад" if u_lang != "en" else "⬅️ Back")]], resize_keyboard=True)
-        low = text.lower()
-        if any(k in low for k in ["назва", "name", "🏷️"]):
-            user["state"] = "edit_spool_name"
-            await app.storage.save_user(user)
-            await message.answer(
-                f"Введіть нову назву для <b>{html.escape(cur_spool.get('name', ''))}</b>:"
-                if u_lang != "en" else
-                f"Enter new name for <b>{html.escape(cur_spool.get('name', ''))}</b>:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb_back,
-            )
-        elif any(k in low for k in ["тип", "type", "🎨"]):
-            user["state"] = "edit_spool_type"
-            await app.storage.save_user(user)
-            await message.answer(
-                f"🎨 <b>Оберіть або введіть новий тип пластику</b>\n(поточний: <b>{html.escape(cur_spool.get('type', 'PLA'))}</b>):"
-                if u_lang != "en" else
-                f"🎨 <b>Select or enter new filament type</b>\n(current: <b>{html.escape(cur_spool.get('type', 'PLA'))}</b>):",
-                parse_mode=ParseMode.HTML,
-                reply_markup=get_filament_types_keyboard(lang=u_lang, include_step_back=False),
-            )
-        elif any(k in low for k in ["колір", "color", "🌈"]):
-            user["state"] = "edit_spool_color"
-            await app.storage.save_user(user)
-            cur_color_disp = get_color_display_name(cur_spool, lang=u_lang)
-            prompt = (
-                f"🎨 <b>Оберіть базовий колір або напишіть будь-який відтінок текстом:</b>\n"
-                f"(поточний: <b>{cur_color_disp}</b>)\n\n"
-                f"💡 <i>Наприклад: <code>бірюзовий</code>, <code>графіт</code>, <code>хакі</code>, <code>бордовий</code>, <code>м'ятний</code> або HEX (<code>#0D9488</code>)</i>"
-                if u_lang != "en" else
-                f"🎨 <b>Select a base color or enter shade as text:</b>\n"
-                f"(current: <b>{cur_color_disp}</b>)\n\n"
-                f"💡 <i>E.g.: <code>turquoise</code>, <code>graphite</code>, <code>khaki</code>, <code>burgundy</code>, <code>mint</code> or HEX (<code>#0D9488</code>)</i>"
-            )
-            await message.answer(
-                prompt,
-                parse_mode=ParseMode.HTML,
-                reply_markup=get_filament_colors_keyboard(lang=u_lang, include_step_back=False),
-            )
-        elif any(k in low for k in ["кількість", "quantity", "📦"]):
-            user["state"] = "edit_spool_quantity"
-            await app.storage.save_user(user)
-            await message.answer(
-                f"📦 <b>Введіть кількість таких котушок на Складі</b>\n(поточна: <b>{cur_spool.get('quantity', 1)} шт</b>, наприклад: <code>1</code> або <code>7</code>):"
-                if u_lang != "en" else
-                f"📦 <b>Enter spool quantity in stock</b>\n(current: <b>{cur_spool.get('quantity', 1)} pcs</b>, e.g. <code>1</code> or <code>7</code>):",
-                parse_mode=ParseMode.HTML,
-                reply_markup=get_spool_quantity_keyboard(lang=u_lang),
-            )
-        elif any(k in low for k in ["залишок", "вага", "remaining", "weight", "⚖️"]):
-            user["state"] = "edit_spool_grams"
-            await app.storage.save_user(user)
-            await message.answer(
-                f"Введіть новий залишок у грамах (поточний: <b>{cur_spool.get('remaining_grams', 1000.0)}g</b>, наприклад: <code>850</code>):"
-                if u_lang != "en" else
-                f"Enter new remaining weight in grams (current: <b>{cur_spool.get('remaining_grams', 1000.0)}g</b>, e.g. <code>850</code>):",
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb_back,
-            )
-        elif any(k in low for k in ["вартість", "ціна", "price", "💰"]):
-            user["state"] = "edit_spool_price"
-            await app.storage.save_user(user)
-            await message.answer(
-                f"Введіть нову ціну за 1 кг у грн (поточна: <b>{cur_spool.get('price_per_kg', 850.0)} грн</b>):"
-                if u_lang != "en" else
-                f"Enter new price per 1 kg in UAH (current: <b>{cur_spool.get('price_per_kg', 850.0)} UAH</b>):",
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb_back,
-            )
-        else:
-            await message.answer(
-                "⚠️ Будь ласка, оберіть параметр із клавіатури або натисніть «⬅️ Назад»."
-                if u_lang != "en" else
-                "⚠️ Please select a parameter from the keyboard or click «⬅️ Back»."
-            )
-        return True
-
-    if state == "edit_spool_name":
-        if not text:
-            await message.answer("⚠️ Назва не може бути порожньою. Введіть назву котушки:")
-            return True
-        spool_id = ctx_data.get("edit_spool_id")
-        spools = await app.storage.load_spools()
-        target_spool = spools.get(spool_id)
-        if not target_spool:
-            user["state"] = "idle"
-            await app.storage.save_user(user)
-            await message.answer("⚠️ Котушку не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-            return True
-
-        target_spool["name"] = text
-        spools[spool_id] = target_spool
-        await app.storage.save_spools(spools)
-
-        user["state"] = "idle"
-        user.get("context_data", {}).pop("edit_spool_id", None)
-        await app.storage.save_user(user)
-
-        await message.answer(
-            f"✅ <b>Назву котушки змінено на «{html.escape(text)}»!</b>"
-            if u_lang != "en" else
-            f"✅ <b>Spool name updated to «{html.escape(text)}»!</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=get_filament_menu_keyboard(lang=u_lang),
-        )
-        return True
-
-    if state == "edit_spool_type":
-        if not text:
-            await message.answer("⚠️ Тип не може бути порожнім. Введіть тип пластику:")
-            return True
-        spool_id = ctx_data.get("edit_spool_id")
-        spools = await app.storage.load_spools()
-        target_spool = spools.get(spool_id)
-        if not target_spool:
-            user["state"] = "idle"
-            await app.storage.save_user(user)
-            await message.answer("⚠️ Котушку не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-            return True
-
-        new_t = text.upper()
-        target_spool["type"] = new_t
-        spools[spool_id] = target_spool
-        await app.storage.save_spools(spools)
-
-        p_id = target_spool.get("assigned_printer_id")
-        if p_id and p_id in app.printers:
-            app.printers[p_id].filament_type = new_t
-            await app.save_printers_config()
-
-        user["state"] = "idle"
-        user.get("context_data", {}).pop("edit_spool_id", None)
-        await app.storage.save_user(user)
-
-        await message.answer(
-            f"✅ <b>Тип пластику змінено на «{html.escape(new_t)}»!</b>"
-            if u_lang != "en" else
-            f"✅ <b>Filament type updated to «{html.escape(new_t)}»!</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=get_filament_menu_keyboard(lang=u_lang),
-        )
-        return True
-
-    if state == "edit_spool_color":
-        if not text:
-            await message.answer("⚠️ Оберіть або введіть колір:")
-            return True
-        spool_id = ctx_data.get("edit_spool_id")
-        spools = await app.storage.load_spools()
-        target_spool = spools.get(spool_id)
-        if not target_spool:
-            user["state"] = "idle"
-            await app.storage.save_user(user)
-            await message.answer("⚠️ Котушку не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-            return True
-
-        hex_code, color_label = parse_filament_color(text)
-        target_spool["color"] = hex_code
-        target_spool["color_name"] = color_label
-        spools[spool_id] = target_spool
-        await app.storage.save_spools(spools)
-
-        user["state"] = "idle"
-        user.get("context_data", {}).pop("edit_spool_id", None)
-        await app.storage.save_user(user)
-
-        disp_col = get_color_display_name(target_spool, lang=u_lang)
-        await message.answer(
-            f"✅ <b>Колір котушки змінено на {disp_col}!</b>"
-            if u_lang != "en" else
-            f"✅ <b>Spool color updated to {disp_col}!</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=get_filament_menu_keyboard(lang=u_lang),
-        )
-        return True
-
-    if state == "edit_spool_quantity":
-        clean_text = text.replace("шт", "").replace("pcs", "").strip()
-        val = safe_eval_math(clean_text)
-        if val is None or not isinstance(val, (int, float)) or val <= 0:
-            await message.answer(
-                "⚠️ Будь ласка, введіть коректну кількість (ціле додатнє число, наприклад: <code>1</code> або <code>7</code>):"
-                if u_lang != "en" else
-                "⚠️ Please enter a valid quantity (positive integer, e.g. <code>1</code> or <code>7</code>):",
-                parse_mode=ParseMode.HTML,
-                reply_markup=get_spool_quantity_keyboard(lang=u_lang),
-            )
-            return True
-
-        spool_id = ctx_data.get("edit_spool_id")
-        spools = await app.storage.load_spools()
-        target_spool = spools.get(spool_id)
-        if not target_spool:
-            user["state"] = "idle"
-            await app.storage.save_user(user)
-            await message.answer("⚠️ Котушку не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-            return True
-
-        new_qty = int(val)
-        target_spool["quantity"] = new_qty
-        spools[spool_id] = target_spool
-        await app.storage.save_spools(spools)
-
-        user["state"] = "idle"
-        user.get("context_data", {}).pop("edit_spool_id", None)
-        await app.storage.save_user(user)
-
-        await message.answer(
-            f"✅ <b>Кількість котушок на Складі змінено на {new_qty} шт!</b>"
-            if u_lang != "en" else
-            f"✅ <b>Spool quantity updated to {new_qty} pcs!</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=get_filament_menu_keyboard(lang=u_lang),
-        )
-        return True
-
-    if state == "edit_spool_grams":
-        clean_text = text.replace("g", "").replace("г", "").strip()
-        val = safe_eval_math(clean_text)
-        if val is None or not isinstance(val, (int, float)) or val < 0:
-            await message.answer(
-                "⚠️ Некоректне значення ваги. Будь ласка, введіть числове значення у грамах (наприклад: <code>850</code> або <code>1000 - 150</code>):"
-                if u_lang != "en" else
-                "⚠️ Invalid weight value. Please enter a number in grams (e.g. <code>850</code>):",
-                parse_mode=ParseMode.HTML,
-            )
-            return True
-
-        spool_id = ctx_data.get("edit_spool_id")
-        spools = await app.storage.load_spools()
-        target_spool = spools.get(spool_id)
-        if not target_spool:
-            user["state"] = "idle"
-            await app.storage.save_user(user)
-            await message.answer("⚠️ Котушку не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-            return True
-
-        prev_g = float(target_spool.get("remaining_grams", 0.0))
-        new_g = float(val)
-        target_spool["remaining_grams"] = new_g
-        spools[spool_id] = target_spool
-        await app.storage.save_spools(spools)
-
-        if abs(new_g - prev_g) > 0.01:
-            delta = new_g - prev_g
-            action = "refill" if delta > 0 else "manual_edit"
-            reason = "Поповнення котушки (Telegram)" if delta > 0 else "Ручне коригування ваги (Telegram)"
-            await app.storage.record_spool_movement(
-                spool_id=spool_id,
-                spool_name=target_spool.get("name", "Котушка"),
-                action=action,
-                weight_change_g=round(delta, 2),
-                prev_weight_g=round(prev_g, 2),
-                new_weight_g=round(new_g, 2),
-                reason=reason,
-                user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
-            )
-
-        p_id = target_spool.get("assigned_printer_id")
-        slot_k = target_spool.get("assigned_slot_key")
-        if p_id and p_id in app.printers and slot_k:
-            app.printers[p_id].set_slot_grams(new_g, slot_id=str(slot_k))
-            await app.save_printers_config()
-
-        user["state"] = "idle"
-        user.get("context_data", {}).pop("edit_spool_id", None)
-        await app.storage.save_user(user)
-
-        await message.answer(
-            f"✅ <b>Залишок котушки змінено на {new_g}g!</b>"
-            if u_lang != "en" else
-            f"✅ <b>Spool remaining updated to {new_g}g!</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=get_filament_menu_keyboard(lang=u_lang),
-        )
-        return True
-
-    if state == "edit_spool_price":
-        clean_text = text.replace("грн", "").replace("uah", "").strip()
-        val = safe_eval_math(clean_text)
-        if val is None or not isinstance(val, (int, float)) or val < 0:
-            await message.answer(
-                "⚠️ Некоректна ціна. Будь ласка, введіть числове значення у грн (наприклад: <code>850</code>):"
-                if u_lang != "en" else
-                "⚠️ Invalid price. Please enter a number in UAH (e.g. <code>850</code>):",
-                parse_mode=ParseMode.HTML,
-            )
-            return True
-
-        spool_id = ctx_data.get("edit_spool_id")
-        spools = await app.storage.load_spools()
-        target_spool = spools.get(spool_id)
-        if not target_spool:
-            user["state"] = "idle"
-            await app.storage.save_user(user)
-            await message.answer("⚠️ Котушку не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-            return True
-
-        new_pr = float(val)
-        target_spool["price_per_kg"] = new_pr
-        spools[spool_id] = target_spool
-        await app.storage.save_spools(spools)
-
-        user["state"] = "idle"
-        user.get("context_data", {}).pop("edit_spool_id", None)
-        await app.storage.save_user(user)
-
-        await message.answer(
-            f"✅ <b>Вартість 1 кг пластику встановлено на {new_pr} грн!</b>"
-            if u_lang != "en" else
-            f"✅ <b>Price per 1 kg updated to {new_pr} UAH!</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=get_filament_menu_keyboard(lang=u_lang),
-        )
-        return True
-
-    if state == "select_spool_to_delete":
-        spools = await app.storage.load_spools()
-        candidate_spools = [s for s in spools.values() if not s.get("assigned_printer_id")]
-        selected = None
-        for s in candidate_spools:
-            s_name = s.get("name", "Spool")
-            s_grams = s.get("remaining_grams", 1000.0)
-            s_type = s.get("type", "")
-            qty = max(1, int(s.get("quantity", 1) or 1))
-            color_emoji = get_color_emoji(s.get("color_name") or s.get("color", ""))
-            c_prefix = f"{color_emoji} " if color_emoji else ""
-            type_str = f"{s_type}, " if (s_type and s_type.lower() not in s_name.lower()) else ""
-            qty_unit = "pcs" if u_lang == "en" else "шт"
-            qty_str = f" [📦 {qty} {qty_unit}]" if qty > 1 else ""
-            qty_str_alt = f" [📦 {qty} {'шт' if qty_unit == 'pcs' else 'pcs'}]" if qty > 1 else ""
-            exact_title = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str}"
-            exact_title_alt = f"🧵 {c_prefix}{s_name} ({type_str}{s_grams}g){qty_str_alt}"
-
-            if text in [exact_title, exact_title_alt, s_name, s.get("id")] or text.strip() == s_name.strip():
-                selected = s
-                break
-        if not selected:
-            for s in candidate_spools:
-                s_name = s.get("name", "")
-                if s_name and (s_name.lower() in text.lower() or text.lower() in s_name.lower() or s.get("id") == text.strip()):
-                    selected = s
-                    break
-
-        if selected:
-            user["context_data"]["delete_spool_id"] = selected["id"]
-            user["state"] = "confirm_delete_spool"
-            await app.storage.save_user(user)
-
-            await message.answer(
-                f"⚠️ <b>Ви впевнені, що хочете видалити котушку «{html.escape(selected.get('name', ''))}» ({selected.get('remaining_grams', 1000.0)}g)?</b>"
-                if u_lang != "en" else
-                f"⚠️ <b>Are you sure you want to delete spool «{html.escape(selected.get('name', ''))}» ({selected.get('remaining_grams', 1000.0)}g)?</b>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=get_confirm_delete_spool_keyboard(lang=u_lang),
-            )
-        else:
-            await message.answer(
-                "⚠️ Оберіть котушку зі списку на клавіатурі."
-                if u_lang != "en" else
-                "⚠️ Please select a spool from the keyboard list."
-            )
-        return True
-
-    if state == "confirm_delete_spool":
-        spool_id = ctx_data.get("delete_spool_id")
-        spools = await app.storage.load_spools()
-        low = text.lower()
-        if any(k in low for k in ["так", "yes", "delete", "видалити"]):
-            sp = spools.pop(spool_id, None) if spool_id else None
-            if sp:
-                p_id = sp.get("assigned_printer_id")
-                slot_k = sp.get("assigned_slot_key")
-                if p_id and p_id in app.printers and slot_k:
-                    app.printers[p_id].set_slot_grams(0.0, slot_id=str(slot_k))
-                    await app.save_printers_config()
-                await app.storage.save_spools(spools)
-
-                prev_w = float(sp.get("remaining_grams", 0.0))
-                await app.storage.record_spool_movement(
-                    spool_id=spool_id,
-                    spool_name=sp.get("name", "Котушка"),
-                    action="write_off",
-                    weight_change_g=-prev_w,
-                    prev_weight_g=prev_w,
-                    new_weight_g=0.0,
-                    reason="Списання / Видалення котушки зі складу (Telegram)",
-                    user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
-                )
-
-                user["state"] = "idle"
-                user.get("context_data", {}).pop("delete_spool_id", None)
-                await app.storage.save_user(user)
-
-                await message.answer(
-                    f"✅ <b>Котушку «{html.escape(sp.get('name', ''))}» успішно видалено!</b>"
-                    if u_lang != "en" else
-                    f"✅ <b>Spool «{html.escape(sp.get('name', ''))}» successfully deleted!</b>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=get_filament_menu_keyboard(lang=u_lang),
-                )
-            else:
-                user["state"] = "idle"
-                user.get("context_data", {}).pop("delete_spool_id", None)
-                await app.storage.save_user(user)
-                await message.answer("⚠️ Котушку не знайдено.", reply_markup=get_filament_menu_keyboard(lang=u_lang))
-        else:
-            user["state"] = "idle"
-            user.get("context_data", {}).pop("delete_spool_id", None)
-            await app.storage.save_user(user)
-            await message.answer(
-                "❌ Видалення котушки скасовано."
-                if u_lang != "en" else
-                "❌ Spool deletion cancelled.",
-                reply_markup=get_filament_menu_keyboard(lang=u_lang),
-            )
-        return True
-
-    if state == "edit_filament_weight" and target_printer:
-        clean_text = text.replace("g", "").replace("г", "").strip()
-        val = safe_eval_math(clean_text)
-        if val is not None and val >= 0:
-            slot_key = ctx_data.get("edit_weight_slot_key") or target_printer.get_active_slot_key()
-            slot_lbl = ctx_data.get("edit_weight_slot_label")
-            if not slot_lbl:
-                slot_lbl = "VT" if str(slot_key) in ["254", "255"] else f"Слот A{int(slot_key)+1}"
-
-            target_printer.set_slot_grams(float(val), slot_id=slot_key)
-            if str(slot_key) == str(target_printer.get_active_slot_key()):
-                target_printer.filament_grams = float(val)
-
-            # Sync any mounted warehouse spool
-            spools = await app.storage.load_spools()
-            spool_updated = False
-            for s_id, s in list(spools.items()):
-                if s.get("assigned_printer_id") == target_printer.id and str(s.get("assigned_slot_key")) in [str(slot_key), "255" if str(slot_key) == "254" else str(slot_key)]:
-                    prev_w = float(s.get("remaining_grams", 0.0))
-                    new_w = float(val)
-                    s["remaining_grams"] = new_w
-                    spools[s_id] = s
-                    spool_updated = True
-                    if abs(new_w - prev_w) > 0.01:
-                        delta = new_w - prev_w
-                        await app.storage.record_spool_movement(
-                            spool_id=s_id,
-                            spool_name=s.get("name", "Котушка"),
-                            action="refill" if delta > 0 else "manual_edit",
-                            weight_change_g=round(delta, 2),
-                            prev_weight_g=round(prev_w, 2),
-                            new_weight_g=round(new_w, 2),
-                            reason=f"Ручне коригування ваги слоту {slot_lbl} (Telegram)",
-                            user=user.get("username") or user.get("first_name") or f"TG:{chat_id}",
-                        )
-                    break
-            if spool_updated:
-                await app.storage.save_spools(spools)
-
-            await app.save_printers_config()
-            user["state"] = "printer_menu"
-            user.get("context_data", {}).pop("edit_weight_slot_key", None)
-            user.get("context_data", {}).pop("edit_weight_slot_label", None)
-            await app.storage.save_user(user)
-
-            slot_suffix = f" ({slot_lbl})" if getattr(target_printer, "has_ams", False) else ""
-            await message.answer(
-                f"✅ Залишок філаменту для <b>{html.escape(target_printer.name)}{slot_suffix}</b> змінено на <b>{val}g</b>!"
-                if u_lang != "en"
-                else f"✅ Filament remaining for <b>{html.escape(target_printer.name)}{slot_suffix}</b> updated to <b>{val}g</b>!",
-                parse_mode=ParseMode.HTML,
-                reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
-            )
-        else:
-            await message.answer("⚠️ Будь ласка, введіть числове значення у грамах (наприклад: <code>750</code>):", parse_mode=ParseMode.HTML)
-        return True
-
-    if state == "edit_filament_price" and target_printer:
-        clean_text = text.replace("грн", "").replace("uah", "").strip()
-        val = safe_eval_math(clean_text)
-        if val is not None and val >= 0:
-            target_printer.price_per_kg = float(val)
-            await app.save_printers_config()
-            user["state"] = "printer_menu"
-            await app.storage.save_user(user)
-            await message.answer(
-                f"✅ Вартість 1 кг пластику для {html.escape(target_printer.name)} встановлено на <b>{val} грн</b>!"
-                if u_lang != "en"
-                else f"✅ Price per 1 kg for {html.escape(target_printer.name)} set to <b>{val} UAH</b>!",
-                parse_mode=ParseMode.HTML,
-                reply_markup=get_single_printer_filament_keyboard(lang=u_lang),
-            )
-        else:
-            await message.answer("⚠️ Будь ласка, введіть числове значення ціни у грн (наприклад: <code>850</code>):", parse_mode=ParseMode.HTML)
-        return True
-
     return False
 
+
+__all__ = [
+    "router",
+    "handle_add_spool_start",
+    "handle_preset_callback",
+    "handle_filament_states",
+    "assign_spool_to_slot",
+    "unassign_spool_from_slot",
+    "DEFAULT_SPOOL_PRESETS",
+]
