@@ -565,59 +565,17 @@ class BambuPrinter:
 
     def _deduct_spool_warehouse(self, slot_key: str, deducted_grams: float) -> None:
         """Deducts grams from mounted spool in warehouse storage and logs audit movement."""
-        if not self.storage or deducted_grams <= 0:
-            return
-        try:
-            loop = self._get_active_event_loop()
-            if not loop or not loop.is_running():
-                return
+        from services.printer_accounting_service import deduct_spool_warehouse
 
-            async def _do_deduct() -> None:
-                try:
-                    async with self.storage.transaction_lock("spools"):
-                        spools = await self.storage.load_spools()
-                        spool_to_deduct = None
-                        spool_id_to_deduct = None
-                        target_slot_str = str(slot_key)
-                        for s_id, s in spools.items():
-                            if s.get("assigned_printer_id") == self.id and str(s.get("assigned_slot_key")) in [
-                                target_slot_str,
-                                "255" if target_slot_str == "254" else target_slot_str,
-                            ]:
-                                spool_to_deduct = s
-                                spool_id_to_deduct = s_id
-                                break
-
-                        if spool_to_deduct and spool_id_to_deduct:
-                            prev_w = float(spool_to_deduct.get("remaining_grams", 0.0))
-                            new_w = max(0.0, round(prev_w - deducted_grams, 2))
-                            spool_to_deduct["remaining_grams"] = new_w
-                            spools[spool_id_to_deduct] = spool_to_deduct
-                            await self.storage.save_spools(spools)
-                            await self.storage.record_spool_movement(
-                                spool_id=spool_id_to_deduct,
-                                spool_name=spool_to_deduct.get("name", "Котушка"),
-                                action="print",
-                                weight_change_g=-round(deducted_grams, 2),
-                                prev_weight_g=round(prev_w, 2),
-                                new_weight_g=new_w,
-                                reason=f"Друк: {self.subtask_name or 'Завдання'}",
-                                user=self.name,
-                            )
-                except Exception as ex:
-                    logger.warning(f"Error in _deduct_spool_warehouse async task for [{self.name}]: {ex}")
-
-            try:
-                current_loop = asyncio.get_running_loop()
-                if current_loop is loop and current_loop.is_running():
-                    current_loop.create_task(_do_deduct())
-                    return
-            except RuntimeError:
-                pass
-
-            asyncio.run_coroutine_threadsafe(_do_deduct(), loop)
-        except Exception as e:
-            logger.warning(f"Failed to schedule _deduct_spool_warehouse for [{self.name}]: {e}")
+        deduct_spool_warehouse(
+            storage=self.storage,
+            printer_id=self.id,
+            printer_name=self.name,
+            slot_key=slot_key,
+            deducted_grams=deducted_grams,
+            subtask_name=getattr(self, "subtask_name", None),
+            loop=self._get_active_event_loop(),
+        )
 
     def init_mqtt(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
         if not self.ip or not self.serial_number:
@@ -721,32 +679,9 @@ class BambuPrinter:
                 logger.warning(f"Failed triggering save callback for [{self.name}]: {e}")
 
     def _try_ftps_fetch(self) -> None:
-        if self._ftps_fetching or not self.ip or not self.access_code:
-            return
-        loop_to_use = self._get_active_event_loop()
-        if not loop_to_use or not loop_to_use.is_running():
-            return
-        self._ftps_fetching = True
+        from services.printer_file_job_service import fetch_job_info_via_ftps
 
-        def _worker() -> None:
-            try:
-                if self.ip and self.access_code:
-                    from services.ftps_client import fetch_bambu_ftps_info
-                    info = fetch_bambu_ftps_info(self.ip, self.access_code, self.subtask_name)
-                    w = float(info.get("weight_g") or 0.0)
-                    objs = info.get("objects") or []
-                    if objs:
-                        self.current_job_objects = objs
-                        logger.info(f"🧩 FTPS fetched {len(objs)} objects for [{self.name}]: {[o['name'] for o in objs]}")
-                    if w > 0:
-                        self._current_job_grams = w
-                        logger.info(f"💡 FTPS fetched model weight {w}g for [{self.name}]")
-            except Exception as e:
-                logger.warning(f"FTPS worker error for [{self.name}]: {e}")
-            finally:
-                self._ftps_fetching = False
-
-        asyncio.run_coroutine_threadsafe(asyncio.to_thread(_worker), loop_to_use)
+        fetch_job_info_via_ftps(self)
 
     def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
         payload = msg.payload
@@ -1205,22 +1140,15 @@ class BambuPrinter:
                         if not clean_subtask or clean_subtask.lower() in ["untitled", "none", "null"] or re.match(r"^[_ -]+$", clean_subtask):
                             clean_subtask = "Деталь 3D"
 
-                        entry = {
-                            "timestamp": time.time(),
-                            "printer_name": self.name,
-                            "printer_id": self.id,
-                            "printer_sn": getattr(self, "serial_number", getattr(self, "sn", self.id)),
-                            "subtask_name": clean_subtask,
-                            "weight_g": round(float(final_weight), 1),
-                            "filament_type": self.filament_type,
-                            "note": note_text,
-                        }
-                        if self.storage:
-                            loop_to_use = self._get_active_event_loop()
-                            if loop_to_use:
-                                asyncio.run_coroutine_threadsafe(self.storage.add_history_entry(entry), loop_to_use)
-                            else:
-                                logger.warning(f"⚠️ Event loop unresolvable for history entry on [{self.name}]")
+                        from services.printer_accounting_service import record_print_history_entry
+
+                        record_print_history_entry(
+                            storage=self.storage,
+                            printer=self,
+                            final_weight=final_weight,
+                            note_text=note_text,
+                            loop=self._get_active_event_loop(),
+                        )
                         self._last_completed_subtask = str(self.subtask_name or "").strip()
                         self._history_recorded = True
                         self._is_printing = False
@@ -1585,7 +1513,9 @@ class BambuPrinter:
 
     def invalidate_plate_gif_cache(self) -> None:
         """Clears cached animated GIF for plate map."""
-        self._plate_gif_cache = None
+        from services.printer_file_job_service import invalidate_plate_gif_cache
+
+        invalidate_plate_gif_cache(self)
 
     def get_clean_job_objects(self) -> list[dict[str, Any]]:
         """
@@ -1629,17 +1559,9 @@ class BambuPrinter:
 
     def get_plate_gif(self) -> bytes:
         """Returns cached animated GIF of plate objects highlighting each object sequentially."""
-        if getattr(self, "_plate_gif_cache", None) is None:
-            p_model = str(getattr(self, "printer_model", "") or getattr(self, "name", "")).lower()
-            bed_size = (180, 180) if "mini" in p_model else (256, 256)
-            from utils.image_utils import render_plate_gif
+        from services.printer_file_job_service import render_plate_gif_cached
 
-            self._plate_gif_cache = render_plate_gif(
-                self.get_clean_job_objects(),
-                bed_size_mm=bed_size,
-                skipped_ids=getattr(self, "skipped_objects", []),
-            )
-        return self._plate_gif_cache or b""
+        return render_plate_gif_cached(self)
 
     def start_calibration(self) -> bool:
         """
@@ -1722,235 +1644,21 @@ class BambuPrinter:
     ) -> tuple[bool, str]:
         """
         Uploads 3MF file via FTPS to printer SD card and publishes MQTT project_file command to start printing.
-        Accepts selected physical AMS slot number (1-4) or explicit ams_mapping list [Virtual_T0..3].
-        Returns (success: bool, user_message: str).
+        Delegates to services.printer_file_job_service.start_print_job.
         """
-        import re
+        from services.printer_file_job_service import start_print_job
 
-        self._current_job_slot_key = None
-
-        if not self._client or not self._client.is_connected():
-            return False, "⚠️ MQTT з'єднання з принтером відсутнє."
-
-        # 1. Upload 3MF file to SD card via FTPS
-        remote_path = await asyncio.to_thread(upload_3mf_to_bambu, self.ip, self.access_code, file_bytes, filename)
-        if not remote_path:
-            return False, f"⚠️ Не вдалося завантажити файл по FTPS на {self.name} (перевірте IP {self.ip} та SD-карту)."
-
-        # Verify file size on printer MicroSD card via FTPS SIZE command instead of blind sleep
-        expected_size = len(file_bytes)
-        verified = await asyncio.to_thread(verify_bambu_file_size, self.ip, self.access_code, remote_path, expected_size)
-        if not verified:
-            logger.warning(f"⚠️ SD card size verification unconfirmed for {remote_path} on [{self.name}]. Proceeding with job dispatch...")
-
-        # 2. Prepare MQTT project_file command with correct file:///sdcard/ URL path and MD5 hash
-        clean_file = remote_path.split("/")[-1]
-        if remote_path.startswith("file:///sdcard/"):
-            url_path = remote_path
-        elif remote_path.startswith("sdcard/"):
-            url_path = f"file:///{remote_path}"
-        elif remote_path.startswith("/"):
-            url_path = f"file:///sdcard{remote_path}"
-        else:
-            url_path = f"file:///sdcard/{remote_path}"
-
-        # Dynamically verify sub_path inside 3MF container
-        sub_path = "Metadata/plate_1.gcode"
-        if zipfile.is_zipfile(io.BytesIO(file_bytes)):
-            try:
-                with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
-                    names = zf.namelist()
-                    if plate_name and f"Metadata/{plate_name}" in names:
-                        sub_path = f"Metadata/{plate_name}"
-                    elif plate_name and plate_name.startswith("Metadata/") and plate_name in names:
-                        sub_path = plate_name
-                    elif plate_name and plate_name in names:
-                        sub_path = f"Metadata/{plate_name}" if not plate_name.startswith("Metadata/") else plate_name
-                    elif "Metadata/plate_1.gcode" in names:
-                        sub_path = "Metadata/plate_1.gcode"
-                    elif "Metadata/slice_info.config" in names:
-                        sub_path = "Metadata/slice_info.config"
-                    else:
-                        gc_meta = [n for n in names if n.startswith("Metadata/") and n.endswith(".gcode")]
-                        if gc_meta:
-                            sub_path = gc_meta[0]
-            except Exception as e_zip:
-                logger.warning(f"Failed zip sub_path scan for {filename}: {e_zip}")
-
-        # Always guarantee Metadata/ prefix for Bambu Lab firmware path resolution
-        if not sub_path.startswith("Metadata/"):
-            sub_path = f"Metadata/{sub_path}"
-
-        md5_str = hashlib.md5(file_bytes).hexdigest()
-
-        # Preserve human-readable Unicode/Cyrillic part name or filename
-        display_title = part_name or filename
-        if "." in display_title:
-            display_title = display_title.rsplit(".", 1)[0]
-
-        clean_subtask = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", display_title).strip()
-        if not clean_subtask or re.match(r"^[_ -]+$", clean_subtask):
-            clean_subtask = "Деталь 3D"
-
-        self.subtask_name = clean_subtask
-        self._custom_job_name = clean_subtask
-
-        # Pre-calculate filament weight & extract plate objects from uploaded 3MF file
-        m_info: dict[str, Any] = {}
-        try:
-            m_info = parse_3mf_file(file_bytes, filename)
-            self.current_job_objects = m_info.get("objects", [])
-            self.skipped_objects = []
-            w_g = float(m_info.get("weight_g") or 0.0)
-
-            # Persist objects & weight into last_sliced_weight.json cache
-            try:
-                cache_file = STORAGE_DIR / "last_sliced_weight.json"
-                cache_payload = {
-                    "filename": filename,
-                    "weight": w_g,
-                    "timestamp": time.time(),
-                    "objects": self.current_job_objects,
-                }
-                cache_file.write_text(json.dumps(cache_payload, ensure_ascii=False), encoding="utf-8")
-                logger.info(f"🧩 Persisted {len(self.current_job_objects)} objects to weight cache for [{self.name}]")
-            except Exception as e_cache:
-                logger.warning(f"Failed writing weight/objects cache: {e_cache}")
-
-            if w_g <= 0 and weight_g is not None and float(weight_g) > 0:
-                w_g = float(weight_g)
-
-            if w_g > 0:
-                self._current_job_grams = w_g
-                self._job_deducted = False
-                logger.info(f"⚖️ Parsed 3MF weight {w_g}g for [{self.name}]")
-        except Exception as e_w:
-            logger.warning(f"Could not parse 3MF weight in start_print_job_async: {e_w}")
-            if weight_g is not None and float(weight_g) > 0:
-                self._current_job_grams = float(weight_g)
-                self._job_deducted = False
-
-        has_ams_hardware = bool(getattr(self, "has_ams", False))
-        req_fil = str(m_info.get("filament_type") or "PLA").strip() if m_info else "PLA"
-        target_slot = ams_slot
-
-        # Automatic AMS slot detection if not explicitly passed
-        if target_slot is None:
-            if has_ams_hardware and use_ams:
-                matched_idx = self.find_matching_ams_slot(
-                    req_fil,
-                    tray_info_idx=m_info.get("tray_info_idx", ""),
-                    color=m_info.get("filament_color", ""),
-                    filament_name=m_info.get("filament_name", ""),
-                )
-                if matched_idx is not None:
-                    target_slot = matched_idx + 1  # 1-indexed physical slot (1-4)
-                    logger.info(
-                        f"🎯 [AMS Auto-Select] Matched 3MF filament '{req_fil}' (tray_info_idx: {m_info.get('tray_info_idx', '')}, color: {m_info.get('filament_color', '')}) to physical Slot {target_slot} on [{self.name}]"
-                    )
-                else:
-                    ams_summary = self.get_loaded_ams_summary()
-                    err_msg = (
-                        f"⚠️ <b>Невідповідність філаменту в AMS!</b>\n"
-                        f"Для файлу <code>{html.escape(filename)}</code> потрібен пластик <b>{html.escape(req_fil)}</b>, "
-                        f"але в AMS принтера <b>{html.escape(self.name)}</b> його не знайдено.\n\n"
-                        f"📋 <b>Заправлені слоти:</b>\n{ams_summary}\n\n"
-                        f"<i>Будь ласка, заправте {html.escape(req_fil)} в AMS або оберіть інший принтер.</i>"
-                    )
-                    logger.warning(f"AMS filament mismatch for [{self.name}]: required '{req_fil}', slots: {ams_summary}")
-                    return False, err_msg
-            else:
-                target_slot = None
-                use_ams = False
-
-        # Resolve deduction slot key for accurate spool tracking
-        deduct_key = None
-        if target_slot is not None and str(target_slot).strip().upper() in ["254", "255", "VT", "EXTERNAL"]:
-            deduct_key = AMSSlot.EXTERNAL.value
-        elif target_slot is not None:
-            ams_map, is_ams = build_ams_mapping(target_slot, has_ams=has_ams_hardware, use_ams=use_ams)
-            if is_ams and ams_map and ams_map[0] >= 0:
-                deduct_key = str(ams_map[0])
-            else:
-                try:
-                    v = int(target_slot)
-                    if 1 <= v <= 4:
-                        deduct_key = str(v - 1)
-                    elif v == 0:
-                        deduct_key = "0"
-                except (ValueError, TypeError):
-                    pass
-        elif ams_mapping is not None and ams_mapping and ams_mapping[0] >= 0:
-            deduct_key = str(ams_mapping[0])
-
-        if deduct_key is None:
-            deduct_key = self.get_active_spool_key()
-            if deduct_key is None and not has_ams_hardware:
-                deduct_key = AMSSlot.EXTERNAL.value
-
-        if deduct_key is not None:
-            self._current_job_slot_key = deduct_key
-            self.last_active_slot = deduct_key
-
-        # Deduct weight from selected slot or active slot
-        w_g = getattr(self, "_current_job_grams", 0.0)
-        self._job_started_from_app = True
-        if w_g > 0 and not getattr(self, "_job_deducted", False) and deduct_key is not None:
-            old_w = self.get_slot_grams(deduct_key)
-            new_w = max(0.0, round(old_w - w_g, 2))
-            self.set_slot_grams(new_w, deduct_key)
-            self._job_deducted = True
-            self.last_job_grams = w_g
-            self._deduct_spool_warehouse(deduct_key, w_g)
-            logger.info(
-                f"💾 Auto-deducted {w_g}g from Slot {deduct_key} for [{self.name}]. Old: {old_w}g -> New: {new_w}g"
-            )
-            self._trigger_save()
-
-        timestamp_id = str(int(time.time()))
-
-        if ams_mapping is not None:
-            ams_mapping_list = ams_mapping
-            use_ams_bool = bool(ams_mapping_list) and use_ams and has_ams_hardware
-        else:
-            ams_mapping_list, use_ams_bool = build_ams_mapping(target_slot, has_ams_hardware, use_ams)
-
-        payload = {
-            "print": {
-                "sequence_id": timestamp_id,
-                "command": "project_file",
-                "param": sub_path,
-                "project_id": timestamp_id,
-                "profile_id": timestamp_id,
-                "task_id": timestamp_id,
-                "subtask_id": timestamp_id,
-                "subtask_name": clean_subtask,
-                "url": url_path,
-                "file": remote_path,
-                "md5": md5_str,
-                "timelapse": False,
-                "bed_type": "auto",
-                "bed_levelling": True,
-                "flow_cali": True,
-                "vibration_cali": True,
-                "layer_inspect": True,
-                "use_ams": use_ams_bool,
-                "ams_mapping": ams_mapping_list,
-            }
-        }
-
-        try:
-            self._client.publish(f"device/{self.serial_number}/request", json.dumps(payload))
-            logger.info(
-                f"🚀 Sent MQTT project_file command for {clean_file} (url: {url_path}, md5: {md5_str}) to [{self.name}]"
-            )
-            return (
-                True,
-                f"✅ Файл <code>{html.escape(filename)}</code> успішно відправлено по FTPS та запущено на друк на <b>{html.escape(self.name)}</b>!",
-            )
-        except Exception as e:
-            logger.error(f"Error publishing MQTT project_file for [{self.name}]: {e}")
-            return False, f"⚠️ Помилка відправки MQTT команди на друк: {e}"
+        return await start_print_job(
+            printer=self,
+            file_bytes=file_bytes,
+            filename=filename,
+            plate_name=plate_name,
+            use_ams=use_ams,
+            part_name=part_name,
+            ams_slot=ams_slot,
+            ams_mapping=ams_mapping,
+            weight_g=weight_g,
+        )
 
     def calculate_job_cost(self, weight_grams: float, print_mins: int = 0) -> dict[str, float]:
         """Calculates cost breakdown: filament cost + electricity cost in UAH."""
