@@ -4,7 +4,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.camera_stream import _fetch_bambu_port6000_jpeg, capture_real_camera_photo, check_tcp_port_open
+from services.camera_stream import (
+    _fetch_bambu_port6000_jpeg,
+    capture_real_camera_photo,
+    check_tcp_port_open,
+    clear_camera_cache,
+    get_cached_camera_frame,
+    _CAMERA_FRAME_CACHE,
+    _CAMERA_CIRCUIT_BREAKER,
+)
+
+
+@pytest.fixture(autouse=True)
+def clean_cache():
+    clear_camera_cache()
+    yield
+    clear_camera_cache()
 
 
 @pytest.mark.asyncio
@@ -241,3 +256,52 @@ async def test_async_stream_camera_frames():
                     break
             assert len(frames) == 1
             assert frames[0] == fake_frame
+
+
+@pytest.mark.asyncio
+async def test_camera_circuit_breaker_blocks_immediate_retry():
+    with (
+        patch("services.camera_stream.check_tcp_port_open", AsyncMock(return_value=False)),
+        patch("services.camera_stream._fetch_bambu_port6000_jpeg", return_value=None) as mock_fetch,
+    ):
+        # 1. First call fails and trips circuit breaker
+        res1 = await capture_real_camera_photo("10.0.0.5", "code")
+        assert res1 is None
+        assert mock_fetch.call_count == 2
+
+        # 2. Immediate second call is blocked by circuit breaker without touching socket/thread
+        mock_fetch.reset_mock()
+        res2 = await capture_real_camera_photo("10.0.0.5", "code")
+        assert res2 is None
+        mock_fetch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_camera_circuit_breaker_returns_cached_frame():
+    fake_frame = b"\xff\xd8good_frame\xff\xd9"
+    with (
+        patch("services.camera_stream.check_tcp_port_open", AsyncMock(return_value=False)),
+        patch("services.camera_stream._fetch_bambu_port6000_jpeg", side_effect=[fake_frame, None, None]) as mock_fetch,
+    ):
+        # 1. First call succeeds and caches frame
+        res1 = await capture_real_camera_photo("10.0.0.6", "code")
+        assert res1 == fake_frame
+        assert get_cached_camera_frame("10.0.0.6") == fake_frame
+
+        # 2. Subsequent call fails live, but returns cached frame during cooldown
+        res2 = await capture_real_camera_photo("10.0.0.6", "code")
+        assert res2 == fake_frame
+
+        # 3. Third call while in cooldown still returns cached frame immediately
+        mock_fetch.reset_mock()
+        res3 = await capture_real_camera_photo("10.0.0.6", "code")
+        assert res3 == fake_frame
+        mock_fetch.assert_not_called()
+
+
+def test_get_cached_camera_frame_expired():
+    _CAMERA_FRAME_CACHE["10.0.0.7"] = (b"old_frame", 1000.0)
+    # With max_age=5s and current time >> 1000, should return None
+    assert get_cached_camera_frame("10.0.0.7", max_age=5.0) is None
+    clear_camera_cache()
+    assert get_cached_camera_frame("10.0.0.7") is None

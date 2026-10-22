@@ -6,9 +6,32 @@ import asyncio
 import socket
 import ssl
 import struct
+import time
 from typing import Any
 
 from config import logger
+
+# Cache of last successfully captured JPEG frame: clean_ip -> (jpeg_bytes, timestamp)
+_CAMERA_FRAME_CACHE: dict[str, tuple[bytes, float]] = {}
+
+# Circuit breaker failure tracker: clean_ip -> {"last_fail": float, "cooldown_until": float, "fail_count": int}
+_CAMERA_CIRCUIT_BREAKER: dict[str, dict[str, Any]] = {}
+
+
+def get_cached_camera_frame(ip: str, max_age: float = 300.0) -> bytes | None:
+    """Retrieve last known good JPEG frame from cache if not expired."""
+    clean_ip = str(ip or "").strip()
+    if clean_ip in _CAMERA_FRAME_CACHE:
+        frame, ts = _CAMERA_FRAME_CACHE[clean_ip]
+        if time.time() - ts <= max_age:
+            return frame
+    return None
+
+
+def clear_camera_cache() -> None:
+    """Reset in-memory frame cache and circuit breaker state."""
+    _CAMERA_FRAME_CACHE.clear()
+    _CAMERA_CIRCUIT_BREAKER.clear()
 
 
 async def check_tcp_port_open(ip: str, port: int, timeout: float = 1.0) -> bool:
@@ -33,7 +56,7 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
     clean_code = str(access_code or "").strip()
     try:
         raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        raw_socket.settimeout(2.0)
+        raw_socket.settimeout(0.8)
 
         context = ssl.create_default_context()
         context.check_hostname = False
@@ -78,9 +101,11 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
                 end_idx = img.rfind(b"\xff\xd9")
                 if end_idx > start_idx:
                     jpeg_bytes = img[start_idx : end_idx + 2]
-                    logger.info(f"✅ Captured {len(jpeg_bytes)} bytes JPEG frame from {clean_ip}:6000")
+                    logger.debug(f"Captured {len(jpeg_bytes)} bytes JPEG frame from {clean_ip}:6000")
                     return jpeg_bytes
 
+    except (socket.timeout, TimeoutError):
+        logger.debug(f"Port 6000 TLS stream timeout for {clean_ip} (camera in standby/asleep)")
     except Exception as e:
         logger.warning(f"Port 6000 TLS stream fetch error for {clean_ip}: {e}")
     finally:
@@ -98,23 +123,42 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
     return None
 
 
-async def capture_real_camera_photo(ip: str, access_code: str) -> bytes | None:
-    """Asynchronously fetches real camera photo using Port 6000 TLS stream with retries."""
+async def capture_real_camera_photo(ip: str, access_code: str, allow_cached: bool = True) -> bytes | None:
+    """
+    Asynchronously fetches real camera photo using Port 6000 TLS stream with retries,
+    HTTP fallback, and an intelligent circuit breaker to prevent socket exhaustion.
+    """
     if not ip or not access_code:
         return None
 
     clean_ip = str(ip).strip()
     clean_code = str(access_code).strip()
+    now = time.time()
 
-    # Try up to 2 attempts directly attempting Port 6000 TLS frame fetch
+    # 1. Circuit breaker check: if in failure cooldown, return cached frame or None immediately
+    cb = _CAMERA_CIRCUIT_BREAKER.get(clean_ip)
+    if cb and now < cb.get("cooldown_until", 0.0):
+        if allow_cached and clean_ip in _CAMERA_FRAME_CACHE:
+            cached_bytes, cached_ts = _CAMERA_FRAME_CACHE[clean_ip]
+            if now - cached_ts < 300.0:
+                logger.debug(f"Returning cached camera frame for {clean_ip} during failure cooldown")
+                return cached_bytes
+        logger.debug(f"Camera fetch for {clean_ip} skipped (circuit breaker cooldown active)")
+        return None
+
+    # 2. Try up to 2 attempts directly attempting Port 6000 TLS frame fetch
     for attempt in range(1, 3):
-        logger.info(f"📷 Attempt {attempt}: Fetching JPEG from {clean_ip}:6000...")
+        logger.debug(f"📷 Attempt {attempt}: Fetching JPEG from {clean_ip}:6000...")
         frame = await asyncio.to_thread(_fetch_bambu_port6000_jpeg, clean_ip, clean_code)
         if frame:
+            _CAMERA_FRAME_CACHE[clean_ip] = (frame, now)
+            if clean_ip in _CAMERA_CIRCUIT_BREAKER:
+                del _CAMERA_CIRCUIT_BREAKER[clean_ip]
             return frame
-        await asyncio.sleep(0.2)
+        if attempt == 1:
+            await asyncio.sleep(0.1)
 
-    # HTTP Fallback if Port 6000 TLS stream did not return a valid frame
+    # 3. HTTP Fallback if Port 6000 TLS stream did not return a valid frame
     is_80_open = await check_tcp_port_open(clean_ip, 80, timeout=0.8)
     if is_80_open:
         import aiohttp
@@ -123,18 +167,39 @@ async def capture_real_camera_photo(ip: str, access_code: str) -> bytes | None:
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
-        timeout = aiohttp.ClientTimeout(total=1.5)
+        timeout = aiohttp.ClientTimeout(total=1.2)
         conn = aiohttp.TCPConnector(ssl=ssl_ctx)
-        async with aiohttp.ClientSession(connector=conn) as session:
-            for hurl in http_urls:
-                try:
-                    async with session.get(hurl, headers={"User-Agent": "BambuMonitor/1.0"}, timeout=timeout) as resp:
-                        if resp.status == 200:
-                            data = await resp.read()
-                            if data and len(data) > 1000:
-                                return data
-                except Exception:
-                    pass
+        try:
+            async with aiohttp.ClientSession(connector=conn) as session:
+                for hurl in http_urls:
+                    try:
+                        async with session.get(hurl, headers={"User-Agent": "BambuMonitor/1.0"}, timeout=timeout) as resp:
+                            if resp.status == 200:
+                                data = await resp.read()
+                                if data and len(data) > 1000:
+                                    _CAMERA_FRAME_CACHE[clean_ip] = (data, now)
+                                    if clean_ip in _CAMERA_CIRCUIT_BREAKER:
+                                        del _CAMERA_CIRCUIT_BREAKER[clean_ip]
+                                    return data
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    # 4. If all attempts failed, activate circuit breaker cooldown
+    cb_entry = _CAMERA_CIRCUIT_BREAKER.setdefault(clean_ip, {"last_fail": 0.0, "cooldown_until": 0.0, "fail_count": 0})
+    cb_entry["fail_count"] += 1
+    cb_entry["last_fail"] = now
+    cooldown = 30.0 if cb_entry["fail_count"] <= 2 else 60.0
+    cb_entry["cooldown_until"] = now + cooldown
+    logger.debug(f"Camera unreachable for {clean_ip}, circuit breaker cooldown set for {cooldown:.0f}s")
+
+    # Graceful fallback: return last cached frame if still reasonably fresh (< 5 mins)
+    if allow_cached and clean_ip in _CAMERA_FRAME_CACHE:
+        cached_bytes, cached_ts = _CAMERA_FRAME_CACHE[clean_ip]
+        if now - cached_ts < 300.0:
+            logger.debug(f"Returning cached camera frame for {clean_ip} after failed live probe")
+            return cached_bytes
 
     return None
 
@@ -193,8 +258,11 @@ def stream_bambu_port6000_jpegs(ip: str, access_code: str, max_frames: int = 500
                 end_idx = img.rfind(b"\xff\xd9")
                 if end_idx > start_idx:
                     jpeg_bytes = img[start_idx : end_idx + 2]
+                    _CAMERA_FRAME_CACHE[clean_ip] = (jpeg_bytes, time.time())
                     yield jpeg_bytes
                     frames_yielded += 1
+    except (socket.timeout, TimeoutError):
+        logger.debug(f"Port 6000 stream timeout for {clean_ip}")
     except Exception as e:
         logger.warning(f"Port 6000 stream error for {clean_ip}: {e}")
     finally:

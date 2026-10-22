@@ -186,7 +186,7 @@ export function renderCockpitPrinterCard(p, statusInfo, modelName, isPrinting, p
     const isPeekOpen = state.openCamPeekIds.has(String(p.id));
     const tg = window.Telegram?.WebApp;
     const initDataParam = tg?.initData ? `?initData=${encodeURIComponent(tg.initData)}` : "";
-    const peekSrc = isPeekOpen ? `/api/printers/${p.id}/snapshot${initDataParam}${initDataParam ? '&' : '?'}t=${Date.now()}` : "";
+    const peekSrc = isPeekOpen ? `/api/printers/${p.id}/snapshot${initDataParam}` : "";
 
     return `
         <div class="printer-card cockpit-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">

@@ -10,7 +10,7 @@ from aiohttp import web
 
 from config import logger
 from models.printer import BambuPrinter
-from services.camera_stream import async_stream_camera_frames, capture_real_camera_photo
+from services.camera_stream import async_stream_camera_frames, capture_real_camera_photo, get_cached_camera_frame
 from services.http.auth import check_auth, is_admin_request
 
 __all__ = [
@@ -258,11 +258,36 @@ async def handle_get_snapshot(request: web.Request) -> web.Response:
     if not p:
         return web.json_response({"error": "Printer not found"}, status=404)
 
+    # 1. Fast offline check: Avoid blocking on socket attempts when printer is offline
+    is_online = getattr(p, "is_online", True)
+    if not is_online:
+        cached = get_cached_camera_frame(getattr(p, "ip", ""))
+        if cached:
+            return web.Response(
+                body=cached,
+                content_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=15", "X-Camera-Offline": "true"},
+            )
+        return web.json_response(
+            {"error": "Printer is offline", "retry_after": 30},
+            status=503,
+            headers={"Retry-After": "30"},
+        )
+
+    # 2. Fetch live frame or circuit breaker cached frame
     frame = await capture_real_camera_photo(p.ip, p.access_code)
     if not frame:
-        return web.json_response({"error": "Failed capturing camera frame"}, status=503)
+        return web.json_response(
+            {"error": "Failed capturing camera frame", "retry_after": 30},
+            status=503,
+            headers={"Retry-After": "30"},
+        )
 
-    return web.Response(body=frame, content_type="image/jpeg")
+    return web.Response(
+        body=frame,
+        content_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=5"},
+    )
 
 
 async def handle_get_camera_stream(request: web.Request) -> web.StreamResponse:

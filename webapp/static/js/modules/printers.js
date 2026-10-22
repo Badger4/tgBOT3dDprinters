@@ -261,10 +261,14 @@ export function renderPrinters(printers) {
     // Render Compact Dashboard Grid
     const dashboardGrid = document.getElementById("dashboard-grid");
     if (dashboardGrid) {
+        const isCompactActive = dashboardGrid.style.display !== "none" &&
+            localStorage.getItem("farm_view_mode") === "compact";
+
         dashboardGrid.innerHTML = printers.map(p => {
             const rawSt = String(p.state || "IDLE").toUpperCase();
             const statusInfo = getPrinterStatusInfo(rawSt);
             const isPrinting = statusInfo.code === "RUNNING";
+            const isOnline = p.is_online !== false && statusInfo.code !== "OFFLINE";
             const progress = p.progress_pct !== undefined ? p.progress_pct : 0;
             
             let timeStr = formatRemainingTime(p.remaining_mins);
@@ -274,7 +278,12 @@ export function renderPrinters(printers) {
 
             const initData = window.Telegram?.WebApp?.initData || "";
             const initDataParam = initData ? `?initData=${encodeURIComponent(initData)}` : '';
-            let thumbSrc = `/api/printers/${p.id}/snapshot${initDataParam}`;
+            
+            // Only request snapshot if compact view is active, printer is online, and not in failed cooldown
+            const failedAt = window._failedSnapshots?.[p.id] || 0;
+            const isFailedCooldown = (Date.now() - failedAt) < 45000;
+            const canLoadSnapshot = isCompactActive && isOnline && !isFailedCooldown;
+            const thumbSrc = canLoadSnapshot ? `/api/printers/${p.id}/snapshot${initDataParam}` : '';
             
             return `
                 <div class="glass-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-state="${statusInfo.code}" style="padding: 10px; cursor: pointer; display: flex; flex-direction: column; position: relative;">
@@ -282,9 +291,9 @@ export function renderPrinters(printers) {
                         ${escapeHtml(p.name)}
                     </div>
                     <div style="width: 100%; aspect-ratio: 4/3; background: #000; border-radius: var(--radius-sm); overflow: hidden; position: relative; margin-bottom: 8px;">
-                        <img src="${thumbSrc}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
-                        <div style="display: none; position: absolute; inset: 0; align-items: center; justify-content: center; color: var(--text-dim); background: rgba(0,0,0,0.5);">
-                            <i class="fa-solid fa-camera-slash"></i>
+                        ${thumbSrc ? `<img src="${thumbSrc}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;" onload="if(window._failedSnapshots) delete window._failedSnapshots['${p.id}'];" onerror="this.style.display='none'; window._failedSnapshots = window._failedSnapshots || {}; window._failedSnapshots['${p.id}'] = Date.now(); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />` : ''}
+                        <div style="${thumbSrc ? 'display: none;' : 'display: flex;'} position: absolute; inset: 0; align-items: center; justify-content: center; color: var(--text-dim); background: rgba(0,0,0,0.5);">
+                            <i class="fa-solid ${!isOnline ? 'fa-power-off' : 'fa-camera-slash'}"></i>
                         </div>
                         <div class="status-pill ${statusInfo.badgeClass}" style="position: absolute; top: 4px; right: 4px; font-size: 9px; padding: 2px 6px;">
                             ${statusInfo.label}
@@ -1209,6 +1218,7 @@ export function initPrintersModule() {
             if (printersGrid) printersGrid.style.display = "";
             if (dashboardGrid) dashboardGrid.style.display = "none";
             localStorage.setItem("farm_view_mode", "detailed");
+            renderPrinters();
         });
 
         btnViewCompact.addEventListener("click", () => {
@@ -1218,6 +1228,7 @@ export function initPrintersModule() {
             if (printersGrid) printersGrid.style.display = "none";
             if (dashboardGrid) dashboardGrid.style.display = "grid";
             localStorage.setItem("farm_view_mode", "compact");
+            renderPrinters();
         });
 
         // Restore view preference
