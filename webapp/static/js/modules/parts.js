@@ -601,3 +601,6 @@ async function handle3mfFileUpload(file) {
         if (progressEl) progressEl.textContent = "⚠️ Мережева помилка завантаження файлу.";
     }
 }
+
+export const initPartsModule = initPartUploadListeners;
+export const renderPartsList = loadParts;

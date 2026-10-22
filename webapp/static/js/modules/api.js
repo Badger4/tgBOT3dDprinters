@@ -7,6 +7,8 @@ export function getSessionToken() {
     return localStorage.getItem("3d_farm_session") || localStorage.getItem("web_session_token") || "";
 }
 
+export const getWebSessionToken = getSessionToken;
+
 export function getTelegramInitData() {
     return window.Telegram?.WebApp?.initData || "";
 }
@@ -52,6 +54,20 @@ export async function apiFetch(url, options = {}) {
 // Printers API
 export async function fetchPrintersApi() {
     const res = await apiFetch("/api/printers");
+    if (!res.ok) {
+        const err = new Error(`HTTP error ${res.status}`);
+        err.status = res.status;
+        throw err;
+    }
+    return res.json();
+}
+
+export async function createPrinterApi(printerData) {
+    const res = await apiFetch("/api/printers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(printerData)
+    });
     return res.json();
 }
 
@@ -108,6 +124,11 @@ export async function sendFleetCalibrateApi(printerIds = null) {
 // Spools API
 export async function fetchSpoolsApi() {
     const res = await apiFetch("/api/spools");
+    if (!res.ok) {
+        const err = new Error(`HTTP error ${res.status}`);
+        err.status = res.status;
+        throw err;
+    }
     return res.json();
 }
 
@@ -287,3 +308,33 @@ export async function deleteUserApi(userId) {
     });
     return res.json();
 }
+
+// Files API
+export async function fetchFilesApi() {
+    try {
+        const res = await apiFetch("/api/files");
+        if (res.ok) return await res.json();
+    } catch (_) {}
+    return { files: [] };
+}
+
+// Unified API Facade
+export const api = {
+    getPrinters: fetchPrintersApi,
+    getSpools: fetchSpoolsApi,
+    sendPrinterAction: (printerId, actionPayload) => controlPrinterApi(printerId, actionPayload?.action || actionPayload, actionPayload),
+    addPrinter: createPrinterApi,
+    deletePrinter: deletePrinterApi,
+    getPrinterSettings: fetchPrinterSettingsApi,
+    savePrinterSettings: savePrinterSettingsApi,
+    getParts: fetchPartsApi,
+    savePart: savePartApi,
+    deletePart: deletePartApi,
+    printPart: printPartApi,
+    getHistory: fetchHistoryApi,
+    getCommercialPresets: fetchCommercialPresetsApi,
+    saveCommercialPreset: saveCommercialPresetApi,
+    deleteCommercialPreset: deleteCommercialPresetApi,
+    calculateCommercial: calculateCommercialApi,
+    fetchFiles: fetchFilesApi,
+};

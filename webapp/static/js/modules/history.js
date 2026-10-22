@@ -436,3 +436,5 @@ export function initHistoryEventListeners() {
     document.getElementById("btn-submit-scrap")?.addEventListener("click", submitMarkScrap);
     document.getElementById("close-scrap-modal")?.addEventListener("click", closeScrapModal);
 }
+
+export const initHistoryModule = initHistoryEventListeners;

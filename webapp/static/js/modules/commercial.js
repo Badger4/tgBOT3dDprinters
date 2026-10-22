@@ -266,3 +266,5 @@ export function initCommercialEventListeners() {
     document.getElementById("cancel-preset-submit")?.addEventListener("click", closePresetModal);
     document.getElementById("close-preset-modal")?.addEventListener("click", closePresetModal);
 }
+
+export const initCommercialCalculator = initCommercialEventListeners;

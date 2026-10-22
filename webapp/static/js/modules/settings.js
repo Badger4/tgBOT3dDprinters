@@ -452,3 +452,6 @@ export function initSettingsEventListeners() {
         }
     });
 }
+
+export const initSettingsModule = initSettingsEventListeners;
+export const applyLanguageDictionary = setAppLanguage;
