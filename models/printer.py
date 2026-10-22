@@ -615,7 +615,7 @@ class BambuPrinter:
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
-        self._client.on_error = self._on_error  # type: ignore[attr-defined]
+        setattr(self._client, "on_error", self._on_error)
 
         try:
             self._client.connect_async(self.ip, 8883, 60)

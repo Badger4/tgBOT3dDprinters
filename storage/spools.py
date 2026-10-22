@@ -79,8 +79,9 @@ class SpoolRepository(BaseStorage):
         filtered = {}
         for s_id, s in raw_dict.items():
             if isinstance(s, dict):
+                rem_val = s.get("remaining_grams", 1000.0)
                 try:
-                    rem_g = float(s.get("remaining_grams", 1000.0))
+                    rem_g = float(rem_val) if isinstance(rem_val, (int, float, str)) else 1000.0
                 except (ValueError, TypeError):
                     rem_g = 1000.0
                 if rem_g > 0.0:

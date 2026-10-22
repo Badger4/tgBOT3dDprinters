@@ -248,6 +248,7 @@ def parse_3mf_file(file_input: bytes | str | Path, filename: str = "") -> dict[s
     """
     objects_list: list[dict[str, Any]] = []
     bbox_list: list[dict[str, Any]] = []
+    zip_target: str | io.BytesIO
     
     if isinstance(file_input, (str, Path)):
         fpath = Path(file_input)
