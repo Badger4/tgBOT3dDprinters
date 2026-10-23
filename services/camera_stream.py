@@ -45,7 +45,7 @@ async def check_tcp_port_open(ip: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
-def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
+def _fetch_bambu_port6000_jpeg(ip: str, access_code: str, timeout: float = 2.5) -> bytes | None:
     """
     Connects to Bambu Lab Port 6000 TLS Stream, sends binary authentication packet,
     and returns exact JPEG frame with header length parsing.
@@ -56,7 +56,7 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str) -> bytes | None:
     clean_code = str(access_code or "").strip()
     try:
         raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        raw_socket.settimeout(0.8)
+        raw_socket.settimeout(timeout)
 
         context = ssl.create_default_context()
         context.check_hostname = False
