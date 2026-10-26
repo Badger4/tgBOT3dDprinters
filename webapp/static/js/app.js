@@ -8,7 +8,7 @@ import { state, initLegacyStateBridges } from "./modules/state.js";
 import { escapeHtml, formatRemainingTime, getPrinterStatusInfo, triggerHaptic } from "./modules/utils.js";
 import { initSSEStream, setupVisibilityHandler } from "./modules/sse.js";
 import { initCommercialCalculator, loadCommercialPresets, recalculateCommercial } from "./modules/commercial.js";
-import { fetchPrinters, renderPrinters, openPrinterModal, closePrinterModal, initPrintersModule } from "./modules/printers.js";
+import { fetchPrinters, renderPrinters, openPrinterModal, closePrinterModal, initPrintersModule, updatePrinterModalContent } from "./modules/printers.js";
 import { loadMaterials, renderFilteredSpoolsInventory, openAddSpoolModal, closeSpoolModal, submitSaveSpool, openAssignSpoolModal, openSpoolMovementsModal, closeSpoolMovementsModal, openSpoolMovementsFor } from "./modules/spools.js";
 import { loadParts, renderPartsList, openAddPartModal, closeAddPartModal, submitSavePart, adjustPartQuantity, deletePart, showPartDetails, closePartDetailsModal, initPartsModule, triggerPrintPartById } from "./modules/parts.js";
 import { loadHistory, renderHistoryList, openScrapModal, closeScrapModal, submitMarkScrap, initHistoryModule } from "./modules/history.js";
@@ -304,10 +304,63 @@ async function bootstrapApp() {
     loadCommercialPresets();
     recalculateCommercial();
 
-    // 7. Live SSE Stream & Backup Polling
-    initSSEStream();
-    setupVisibilityHandler(fetchPrinters);
-    state.pollInterval = setInterval(fetchPrinters, 4000);
+    // 7. Live SSE Stream & Backup Polling Lifecycle
+    const startBackupPolling = () => {
+        if (!state.pollInterval && !document.hidden) {
+            state.pollInterval = setInterval(fetchPrinters, 4000);
+        }
+    };
+
+    const stopBackupPolling = () => {
+        if (state.pollInterval) {
+            clearInterval(state.pollInterval);
+            state.pollInterval = null;
+        }
+    };
+
+    const handleSSEPrinters = (printers) => {
+        if (!Array.isArray(printers)) return;
+        state.printers = printers;
+        renderPrinters(state.printers);
+        if (state.selectedPrinterId && document.getElementById("printer-modal")?.classList.contains("active")) {
+            const currentP = state.printers.find(p => p.id === state.selectedPrinterId);
+            if (currentP) updatePrinterModalContent(currentP);
+        }
+    };
+
+    initSSEStream({
+        onOpen: () => {
+            // SSE stream connected: stop backup polling to prevent race conditions and redundant network traffic
+            stopBackupPolling();
+        },
+        onPrinters: handleSSEPrinters,
+        onFinish: () => {
+            triggerHaptic("success");
+            const activeTab = document.querySelector(".tab-page.active")?.id;
+            if (activeTab === "tab-history") loadHistory();
+        },
+        onError: (err) => {
+            console.warn("SSE stream disconnected, activating backup polling:", err);
+            startBackupPolling();
+        }
+    });
+
+    setupVisibilityHandler({
+        onVisible: () => {
+            fetchPrinters();
+            if (!window.EventSource) {
+                startBackupPolling();
+            }
+        },
+        onHidden: () => {
+            stopBackupPolling();
+        }
+    });
+
+    // Only start initial polling if EventSource is unsupported in this environment
+    if (!window.EventSource) {
+        startBackupPolling();
+    }
 }
 
 // Ensure execution when DOM is ready
