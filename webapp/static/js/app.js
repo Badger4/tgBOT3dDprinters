@@ -7,7 +7,7 @@ import { setupFetchInterceptor, api } from "./modules/api.js";
 import { state, initLegacyStateBridges } from "./modules/state.js";
 import { escapeHtml, formatRemainingTime, getPrinterStatusInfo, triggerHaptic } from "./modules/utils.js";
 import { initSSEStream, setupVisibilityHandler } from "./modules/sse.js";
-import { initCommercialCalculator, loadCommercialPresets, recalculateCommercial } from "./modules/commercial.js";
+import { initCommercialCalculator, loadCommercialPresets, recalculateCommercial, openPresetModal, closePresetModal, submitSavePreset, deletePreset, exportCommercialPdf } from "./modules/commercial.js";
 import { fetchPrinters, renderPrinters, openPrinterModal, closePrinterModal, initPrintersModule, updatePrinterModalContent } from "./modules/printers.js";
 import { loadMaterials, renderFilteredSpoolsInventory, openAddSpoolModal, closeSpoolModal, submitSaveSpool, openAssignSpoolModal, closeAssignSpoolModal, confirmAssignSpool, openSpoolMovementsModal, closeSpoolMovementsModal, openSpoolMovementsFor, initSpoolsModule } from "./modules/spools.js";
 import { loadParts, renderPartsList, openAddPartModal, closeAddPartModal, submitSavePart, adjustPartQuantity, deletePart, showPartDetails, closePartDetailsModal, initPartsModule, triggerPrintPartById } from "./modules/parts.js";
@@ -51,6 +51,11 @@ window.fetchPrinters = fetchPrinters;
 window.showToast = showToast;
 window.recalculateCommercial = recalculateCommercial;
 window.loadCommercialPresets = loadCommercialPresets;
+window.openPresetModal = openPresetModal;
+window.closePresetModal = closePresetModal;
+window.submitSavePreset = submitSavePreset;
+window.deletePreset = deletePreset;
+window.exportCommercialPdf = exportCommercialPdf;
 
 // ============================================================================
 // Header 3MF Upload & Quick Action Modal

@@ -1263,14 +1263,14 @@
         </div>
 
         <!-- PRESET MODAL (ADD / EDIT COMMERCIAL PRESET) -->
-        <div id="preset-modal" class="modal-backdrop">
+        <div id="preset-modal" class="modal-backdrop" onclick="if(event.target===this)window.closePresetModal()">
             <div class="modal-window">
                 <div class="modal-header">
                     <h3 id="preset-modal-title">Створити пресет ціноутворення</h3>
-                    <button id="close-preset-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
+                    <button type="button" id="close-preset-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body">
-                    <form id="preset-form">
+                    <form id="preset-form" onsubmit="return false;">
                         <div class="form-group">
                             <label>Назва пресета</label>
                             <input type="text" id="preset-name" class="form-control" placeholder="Стандарт PLA (850 грн/кг, +100%)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required>
@@ -1305,7 +1305,7 @@
                                 <input type="text" id="preset-profit" class="form-control" value="100%" placeholder="100% або 50 грн" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                             </div>
                         </div>
-                        <button type="submit" id="save-preset-submit" class="btn btn-primary w-100 mt-2">Зберегти пресет</button>
+                        <button type="button" id="save-preset-submit" class="btn btn-primary w-100 mt-2">Зберегти пресет</button>
                     </form>
                 </div>
             </div>
@@ -1522,6 +1522,6 @@
     <!-- html2pdf Library for PDF exports (deferred background load) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp Application JS -->
-    <script type="module" src="/static/js/app.js?v=1146"></script>
+    <script type="module" src="/static/js/app.js?v=1147"></script>
 </body>
 </html>

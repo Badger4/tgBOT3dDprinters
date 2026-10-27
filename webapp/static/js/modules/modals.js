@@ -11,7 +11,7 @@ import { openPrinterSettingsModal } from "./settings.js";
 import { openSpoolMovementsFor, openAssignSpoolModal, openAddSpoolModal, loadMaterials } from "./spools.js";
 import { adjustPartQuantity, triggerPrintPartById, openAddPartModal, deletePart, showPartDetails, loadParts } from "./parts.js";
 import { reprintJob, deleteHistoryItem, openScrapModal, loadHistory } from "./history.js";
-import { loadCommercialPresets } from "./commercial.js";
+import { loadCommercialPresets, openPresetModal, deletePreset } from "./commercial.js";
 
 /**
  * Update Telegram BackButton visibility based on active modals
@@ -414,49 +414,27 @@ export function initEventDelegation() {
     }
 
     // 6. Commercial Presets delegation
-    const cpList = document.getElementById("commercial-presets-list");
+    const cpList = document.getElementById("presets-list") || document.getElementById("commercial-presets-list");
     if (cpList && !cpList._delegated) {
         cpList._delegated = true;
         cpList.addEventListener("click", async (e) => {
             const editBtn = e.target.closest(".btn-edit-preset");
             if (editBtn) {
+                e.preventDefault();
                 e.stopPropagation();
                 const pId = editBtn.getAttribute("data-id");
-                const p = state.presets[pId];
+                const p = state.presets ? state.presets[pId] : null;
                 if (!p) return;
-
-                state.editingPresetId = pId;
-                const titleEl = document.getElementById("preset-modal-title");
-                if (titleEl) titleEl.textContent = "✏️ Редагувати пресет";
-
-                const n = document.getElementById("preset-name");
-                const pg = document.getElementById("preset-price-g");
-                const el = document.getElementById("preset-elec-rate");
-                const pw = document.getElementById("preset-power");
-                const dep = document.getElementById("preset-depreciation");
-                const con = document.getElementById("preset-consumables");
-                const prf = document.getElementById("preset-profit");
-
-                if (n) n.value = p.name || "";
-                if (pg) pg.value = p.price_per_g !== undefined ? p.price_per_g : 0.85;
-                if (el) el.value = p.electricity_rate_uah !== undefined ? p.electricity_rate_uah : 4.32;
-                if (pw) pw.value = p.power_watts !== undefined ? p.power_watts : 120;
-                if (dep) dep.value = p.depreciation_val || "10";
-                if (con) con.value = p.consumables_val || "5";
-                if (prf) prf.value = p.profit_val || "100%";
-
-                triggerHaptic("light");
-                const presetModal = document.getElementById("preset-modal");
-                if (presetModal) presetModal.classList.add("active");
+                openPresetModal(p);
                 return;
             }
             const delBtn = e.target.closest(".btn-delete-preset");
             if (delBtn) {
+                e.preventDefault();
                 e.stopPropagation();
                 const pId = delBtn.getAttribute("data-id");
-                if (confirm("Видалити цей пресет?")) {
-                    await fetch(`/api/commercial/presets/${pId}`, { method: "DELETE" });
-                    loadCommercialPresets();
+                if (pId) {
+                    await deletePreset(pId);
                 }
                 return;
             }

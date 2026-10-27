@@ -84,6 +84,37 @@ export function calculateCommercialQuote(preset, weightG, timeMins, options = {}
     };
 }
 
+export function normalizePresetInputs({ name, rawPrice, elecRate, powerWatts, deprVal, consVal, profitVal }) {
+    const trimmedName = String(name || "").trim();
+    if (!trimmedName) {
+        throw new Error("Введіть назву пресету!");
+    }
+
+    const priceNum = parseFloat(String(rawPrice !== undefined && rawPrice !== null ? rawPrice : 0.85).replace(",", "."));
+    const finalPrice = isNaN(priceNum) || priceNum <= 0 ? 0.85 : (priceNum >= 50 ? priceNum / 1000 : priceNum);
+    const roundedPrice = Math.round(finalPrice * 1000) / 1000;
+
+    const elecNum = parseFloat(String(elecRate !== undefined && elecRate !== null ? elecRate : 4.32).replace(",", "."));
+    const finalElec = isNaN(elecNum) || elecNum < 0 ? 4.32 : Math.round(elecNum * 100) / 100;
+
+    const powerNum = parseFloat(String(powerWatts !== undefined && powerWatts !== null ? powerWatts : 120).replace(",", "."));
+    const finalPower = isNaN(powerNum) || powerNum < 0 ? 120 : Math.round(powerNum);
+
+    const cleanDepr = String(deprVal !== undefined && deprVal !== null ? deprVal : "10").trim() || "10";
+    const cleanCons = String(consVal !== undefined && consVal !== null ? consVal : "5").trim() || "5";
+    const cleanProfit = String(profitVal !== undefined && profitVal !== null ? profitVal : "100%").trim() || "100%";
+
+    return {
+        name: trimmedName,
+        price_per_g: roundedPrice,
+        electricity_rate_uah: finalElec,
+        power_watts: finalPower,
+        depreciation_val: cleanDepr,
+        consumables_val: cleanCons,
+        profit_val: cleanProfit
+    };
+}
+
 export function formatRemainingTime(mins, nowMs = Date.now()) {
     if (!mins || mins <= 0) return '';
     const h = Math.floor(mins / 60);
@@ -600,5 +631,67 @@ describe('Parts Warehouse Filtering & Search', () => {
 
     it('returns empty array when query does not match any field', () => {
         assert.equal(filterParts(mockParts, 'неіснуюча_деталь').length, 0);
+    });
+});
+
+describe('Commercial Presets & Payload Validation', () => {
+    it('throws error when name is empty or only whitespace', () => {
+        assert.throws(() => {
+            normalizePresetInputs({ name: '' });
+        }, /Введіть назву пресету!/);
+
+        assert.throws(() => {
+            normalizePresetInputs({ name: '   ' });
+        }, /Введіть назву пресету!/);
+    });
+
+    it('normalizes price per gram from decimal and handles price per kg (>= 50)', () => {
+        const fromPerG = normalizePresetInputs({ name: 'PLA 0.85', rawPrice: '0.85' });
+        assert.equal(fromPerG.price_per_g, 0.85);
+
+        const fromPerKg = normalizePresetInputs({ name: 'PLA 850/kg', rawPrice: '850' });
+        assert.equal(fromPerKg.price_per_g, 0.85);
+
+        const fromComma = normalizePresetInputs({ name: 'PETG Comma', rawPrice: '1,25' });
+        assert.equal(fromComma.price_per_g, 1.25);
+    });
+
+    it('falls back to defaults for invalid electricity and power numbers', () => {
+        const defaults = normalizePresetInputs({
+            name: 'Fallback Test',
+            rawPrice: '-10',
+            elecRate: 'abc',
+            powerWatts: '-50'
+        });
+
+        assert.equal(defaults.price_per_g, 0.85);
+        assert.equal(defaults.electricity_rate_uah, 4.32);
+        assert.equal(defaults.power_watts, 120);
+    });
+
+    it('correctly parses custom electricity tariff and power wattage', () => {
+        const custom = normalizePresetInputs({
+            name: 'Industrial Print',
+            rawPrice: '0.95',
+            elecRate: '5,80',
+            powerWatts: '350'
+        });
+
+        assert.equal(custom.electricity_rate_uah, 5.80);
+        assert.equal(custom.power_watts, 350);
+    });
+
+    it('preserves percentage and fixed strings for depreciation, consumables and profit', () => {
+        const res = normalizePresetInputs({
+            name: 'High Margin Carbon',
+            rawPrice: '1.5',
+            deprVal: '15%',
+            consVal: '8 грн/год',
+            profitVal: '150%'
+        });
+
+        assert.equal(res.depreciation_val, '15%');
+        assert.equal(res.consumables_val, '8 грн/год');
+        assert.equal(res.profit_val, '150%');
     });
 });
