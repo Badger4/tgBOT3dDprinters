@@ -1001,7 +1001,7 @@ async def handle_mount_states(message: Message, app, user: dict, state: str, tex
 
         selected_item = next(
             (m for m in mounted_list if m["button_text"] == text or text in m["button_text"] or m["slot_label"] in text or m["name"] in text),
-            mounted_list[0] if len(mounted_list) == 1 else None,
+            None,
         )
         if selected_item:
             p_id = selected_item["printer_id"]

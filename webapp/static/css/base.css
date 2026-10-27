@@ -147,6 +147,37 @@ body {
 .badge-success {
     background: rgba(16, 185, 129, 0.2);
     color: var(--emerald);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.badge-warning {
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--amber);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.badge-danger {
+    background: rgba(244, 63, 94, 0.2);
+    color: var(--rose);
+    border: 1px solid rgba(244, 63, 94, 0.4);
+}
+
+.badge-primary {
+    background: rgba(99, 102, 241, 0.2);
+    color: var(--primary);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
+.badge-secondary {
+    background: rgba(148, 163, 184, 0.2);
+    color: var(--text-muted);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.badge-info {
+    background: rgba(14, 165, 233, 0.2);
+    color: #0ea5e9;
+    border: 1px solid rgba(14, 165, 233, 0.4);
 }
 
 .icon-btn {
@@ -251,11 +282,42 @@ body {
     }
 }
 
-/* Flex Utilities */
-.d-flex { display: flex; }
+/* Flex, Gap & Alignment Utilities */
+.d-flex { display: flex !important; }
 .hidden, .d-flex.hidden { display: none !important; }
+.gap-1 { gap: 4px !important; }
 .gap-2 { gap: 8px !important; }
+.gap-3 { gap: 12px !important; }
+.flex-wrap { flex-wrap: wrap !important; }
 .align-items-center { align-items: center !important; }
+.justify-content-between { justify-content: space-between !important; }
+.justify-content-center { justify-content: center !important; }
+.flex-shrink-0 { flex-shrink: 0 !important; }
+
+/* Position Utilities */
+.position-relative { position: relative !important; }
+.position-absolute { position: absolute !important; }
+.top-0 { top: 0 !important; }
+.start-0 { left: 0 !important; }
+.end-0 { right: 0 !important; }
+.bottom-0 { bottom: 0 !important; }
+
+/* Brand and Functional Color Utilities (Used throughout HTML & JS icons/badges) */
+.color-green { color: var(--emerald) !important; }
+.color-red { color: var(--rose) !important; }
+.color-amber, .color-orange { color: var(--amber) !important; }
+.color-blue { color: var(--primary) !important; }
+.color-cyan { color: var(--cyan, #06b6d4) !important; }
+.color-purple { color: var(--purple, #a855f7) !important; }
+
+/* Text Color Classes */
+.text-success { color: var(--emerald) !important; }
+.text-danger { color: var(--rose) !important; }
+.text-warning { color: var(--amber) !important; }
+.text-info { color: #0ea5e9 !important; }
+.text-muted { color: var(--text-muted) !important; }
+.text-white { color: #ffffff !important; }
+.text-center { text-align: center !important; }
 
 
 /* ==========================================================================

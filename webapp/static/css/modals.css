@@ -310,22 +310,21 @@
 
 .modal-window input,
 .modal-window select,
-.form-control {
+.modal-window textarea,
+.modal-window .form-control {
     width: 100%;
     box-sizing: border-box;
-    background: rgba(15, 23, 42, 0.9) !important;
+    background: rgba(15, 23, 42, 0.9);
     border: 1px solid var(--border-glass);
     border-radius: var(--radius-sm);
     padding: 10px 12px;
-    color: #fff !important;
+    color: #fff;
     font-size: 13px;
     outline: none;
     transition: var(--transition);
-    pointer-events: auto !important;
-    -webkit-user-select: text !important;
-    user-select: text !important;
-    position: relative !important;
-    z-index: 10 !important;
+    pointer-events: auto;
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 .form-control:focus {

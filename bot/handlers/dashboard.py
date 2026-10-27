@@ -673,6 +673,11 @@ async def handle_history(message: Message, app):
         resize_keyboard=True,
     )
     # Set reply keyboard for persistent navigation buttons while displaying inline interactive controls
+    await message.answer(
+        "📜 <b>Журнал історії друку</b>" if not is_en else "📜 <b>Print History Log</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=pdf_kb,
+    )
     await message.answer(hist_txt, parse_mode=ParseMode.HTML, reply_markup=ikb)
 
 

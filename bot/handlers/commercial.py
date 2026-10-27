@@ -567,14 +567,27 @@ async def handle_commercial_wizard(message: Message, app):
         if not target:
             await message.answer("⚠️ Пресет не знайдено.")
             return True
-        presets.pop(target["id"], None)
-        await app.storage.save_json(get_presets_path(app), presets)
-        user["state"] = "idle"
-        await app.storage.save_user(user)
-        await message.answer(
-            f"🗑️ Пресет <b>«{html.escape(target['name'])}»</b> успішно видалено!", parse_mode=ParseMode.HTML
+        confirm_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🗑️ Підтвердити видалення",
+                        callback_data=f"conf_del_preset:{target['id']}",
+                    ),
+                    InlineKeyboardButton(
+                        text="❌ Скасувати",
+                        callback_data="canc_del_preset",
+                    ),
+                ]
+            ]
         )
-        await handle_commercial_menu(message, app)
+        await message.answer(
+            f"⚠️ <b>Ви підтверджуєте видалення пресету?</b>\n\n"
+            f"💰 Пресет: <b>«{html.escape(target['name'])}»</b>\n"
+            f"<i>Цю дію неможливо скасувати!</i>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=confirm_kb,
+        )
         return True
 
     # 5. QUICK CALC WIZARD
@@ -889,6 +902,63 @@ async def handle_edit_preset_done(callback: CallbackQuery, app):
     user["context_data"] = {}
     u_lang = user.get("language", "uk")
     await callback.message.answer("✅ Зміни пресету збережено!" if u_lang != "en" else "✅ Preset changes saved!")
+    from bot.handlers.commercial import handle_commercial_menu
+    await handle_commercial_menu(callback.message, app)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("conf_del_preset:"))
+async def handle_confirm_delete_preset(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    preset_id = callback.data.split(":", 1)[1]
+    presets = await get_user_presets(app)
+
+    deleted_name = ""
+    if preset_id in presets:
+        deleted_name = presets[preset_id].get("name", preset_id)
+        del presets[preset_id]
+        await app.storage.save_json(get_presets_path(app), presets)
+
+    user["state"] = "idle"
+    if "commercial" in user.get("context_data", {}):
+        user["context_data"].pop("commercial", None)
+    await app.storage.save_user(user)
+
+    u_lang = user.get("language", "uk")
+    msg_txt = (
+        f"🗑️ Пресет «{html.escape(deleted_name)}» видалено!"
+        if u_lang != "en"
+        else f"🗑️ Preset «{html.escape(deleted_name)}» deleted!"
+    )
+
+    try:
+        await callback.message.edit_text(msg_txt, parse_mode=ParseMode.HTML)
+    except Exception:
+        await callback.message.answer(msg_txt, parse_mode=ParseMode.HTML)
+
+    from bot.handlers.commercial import handle_commercial_menu
+    await handle_commercial_menu(callback.message, app)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "canc_del_preset")
+async def handle_cancel_delete_preset(callback: CallbackQuery, app):
+    chat_id = str(callback.message.chat.id)
+    user = await app.storage.load_user(chat_id)
+    user["state"] = "idle"
+    if "commercial" in user.get("context_data", {}):
+        user["context_data"].pop("commercial", None)
+    await app.storage.save_user(user)
+
+    u_lang = user.get("language", "uk")
+    msg_txt = "❌ Видалення пресету скасовано." if u_lang != "en" else "❌ Preset deletion cancelled."
+
+    try:
+        await callback.message.edit_text(msg_txt, parse_mode=ParseMode.HTML)
+    except Exception:
+        await callback.message.answer(msg_txt, parse_mode=ParseMode.HTML)
+
     from bot.handlers.commercial import handle_commercial_menu
     await handle_commercial_menu(callback.message, app)
     await callback.answer()

@@ -47,7 +47,13 @@ class TestBotHandlersFull(unittest.TestCase):
     async def _send_cb(self, data: str) -> AsyncMock:
         msg = Message(message_id=101, date=datetime.now(), chat=self.chat, from_user=self.user_obj, text="")
         mock_reply = AsyncMock()
+        mock_edit_text = AsyncMock()
+        mock_edit_rm = AsyncMock()
+        mock_answer = AsyncMock()
         object.__setattr__(msg, "reply", mock_reply)
+        object.__setattr__(msg, "edit_text", mock_edit_text)
+        object.__setattr__(msg, "edit_reply_markup", mock_edit_rm)
+        object.__setattr__(msg, "answer", mock_answer)
         cb = CallbackQuery(id="cb_test", from_user=self.user_obj, chat_instance="1", message=msg, data=data)
         mock_cb_answer = AsyncMock()
         object.__setattr__(cb, "answer", mock_cb_answer)
@@ -125,6 +131,7 @@ class TestBotHandlersFull(unittest.TestCase):
             mock_printer.start_calibration.return_value = True
             ans_cal = await self._send_msg("🎯 Калібрувати")
             self.assertTrue(ans_cal.called)
+            await self._send_cb("conf_calib:p1")
             mock_printer.start_calibration.assert_called_once()
 
             # 5. Filament Menu

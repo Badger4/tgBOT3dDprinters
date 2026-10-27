@@ -250,7 +250,33 @@ class BaseStorage:
                 except Exception:
                     pass
 
-    async def load_json(self, path: Path, default: Any) -> Any:
+    async def load_json(self, path: Path, default: Any, bypass_redirect: bool = False) -> Any:
+        key = path.name
+        if not bypass_redirect:
+            if key in ("parts.json", "parts_warehouse.json") and hasattr(self, "load_parts"):
+                return await self.load_parts()
+            if key == "spools.json" and hasattr(self, "load_spools"):
+                return await self.load_spools()
+            if key == "printers.json" and hasattr(self, "load_printers"):
+                res = await self.load_printers()
+                if isinstance(default, list) and isinstance(res, dict):
+                    return list(res.values())
+                if isinstance(default, dict) and isinstance(res, list):
+                    return {p["id"]: p for p in res if isinstance(p, dict) and "id" in p}
+                return res
+            if key in ("commercial_presets.json", "presets.json") and hasattr(self, "load_presets"):
+                res = await self.load_presets()
+                if not res and default is None:
+                    return None
+                return res
+            if key in ("global_settings.json", "farm_settings.json") and hasattr(self, "load_settings"):
+                res = await self.load_settings()
+                if not res and default:
+                    return default
+                return res
+            if key == "history.json" and hasattr(self, "load_history"):
+                return await self.load_history()
+
         lock = self._get_lock(path)
         async with lock:
             key = path.name

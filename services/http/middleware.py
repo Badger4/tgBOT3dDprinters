@@ -66,10 +66,12 @@ def get_client_ip(request: web.Request) -> str:
 IP_REQUEST_LOGS: dict[str, list[float]] = {}
 IP_UPLOAD_LOGS: dict[str, list[float]] = {}
 IP_CONTROL_LOGS: dict[str, list[float]] = {}
+IP_AUTH_LOGS: dict[str, list[float]] = {}
 
 MAX_REQ_PER_MINUTE = 300
 MAX_UPLOADS_PER_MINUTE = 30
 MAX_CONTROL_PER_MINUTE = 20
+MAX_AUTH_PER_MINUTE = 10
 
 
 _WEBAPP_CLEAN = WEBAPP_URL.rstrip("/") if WEBAPP_URL else ""
@@ -141,10 +143,14 @@ async def security_and_ratelimit_middleware(request: web.Request, handler: Any) 
     client_ip = get_client_ip(request)
     now = time.time()
 
+    is_auth = request.path in ("/api/auth/login", "/api/setup") or request.path.startswith("/api/auth/login")
     is_upload = request.path == "/api/files/upload"
     is_control = "/control" in request.path or "/commercial/presets" in request.path or "/access_code" in request.path
 
-    if is_upload:
+    if is_auth:
+        target_logs = IP_AUTH_LOGS
+        limit = MAX_AUTH_PER_MINUTE
+    elif is_upload:
         target_logs = IP_UPLOAD_LOGS
         limit = MAX_UPLOADS_PER_MINUTE
     elif is_control:

@@ -74,20 +74,90 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
         p_id = data.replace("notify_pause_", "")
         printer = app.printers.get(p_id)
         if printer:
+            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+            confirm_kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="⚠️ Підтвердити ПАУЗУ", callback_data=f"conf_notify_pause_{p_id}"),
+                        InlineKeyboardButton(text="❌ Скасувати", callback_data=f"canc_notify_pause_{p_id}"),
+                    ]
+                ]
+            )
+            try:
+                await callback.message.edit_reply_markup(reply_markup=confirm_kb)
+            except Exception:
+                pass
+            await callback.answer("⚠️ Натисніть 'Підтвердити ПАУЗУ' для зупинки друку!")
+            return
+
+    elif data.startswith("conf_notify_pause_"):
+        p_id = data.replace("conf_notify_pause_", "")
+        printer = app.printers.get(p_id)
+        if printer:
             printer.pause()
+            from bot.keyboards.notifications import get_error_notification_inline_keyboard
+            try:
+                await callback.message.edit_reply_markup(reply_markup=get_error_notification_inline_keyboard(p_id))
+            except Exception:
+                pass
             await callback.answer(f"⏸️ Надіслано команду Пауза на {printer.name}!", show_alert=True)
             return
+
+    elif data.startswith("canc_notify_pause_"):
+        p_id = data.replace("canc_notify_pause_", "")
+        from bot.keyboards.notifications import get_notification_inline_keyboard
+        try:
+            await callback.message.edit_reply_markup(reply_markup=get_notification_inline_keyboard(p_id))
+        except Exception:
+            pass
+        await callback.answer("Паузу скасовано.")
+        return
 
     elif data.startswith("notify_resume_"):
         p_id = data.replace("notify_resume_", "")
         printer = app.printers.get(p_id)
         if printer:
+            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+            confirm_kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="▶️ Підтвердити ВІДНОВЛЕННЯ", callback_data=f"conf_notify_resume_{p_id}"),
+                        InlineKeyboardButton(text="❌ Скасувати", callback_data=f"canc_notify_resume_{p_id}"),
+                    ]
+                ]
+            )
+            try:
+                await callback.message.edit_reply_markup(reply_markup=confirm_kb)
+            except Exception:
+                pass
+            await callback.answer("▶️ Натисніть 'Підтвердити ВІДНОВЛЕННЯ'!")
+            return
+
+    elif data.startswith("conf_notify_resume_"):
+        p_id = data.replace("conf_notify_resume_", "")
+        printer = app.printers.get(p_id)
+        if printer:
             res = printer.resume()
+            from bot.keyboards.notifications import get_notification_inline_keyboard
+            try:
+                await callback.message.edit_reply_markup(reply_markup=get_notification_inline_keyboard(p_id))
+            except Exception:
+                pass
             if res:
                 await callback.answer(f"▶️ Надіслано команду Відновити на {printer.name}!", show_alert=True)
             else:
                 await callback.answer("⚠️ Не вдалося відновити (MQTT не підключено).", show_alert=True)
             return
+
+    elif data.startswith("canc_notify_resume_"):
+        p_id = data.replace("canc_notify_resume_", "")
+        from bot.keyboards.notifications import get_error_notification_inline_keyboard
+        try:
+            await callback.message.edit_reply_markup(reply_markup=get_error_notification_inline_keyboard(p_id))
+        except Exception:
+            pass
+        await callback.answer("Відновлення скасовано.")
+        return
 
     elif data.startswith("notify_light_"):
         p_id = data.replace("notify_light_", "")

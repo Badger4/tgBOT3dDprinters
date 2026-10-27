@@ -67,7 +67,7 @@ class SpoolRepository(BaseStorage):
             return db_spools
 
         # Fallback to kv_store or legacy JSON file
-        legacy_data = await self.load_json(self.spools_file, default_spools)
+        legacy_data = await self.load_json(self.spools_file, default_spools, bypass_redirect=True)
         raw_dict = {}
         if isinstance(legacy_data, list):
             raw_dict = {s["id"]: s for s in legacy_data if isinstance(s, dict) and "id" in s}
@@ -254,6 +254,9 @@ class SpoolRepository(BaseStorage):
         new_weight_g: float,
         reason: str = "",
         user: str = "System",
+        printer_id: str = "",
+        slot_key: str = "",
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Records a spool weight movement / audit log entry in SQLite and syncs disk replica."""
         now = time.time()
@@ -269,6 +272,8 @@ class SpoolRepository(BaseStorage):
             "new_weight_g": round(float(new_weight_g), 2),
             "reason": reason or action,
             "user": user,
+            "printer_id": printer_id,
+            "slot_key": slot_key,
         }
 
         def _insert_db() -> bool:

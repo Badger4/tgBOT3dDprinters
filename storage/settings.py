@@ -37,7 +37,7 @@ class SettingsRepository(BaseStorage):
         if db_settings:
             return db_settings
 
-        data = await self.load_json(self.settings_file, {})
+        data = await self.load_json(self.settings_file, {}, bypass_redirect=True)
         res = data if isinstance(data, dict) else {}
         if res:
             await self.save_settings(res)

@@ -112,7 +112,29 @@
     box-shadow: 0 0 10px var(--emerald-glow);
 }
 
-.progress-bar.amber { background: linear-gradient(90deg, var(--amber), #eab308); box-shadow: 0 0 10px var(--amber-glow); }
+.progress-bar.green,
+.progress-bar.success {
+    background: linear-gradient(90deg, var(--emerald), #22c55e);
+    box-shadow: 0 0 10px var(--emerald-glow);
+}
+
+.progress-bar.amber,
+.progress-bar.warning {
+    background: linear-gradient(90deg, var(--amber), #eab308);
+    box-shadow: 0 0 10px var(--amber-glow);
+}
+
+.progress-bar.red,
+.progress-bar.danger {
+    background: linear-gradient(90deg, var(--rose), #ef4444);
+    box-shadow: 0 0 10px var(--rose-glow);
+}
+
+.progress-bar.blue,
+.progress-bar.primary {
+    background: linear-gradient(90deg, var(--primary), #3b82f6);
+    box-shadow: 0 0 10px var(--primary-glow);
+}
 
 .printer-stats-row {
     display: grid;
@@ -135,61 +157,6 @@
 }
 
 .printer-stats-row span i { flex-shrink: 0; }
-
-/* AMS Slots Visualization */
-.ams-printer-block {
-    margin-bottom: 16px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-glass);
-}
-.ams-printer-block:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-
-.ams-printer-title {
-    font-size: 14px;
-    font-weight: 600;
-    margin-bottom: 10px;
-    color: #fff;
-}
-
-.ams-slots-grid {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
-}
-
-.ams-slot-card {
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid var(--border-glass);
-    border-radius: var(--radius-md);
-    padding: 10px 6px;
-    text-align: center;
-    font-size: 11px;
-    position: relative;
-    transition: var(--transition);
-}
-
-.ams-slot-card.active-slot {
-    border-color: var(--emerald);
-    box-shadow: 0 0 12px var(--emerald-glow);
-}
-
-.slot-tag {
-    font-weight: 700;
-    color: var(--text-muted);
-    font-size: 10px;
-    margin-bottom: 4px;
-}
-
-.slot-spool-icon {
-    font-size: 18px;
-    margin: 4px 0;
-    color: var(--primary);
-}
-
-.slot-weight {
-    font-weight: 600;
-    color: #fff;
-}
 
 /* Spool List & AMS Container */
 .spools-list {
@@ -419,8 +386,8 @@
     transform: translateY(-50%);
     color: var(--text-muted);
     font-size: 14px;
-    pointer-events: none;
-    z-index: 3;
+    pointer-events: none !important;
+    z-index: 5 !important;
 }
 
 .search-input {
@@ -439,7 +406,7 @@
     -webkit-user-select: text !important;
     user-select: text !important;
     position: relative !important;
-    z-index: 2 !important;
+    z-index: 1 !important;
     box-sizing: border-box !important;
     transition: var(--transition);
 }
@@ -460,7 +427,8 @@
     color: var(--text-muted);
     font-size: 14px;
     cursor: pointer;
-    z-index: 4;
+    z-index: 6 !important;
+    pointer-events: auto !important;
     padding: 4px;
     display: flex;
     align-items: center;
@@ -711,6 +679,40 @@
     background: rgba(255, 255, 255, 0.15);
     color: #fff;
     border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Mobile 360px-440px Cockpit Header Adaptation */
+@media (max-width: 440px) {
+    .cockpit-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .cockpit-title-group {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .cockpit-title-row {
+        justify-content: space-between;
+    }
+
+    .cockpit-printer-name {
+        max-width: calc(100% - 90px);
+    }
+
+    .cockpit-quick-actions {
+        width: 100%;
+        justify-content: flex-end;
+        gap: 5px;
+    }
+
+    .btn-cockpit-quick {
+        height: 30px;
+        padding: 0 7px;
+        font-size: 11px;
+    }
 }
 
 .btn-cockpit-quick:active {

@@ -3,6 +3,7 @@
  */
 
 import { escapeHtml, triggerHaptic, renderVisualSpoolSvg, evaluateMathExpression } from "./utils.js";
+import { showToast } from "./modals.js";
 import { state } from "./state.js";
 import {
     fetchPrintersApi,
@@ -242,20 +243,39 @@ export async function submitSaveSpool(e) {
     }
 }
 
-export function openAssignSpoolModal(printers = null) {
+export function openAssignSpoolModal(printers = null, defaultPrinterId = null, defaultSlotId = null) {
     const modal = document.getElementById("assign-spool-modal");
     if (!modal) return;
     const selPrinter = document.getElementById("assign-printer-select");
     const selSlot = document.getElementById("assign-slot-select");
     const spoolNameSpan = document.getElementById("assign-spool-name");
+    const spoolInfoBox = document.getElementById("assign-spool-info");
+    const spoolSelectGroup = document.getElementById("assign-spool-select-group");
+    const spoolSelect = document.getElementById("assign-spool-select");
 
     const spool = state.selectedSpoolForAssign;
-    if (spoolNameSpan) {
-        if (spool) {
+    if (spool) {
+        if (spoolInfoBox) spoolInfoBox.style.display = "block";
+        if (spoolSelectGroup) spoolSelectGroup.style.display = "none";
+        if (spoolNameSpan) {
             const remGrams = spool.remaining_grams !== undefined ? spool.remaining_grams : 1000;
             spoolNameSpan.textContent = `${spool.name || 'Котушка'} (${spool.type || 'PLA'} • ${remGrams}g)`;
-        } else {
-            spoolNameSpan.textContent = "Котушка не обрана";
+        }
+    } else {
+        if (spoolInfoBox) spoolInfoBox.style.display = "none";
+        if (spoolSelectGroup) {
+            spoolSelectGroup.style.display = "block";
+            const spoolsMap = state.spools || {};
+            const availableSpools = Object.values(spoolsMap).filter(s => !s.assigned_printer_id && (s.quantity === undefined || Number(s.quantity) > 0));
+            if (spoolSelect) {
+                if (availableSpools.length === 0) {
+                    spoolSelect.innerHTML = `<option value="">На складі немає вільних котушок</option>`;
+                } else {
+                    spoolSelect.innerHTML = availableSpools.map(s => `
+                        <option value="${s.id}">${escapeHtml(s.name)} (${s.type || 'PLA'} • ${s.remaining_grams || 1000}g)</option>
+                    `).join("");
+                }
+            }
         }
     }
 
@@ -268,6 +288,7 @@ export function openAssignSpoolModal(printers = null) {
                 <option value="${p.id}">${escapeHtml(p.name)} (${p.has_ams ? 'З AMS' : 'Пряма подача'})</option>
             `).join("");
         }
+        if (defaultPrinterId) selPrinter.value = defaultPrinterId;
     }
 
     function updateSlots() {
@@ -289,6 +310,9 @@ export function openAssignSpoolModal(printers = null) {
         } else {
             selSlot.innerHTML = `<option value="254">Зовнішній котушкотримач</option>`;
         }
+        if (defaultSlotId !== null && defaultSlotId !== undefined) {
+            selSlot.value = String(defaultSlotId);
+        }
     }
 
     if (selPrinter) selPrinter.onchange = updateSlots;
@@ -309,8 +333,11 @@ export async function confirmAssignSpool() {
     if (btn && btn.disabled) return;
 
     const spool = state.selectedSpoolForAssign;
-    if (!spool || !spool.id) {
-        alert("⚠️ Будь ласка, оберіть котушку зі складу!");
+    const spoolSelect = document.getElementById("assign-spool-select");
+    const spoolId = spool?.id || (spoolSelect ? spoolSelect.value : "");
+
+    if (!spoolId) {
+        showToast("⚠️ Будь ласка, оберіть котушку зі складу!", "warning");
         return;
     }
 
@@ -320,7 +347,7 @@ export async function confirmAssignSpool() {
     const slotKey = selSlot ? selSlot.value : "0";
 
     if (!printerId) {
-        alert("⚠️ Будь ласка, оберіть принтер для встановлення котушки!");
+        showToast("⚠️ Будь ласка, оберіть принтер для встановлення котушки!", "warning");
         return;
     }
 
@@ -331,10 +358,11 @@ export async function confirmAssignSpool() {
     }
 
     try {
-        const res = await mountSpoolApi(spool.id, printerId, slotKey);
+        const res = await mountSpoolApi(spoolId, printerId, slotKey);
         const isSuccess = Boolean(res && !res.error && (res.status === "ok" || res.spool));
         if (isSuccess) {
             triggerHaptic("success");
+            showToast("✅ Котушку успішно встановлено на принтер!", "success");
             closeAssignSpoolModal();
             await loadMaterials();
             if (typeof window.fetchPrinters === "function") {
@@ -342,12 +370,12 @@ export async function confirmAssignSpool() {
             }
         } else {
             triggerHaptic("error");
-            alert("⚠️ Помилка призначення: " + (res?.error || "Невідома помилка"));
+            showToast("⚠️ Помилка призначення: " + (res?.error || "Невідома помилка"), "error");
         }
     } catch (err) {
         triggerHaptic("error");
         console.error("Mount spool error:", err);
-        alert("⚠️ Мережева помилка при призначенні котушки на принтер.");
+        showToast("⚠️ Мережева помилка при призначенні котушки на принтер.", "error");
     } finally {
         if (btn) {
             btn.disabled = false;

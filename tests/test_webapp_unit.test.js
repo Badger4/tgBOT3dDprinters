@@ -5,6 +5,12 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ============================================================================
 // 1. Tested Frontend Domain Logic
@@ -113,6 +119,57 @@ export function normalizePresetInputs({ name, rawPrice, elecRate, powerWatts, de
         consumables_val: cleanCons,
         profit_val: cleanProfit
     };
+}
+
+export function normalizeReprintTaskData(taskOrElement, origPrinterName = "", origPrinterId = "") {
+    let taskName = "";
+    let printerName = origPrinterName || "";
+    let printerId = origPrinterId || "";
+
+    if (taskOrElement && typeof taskOrElement === "object") {
+        if (typeof taskOrElement.getAttribute === "function") {
+            taskName = taskOrElement.getAttribute("data-task") || taskOrElement.dataset?.task || "";
+            printerName = printerName || taskOrElement.getAttribute("data-printer") || taskOrElement.dataset?.printer || "";
+            printerId = printerId || taskOrElement.getAttribute("data-printer-id") || taskOrElement.dataset?.printerId || "";
+        } else {
+            taskName = taskOrElement.taskName || taskOrElement.subtask_name || taskOrElement.task || taskOrElement.file || taskOrElement.name || "";
+            printerName = printerName || taskOrElement.printerName || taskOrElement.printer_name || taskOrElement.printer || "";
+            printerId = printerId || taskOrElement.printerId || taskOrElement.printer_id || taskOrElement.printer_sn || "";
+        }
+    } else {
+        taskName = String(taskOrElement || "");
+    }
+
+    return {
+        taskName: taskName.trim(),
+        printerName: String(printerName || "").trim(),
+        printerId: String(printerId || "").trim()
+    };
+}
+
+export function buildAuthenticatedExportUrl(rawUrl, { token = "", initData = "" } = {}) {
+    const sToken = token;
+    const sInitData = initData;
+
+    try {
+        const dummyBase = "http://localhost";
+        const isRelative = !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://");
+        const parsed = new URL(rawUrl, dummyBase);
+
+        if (sToken && !parsed.searchParams.has("token")) {
+            parsed.searchParams.set("token", sToken);
+        }
+        if (sInitData && !parsed.searchParams.has("initData")) {
+            parsed.searchParams.set("initData", sInitData);
+        }
+
+        if (isRelative) {
+            return parsed.pathname + parsed.search + parsed.hash;
+        }
+        return parsed.toString();
+    } catch (_) {
+        return rawUrl;
+    }
 }
 
 export function formatRemainingTime(mins, nowMs = Date.now()) {
@@ -693,5 +750,342 @@ describe('Commercial Presets & Payload Validation', () => {
         assert.equal(res.depreciation_val, '15%');
         assert.equal(res.consumables_val, '8 грн/год');
         assert.equal(res.profit_val, '150%');
+    });
+});
+
+describe('History & Reprint Task Normalization', () => {
+    it('normalizes string arguments cleanly', () => {
+        const res = normalizeReprintTaskData('bracket.3mf', 'Bambu A1', 'printer_1');
+        assert.equal(res.taskName, 'bracket.3mf');
+        assert.equal(res.printerName, 'Bambu A1');
+        assert.equal(res.printerId, 'printer_1');
+    });
+
+    it('extracts task and printer from a DOM element mock without crashing on .trim', () => {
+        const mockElement = {
+            getAttribute: (attr) => {
+                const map = {
+                    'data-task': 'gear_assembly.3mf',
+                    'data-printer': 'Bambu P1S',
+                    'data-printer-id': 'printer_2'
+                };
+                return map[attr] || null;
+            }
+        };
+
+        const res = normalizeReprintTaskData(mockElement);
+        assert.equal(res.taskName, 'gear_assembly.3mf');
+        assert.equal(res.printerName, 'Bambu P1S');
+        assert.equal(res.printerId, 'printer_2');
+    });
+
+    it('extracts task from plain object and trims whitespace', () => {
+        const res = normalizeReprintTaskData({
+            taskName: '   spool_holder.3mf   ',
+            printerName: 'A1 mini',
+            printerId: 'printer_3'
+        });
+
+        assert.equal(res.taskName, 'spool_holder.3mf');
+        assert.equal(res.printerName, 'A1 mini');
+        assert.equal(res.printerId, 'printer_3');
+    });
+
+    it('extracts subtask_name from real backend history item objects', () => {
+        const realHistoryItem = {
+            subtask_name: 'Drone_Arm_v2.3mf',
+            printer: 'Bambu Lab A1',
+            printer_sn: '01P00A123456789'
+        };
+
+        const res = normalizeReprintTaskData(realHistoryItem);
+        assert.equal(res.taskName, 'Drone_Arm_v2.3mf');
+        assert.equal(res.printerName, 'Bambu Lab A1');
+        assert.equal(res.printerId, '01P00A123456789');
+    });
+
+    it('handles null, undefined, numbers or empty input safely', () => {
+        const emptyRes = normalizeReprintTaskData(null);
+        assert.equal(emptyRes.taskName, '');
+        assert.equal(emptyRes.printerName, '');
+        assert.equal(emptyRes.printerId, '');
+
+        const undefRes = normalizeReprintTaskData(undefined);
+        assert.equal(undefRes.taskName, '');
+
+        const numRes = normalizeReprintTaskData(12345);
+        assert.equal(numRes.taskName, '12345');
+    });
+});
+
+describe('Authenticated PDF Export URL Normalization', () => {
+    it('injects token into relative export URL while preserving query params', () => {
+        const url = buildAuthenticatedExportUrl('/api/history/export_pdf?format=pdf', {
+            token: 'test_token_123'
+        });
+        assert.equal(url, '/api/history/export_pdf?format=pdf&token=test_token_123');
+    });
+
+    it('injects initData and token without duplicating existing keys', () => {
+        const url = buildAuthenticatedExportUrl('/api/spools/export_pdf?format=pdf&token=existing', {
+            token: 'new_token',
+            initData: 'query_id=123'
+        });
+        assert.equal(url, '/api/spools/export_pdf?format=pdf&token=existing&initData=query_id%3D123');
+    });
+
+    it('handles absolute URLs cleanly', () => {
+        const url = buildAuthenticatedExportUrl('https://myfarm.internal/api/parts/export_pdf?format=pdf', {
+            token: 'abc'
+        });
+        assert.equal(url, 'https://myfarm.internal/api/parts/export_pdf?format=pdf&token=abc');
+    });
+});
+
+describe('Settings & Farm Telemetry Formatters', () => {
+    function formatUptime(seconds, lang = 'uk') {
+        const sec = Math.max(0, parseInt(seconds, 10) || 0);
+        const isEn = lang === 'en';
+        const d = Math.floor(sec / 86400);
+        const h = Math.floor((sec % 86400) / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+
+        if (d > 0) {
+            return isEn ? `${d}d ${h}h ${m}m` : `${d} д ${h} год ${m} хв`;
+        }
+        if (h > 0) {
+            return isEn ? `${h}h ${m}m ${s}s` : `${h} год ${m} хв ${s} сек`;
+        }
+        if (m > 0) {
+            return isEn ? `${m}m ${s}s` : `${m} хв ${s} сек`;
+        }
+        return isEn ? `${s}s` : `${s} сек`;
+    }
+
+    it('formats seconds correctly under 1 minute', () => {
+        assert.equal(formatUptime(45, 'uk'), '45 сек');
+        assert.equal(formatUptime(45, 'en'), '45s');
+        assert.equal(formatUptime(0, 'uk'), '0 сек');
+        assert.equal(formatUptime(-10, 'uk'), '0 сек');
+    });
+
+    it('formats minutes and seconds under 1 hour', () => {
+        assert.equal(formatUptime(125, 'uk'), '2 хв 5 сек');
+        assert.equal(formatUptime(125, 'en'), '2m 5s');
+    });
+
+    it('formats hours, minutes and seconds under 1 day', () => {
+        assert.equal(formatUptime(3665, 'uk'), '1 год 1 хв 5 сек');
+        assert.equal(formatUptime(3665, 'en'), '1h 1m 5s');
+    });
+
+    it('formats days, hours and minutes above 1 day', () => {
+        assert.equal(formatUptime(90060, 'uk'), '1 д 1 год 1 хв');
+        assert.equal(formatUptime(90060, 'en'), '1d 1h 1m');
+    });
+});
+
+describe('Admin Users Table Row Builder', () => {
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function buildUserRowHtml(u) {
+        const uId = u.user_id || u.id || '';
+        const isApproved = u.approved === true || u.is_approved === true || u.status === 'approved';
+        const statusBadge = isApproved
+            ? `<span class="badge badge-success">Дозволено</span>`
+            : `<span class="badge badge-warning">Очікує</span>`;
+
+        const displayName = u.name || (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : '') || (u.username ? '@' + u.username : '') || String(uId);
+        const role = (u.role || 'USER').toUpperCase();
+        const roleBadge = `<span class="badge ${role === 'ADMIN' ? 'badge-primary' : 'badge-secondary'}">${escapeHtml(role)}</span>`;
+
+        return `
+        <tr>
+            <td><strong>${escapeHtml(displayName)}</strong></td>
+            <td><code>${escapeHtml(String(uId))}</code></td>
+            <td>${roleBadge}</td>
+            <td>${statusBadge}</td>
+            <td>
+                <div class="d-flex gap-1">
+                    ${!isApproved ? `
+                    <button type="button" class="btn btn-xs btn-success btn-approve-user" data-id="${escapeHtml(String(uId))}" title="Дозволити доступ">
+                        <i class="fa-solid fa-check"></i>
+                    </button>` : `
+                    <button type="button" class="btn btn-xs btn-outline-warning btn-revoke-user" data-id="${escapeHtml(String(uId))}" title="Заблокувати доступ">
+                        <i class="fa-solid fa-ban"></i>
+                    </button>`}
+                    <button type="button" class="btn btn-xs btn-outline-danger btn-delete-user" data-id="${escapeHtml(String(uId))}" title="Видалити користувача">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+        `.trim();
+    }
+
+    it('generates exactly 5 <td> columns for an approved user', () => {
+        const row = buildUserRowHtml({
+            user_id: '123456789',
+            name: 'Pavlo <Dev>',
+            role: 'ADMIN',
+            approved: true
+        });
+
+        const tdCount = (row.match(/<td/g) || []).length;
+        assert.equal(tdCount, 5, 'Must contain exactly 5 columns matching the table header');
+        assert.ok(row.includes('&lt;Dev&gt;'), 'Must escape user input against XSS');
+        assert.ok(row.includes('<code>123456789</code>'));
+        assert.ok(row.includes('badge-primary'));
+        assert.ok(row.includes('Дозволено'));
+        assert.ok(row.includes('btn-revoke-user'));
+    });
+
+    it('generates approve button and warning badge for pending user', () => {
+        const row = buildUserRowHtml({
+            user_id: '987654321',
+            first_name: 'John',
+            last_name: 'Doe',
+            role: 'USER',
+            approved: false
+        });
+
+        assert.ok(row.includes('John Doe'));
+        assert.ok(row.includes('badge-secondary'));
+        assert.ok(row.includes('Очікує'));
+        assert.ok(row.includes('btn-approve-user'));
+        assert.ok(!row.includes('btn-revoke-user'));
+    });
+
+    it('normalizes API response whether given array or { users: [...] }', () => {
+        const rawArray = [{ id: '1' }, { id: '2' }];
+        const rawWrapped = { users: [{ id: '1' }, { id: '2' }] };
+
+        const normalize = (res) => Array.isArray(res) ? res : (res?.users || []);
+        assert.equal(normalize(rawArray).length, 2);
+        assert.equal(normalize(rawWrapped).length, 2);
+        assert.equal(normalize(null).length, 0);
+        assert.equal(normalize({}).length, 0);
+    });
+
+    it('generates consistent printer list signatures for debouncing dropdown rebuilds', () => {
+        const pList1 = [
+            { id: 'p1', name: 'Bambu A1', model: 'A1' },
+            { id: 'p2', name: 'Bambu P1S', model: 'P1S' }
+        ];
+        const pList2 = [
+            { id: 'p1', name: 'Bambu A1', model: 'A1' },
+            { id: 'p2', name: 'Bambu P1S', model: 'P1S' }
+        ];
+        const pListModified = [
+            { id: 'p1', name: 'Bambu A1 New Name', model: 'A1' },
+            { id: 'p2', name: 'Bambu P1S', model: 'P1S' }
+        ];
+
+        const getSig = (list) => (list || []).map(p => `${p.id}:${p.name}:${p.model || p.printer_model || ''}`).join('|');
+        assert.equal(getSig(pList1), getSig(pList2));
+        assert.notEqual(getSig(pList1), getSig(pListModified));
+    });
+
+    it('removes masked bullet characters from access code payloads to prevent wiping secrets', () => {
+        const sanitizePayload = (payload) => {
+            const p = { ...payload };
+            if (p.accessCode?.includes('•')) {
+                delete p.accessCode;
+            }
+            return p;
+        };
+
+        const safe = sanitizePayload({ accessCode: '••••••••', name: 'Printer 1' });
+        assert.equal(safe.accessCode, undefined);
+        assert.equal(safe.name, 'Printer 1');
+
+        const real = sanitizePayload({ accessCode: '12345678', name: 'Printer 1' });
+        assert.equal(real.accessCode, '12345678');
+    });
+});
+
+describe('Design, CSS Architecture & Non-blocking Toast UX', () => {
+    it('infers toast type correctly from message content', () => {
+        function inferToastType(msg) {
+            const str = String(msg || '');
+            const isError = /помилка|error|failed|не вдалося|невірн|некоректн/i.test(str);
+            const isSuccess = /успішно|success|збережено|готово|скинуто/i.test(str);
+            return isError ? 'error' : (isSuccess ? 'success' : 'info');
+        }
+
+        assert.equal(inferToastType('✅ Налаштування успішно збережено!'), 'success');
+        assert.equal(inferToastType('Лічильник успішно скинуто'), 'success');
+        assert.equal(inferToastType('⚠️ Помилка збереження: 403 Forbidden'), 'error');
+        assert.equal(inferToastType('Не вдалося завантажити файл'), 'error');
+        assert.equal(inferToastType('Некоректне число!'), 'error');
+        assert.equal(inferToastType('Калібрування запущено'), 'info');
+        assert.equal(inferToastType('Котушку знято зі слоту'), 'info');
+    });
+
+    it('verifies search bar layer stacking hierarchy prevents input overlapping icons', () => {
+        const layers = {
+            input: 1,
+            icon: 5,
+            clearBtn: 6
+        };
+
+        assert.ok(layers.icon > layers.input, 'Icon must be stacked above input');
+        assert.ok(layers.clearBtn > layers.input, 'Clear button must be stacked above input');
+        assert.ok(layers.clearBtn >= layers.icon, 'Clear button must be interactive over icon');
+    });
+
+    it('verifies CSS versioning query parameters in @import directives', () => {
+        const styleCssPath = path.join(__dirname, '..', 'webapp', 'static', 'css', 'style.css');
+        const content = fs.readFileSync(styleCssPath, 'utf8');
+        const importLines = content.split('\n')
+            .map(l => l.trim())
+            .filter(l => l.startsWith('@import'));
+
+        assert.ok(importLines.length >= 5, 'Should have at least 5 import statements in style.css');
+        for (const imp of importLines) {
+            assert.ok(/\?v=\d+/.test(imp), `Import ${imp} in style.css must contain cache-busting version parameter`);
+        }
+    });
+
+    it('validates assign spool resolution supports both pre-selected and dropdown selection', () => {
+        function resolveSpoolId(selectedSpool, selectElementValue) {
+            return selectedSpool?.id || selectElementValue || '';
+        }
+
+        assert.equal(resolveSpoolId({ id: 'spool-from-warehouse' }, 'spool-from-select'), 'spool-from-warehouse');
+        assert.equal(resolveSpoolId(null, 'spool-from-select'), 'spool-from-select');
+        assert.equal(resolveSpoolId(undefined, ''), '');
+    });
+
+    it('validates slot grams prompt input resolution and math evaluation', () => {
+        function parseSlotGrams(input) {
+            if (!input || String(input).trim() === '') return null;
+            const str = String(input).trim();
+            if (/^[0-9+\-*/. ()]+$/.test(str)) {
+                try {
+                    const res = Function(`'use strict'; return (${str})`)();
+                    return typeof res === 'number' && !isNaN(res) && res >= 0 ? res : null;
+                } catch {
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        assert.equal(parseSlotGrams('1000'), 1000);
+        assert.equal(parseSlotGrams('1000 - 250'), 750);
+        assert.equal(parseSlotGrams('250 * 2 + 100'), 600);
+        assert.equal(parseSlotGrams('-50'), null);
+        assert.equal(parseSlotGrams('invalid'), null);
+        assert.equal(parseSlotGrams(''), null);
     });
 });

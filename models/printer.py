@@ -158,6 +158,7 @@ class BambuPrinter:
         self._is_printing = False
         self._was_running = False
         self._job_started_from_app = False
+        self._has_active_context = False
         self._history_recorded = False
         self._current_job_grams = 0.0
         self._job_deducted = False
@@ -999,40 +1000,42 @@ class BambuPrinter:
                         self._trigger_save()
 
                 if self.subtask_name and is_valid_print_job:
-                    now_ts = time.time()
-                    last_l = getattr(self, "_last_saved_context_layer", -1)
-                    last_p = getattr(self, "_last_saved_context_progress", -1)
-                    last_t = getattr(self, "_last_saved_context_time", 0.0)
                     curr_p = int(self.mc_percent or 0)
+                    if curr_p < 100 and self.gcode_state not in ["FINISH", "SUCCESS"]:
+                        now_ts = time.time()
+                        last_l = getattr(self, "_last_saved_context_layer", -1)
+                        last_p = getattr(self, "_last_saved_context_progress", -1)
+                        last_t = getattr(self, "_last_saved_context_time", 0.0)
 
-                    progress_delta = abs(curr_p - last_p)
-                    layer_delta = abs((self.layer_num or 0) - last_l)
-                    time_elapsed = now_ts - last_t
+                        progress_delta = abs(curr_p - last_p)
+                        layer_delta = abs((self.layer_num or 0) - last_l)
+                        time_elapsed = now_ts - last_t
 
-                    should_save = (
-                        last_p < 0
-                        or progress_delta >= 2
-                        or (self.total_layer_num > 0 and layer_delta >= 5)
-                        or time_elapsed >= 900.0
-                    )
-                    if should_save:
-                        from utils.spool_fingerprint import build_spool_fingerprint, save_active_print_context
+                        should_save = (
+                            last_p < 0
+                            or progress_delta >= 2
+                            or (self.total_layer_num > 0 and layer_delta >= 5)
+                            or time_elapsed >= 900.0
+                        )
+                        if should_save:
+                            from utils.spool_fingerprint import build_spool_fingerprint, save_active_print_context
 
-                        active_print_context = {
-                            "printer_id": self.id,
-                            "subtask_name": self.subtask_name,
-                            "total_layers": self.total_layer_num,
-                            "saved_layer": self.layer_num,
-                            "saved_progress": self.mc_percent,
-                            "spool_fingerprint": build_spool_fingerprint(self),
-                            "job_grams": self._current_job_grams,
-                            "job_deducted": self._job_deducted,
-                            "timestamp": now_ts,
-                        }
-                        save_active_print_context(self.id, active_print_context)
-                        self._last_saved_context_layer = self.layer_num
-                        self._last_saved_context_progress = curr_p
-                        self._last_saved_context_time = now_ts
+                            active_print_context = {
+                                "printer_id": self.id,
+                                "subtask_name": self.subtask_name,
+                                "total_layers": self.total_layer_num,
+                                "saved_layer": self.layer_num,
+                                "saved_progress": self.mc_percent,
+                                "spool_fingerprint": build_spool_fingerprint(self),
+                                "job_grams": self._current_job_grams,
+                                "job_deducted": self._job_deducted,
+                                "timestamp": now_ts,
+                            }
+                            save_active_print_context(self.id, active_print_context)
+                            self._has_active_context = True
+                            self._last_saved_context_layer = self.layer_num
+                            self._last_saved_context_progress = curr_p
+                            self._last_saved_context_time = now_ts
 
             elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
                 was_calibrating = bool(getattr(self, "_is_calibrating", False))
@@ -1178,13 +1181,16 @@ class BambuPrinter:
                         self._is_printing = False
                         self._was_running = False
                         self._job_started_from_app = False
+                        self._has_active_context = False
 
                     self._is_printing = False
 
                 if self.gcode_state in ["IDLE", "FAILED", "FINISH", "SUCCESS", "CANCEL"]:
-                    from utils.spool_fingerprint import delete_active_print_context
+                    if getattr(self, "_has_active_context", True):
+                        from utils.spool_fingerprint import delete_active_print_context
 
-                    delete_active_print_context(self.id)
+                        delete_active_print_context(self.id)
+                        self._has_active_context = False
                     # Reset state counters & job objects for next job
                     self.finish_timestamp = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self.finish_timestamp
                     self.job_start_time = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self.job_start_time
@@ -1194,6 +1200,7 @@ class BambuPrinter:
                     self._is_printing = False
                     self._was_running = False
                     self._job_started_from_app = False
+                    self._has_active_context = False
                     self._job_deducted = False if self.gcode_state in ["IDLE", "FAILED"] else self._job_deducted
                     self._ftps_attempted = False
                     self._ftps_attempts = 0

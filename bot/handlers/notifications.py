@@ -26,6 +26,10 @@ router = Router()
             "налаштування сповіщень",
             "🔔 сповіщення",
             "сповіщення",
+            "⚙️ налаштування",
+            "налаштування",
+            "⚙️ settings",
+            "settings",
             "🔔 notification settings",
             "notification settings",
             "🔔 notifications",
@@ -49,14 +53,9 @@ async def handle_notifications_menu(message: Message, app):
         title = f"⚙️ <b>Сповіщення для {html.escape(target_printer.name)}:</b>"
         ikb = get_printer_notification_inline_keyboard(target_printer, lang=u_lang)
         await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
-    elif hasattr(app, "printers") and app.printers and len(app.printers) > 1:
-        title = "⚙️ <b>Оберіть принтер для налаштування сповіщень:</b>"
+    elif hasattr(app, "printers") and app.printers:
+        title = "⚙️ <b>Налаштування сповіщень:</b>" if u_lang != "en" else "⚙️ <b>Notification Settings:</b>"
         ikb = get_printer_select_notification_keyboard(app.printers, lang=u_lang)
-        await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
-    elif hasattr(app, "printers") and app.printers and len(app.printers) == 1:
-        p = list(app.printers.values())[0]
-        title = f"⚙️ <b>Сповіщення для {html.escape(p.name)}:</b>"
-        ikb = get_printer_notification_inline_keyboard(p, lang=u_lang)
         await message.answer(title, parse_mode=ParseMode.HTML, reply_markup=ikb)
     else:
         kb = get_notify_keyboard(u_notify, lang=u_lang)
@@ -202,7 +201,13 @@ async def handle_pn_reset_maint_callback(callback: CallbackQuery, app):
         await callback.answer("Принтер не знайдено!", show_alert=True)
         return
 
-    printer.maintenance_hours_counter = 0.0
+    if hasattr(printer, "reset_maintenance_counter"):
+        printer.reset_maintenance_counter("all")
+    else:
+        printer.maintenance_hours_counter = 0.0
+        if hasattr(printer, "maintenance_items"):
+            for item in printer.maintenance_items.values():
+                item["counter_hours"] = 0.0
     if hasattr(app, "save_printers_config"):
         await app.save_printers_config()
 
@@ -234,15 +239,6 @@ async def _sync_notify_change(app: Any, user: dict, key: str, value: Any):
         user["notify"] = {}
     user["notify"][key] = value
     await app.storage.save_user(user)
-
-    if hasattr(app, "printers") and app.printers:
-        for p in app.printers.values():
-            if hasattr(p, "get_notify_dict"):
-                if not isinstance(p.notify, dict):
-                    p.notify = p.get_notify_dict()
-                p.notify[key] = value
-        if hasattr(app, "save_printers_config"):
-            await app.save_printers_config()
 
 
 @router.message(

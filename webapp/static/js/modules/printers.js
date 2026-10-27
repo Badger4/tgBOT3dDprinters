@@ -3,6 +3,7 @@
  */
 
 import { escapeHtml, formatRemainingTime, getPrinterStatusInfo, cleanSubtaskName, evaluateMathExpression, triggerHaptic } from "./utils.js";
+import { showToast, showPromptDialog } from "./modals.js";
 import { renderCockpitPrinterCard, renderClassicPrinterCard } from "./cockpit.js";
 import { state } from "./state.js";
 import { api, getWebSessionToken } from "./api.js";
@@ -34,6 +35,9 @@ export async function fetchPrinters() {
         }
 
         renderPrinters(state.printers);
+        if (typeof window.populatePrinterSettingsSelect === "function") {
+            window.populatePrinterSettingsSelect();
+        }
 
         if (state.selectedPrinterId && document.getElementById("printer-modal")?.classList.contains("active")) {
             const currentP = state.printers.find(p => p.id === state.selectedPrinterId);
@@ -653,22 +657,14 @@ export function updatePrinterModalContent(p) {
                         state.spools = spoolsMap;
                     } catch (e) {}
                 }
-                const availableSpools = Object.values(spoolsMap || {}).filter(s => !s.assigned_printer_id);
+                const availableSpools = Object.values(spoolsMap || {}).filter(s => !s.assigned_printer_id && (s.quantity === undefined || Number(s.quantity) > 0));
                 if (availableSpools.length === 0) {
-                    alert("На Складі немає вільних котушок. Додайте котушку у вкладці 'Філамент'.");
+                    showToast("На Складі немає вільних котушок. Додайте котушку у вкладці 'Філамент'.", "warning");
                     return;
                 }
-                const optionsText = availableSpools.map((s, idx) => `${idx + 1}. ${s.name} (${s.type || 'PLA'}, ${s.remaining_grams || 1000}g)`).join("\n");
-                const choice = prompt(`Виберіть котушку зі Складу для слоту ${slotLabels[sId]}:\n\n${optionsText}\n\nВведіть номер (1-${availableSpools.length}):`);
-                if (choice) {
-                    const idx = parseInt(choice.trim(), 10) - 1;
-                    if (!isNaN(idx) && availableSpools[idx]) {
-                        const targetSpool = availableSpools[idx];
-                        const loadHw = confirm("Запустити фізичне завантаження (Load Filament) на принтері?");
-                        await sendPrinterAction({ action: "assign_spool", spool_id: targetSpool.id, slot_id: sId, load_hardware: loadHw });
-                    } else {
-                        alert("Невірно вибраний номер!");
-                    }
+                if (typeof window.openAssignSpoolModal === "function") {
+                    state.selectedSpoolForAssign = null;
+                    window.openAssignSpoolModal(state.printers, p.id, sId);
                 }
             });
         });
@@ -677,18 +673,34 @@ export function updatePrinterModalContent(p) {
             btn.addEventListener("click", () => {
                 const sId = btn.getAttribute("data-slot");
                 const curG = (p.ams_slots || {})[sId] !== undefined ? p.ams_slots[sId] : 1000;
-                const val = prompt(`Введіть новий залишок ваги (в грамах) для слоту ${slotLabels[sId]}:`, curG);
-                if (val !== null && val.trim() !== "") {
-                    try {
-                        const parsed = evaluateMathExpression(val.trim());
-                        if (!isNaN(parsed) && parsed >= 0) {
-                            sendPrinterAction({ action: "set_slot_grams", slot_id: sId, grams: parsed });
-                        } else {
-                            alert("Некоректне число!");
+                const applyGrams = (val) => {
+                    if (val !== null && val !== undefined && String(val).trim() !== "") {
+                        try {
+                            const parsed = evaluateMathExpression(String(val).trim());
+                            if (!isNaN(parsed) && parsed >= 0) {
+                                sendPrinterAction({ action: "set_slot_grams", slot_id: sId, grams: parsed });
+                                showToast(`Залишок слоту ${slotLabels[sId]} встановлено: ${parsed}г`, "success");
+                            } else {
+                                showToast("Некоректне число!", "warning");
+                            }
+                        } catch (e) {
+                            showToast("Помилка математичного виразу!", "error");
                         }
-                    } catch (e) {
-                        alert("Помилка математичного виразу!");
                     }
+                };
+
+                if (typeof showPromptDialog === "function") {
+                    showPromptDialog({
+                        title: `Залишок слоту ${slotLabels[sId]}`,
+                        message: "Введіть новий залишок ваги (в грамах):",
+                        defaultValue: String(curG),
+                        placeholder: "1000",
+                        confirmText: "Зберегти",
+                        onConfirm: applyGrams
+                    });
+                } else {
+                    const val = prompt(`Введіть новий залишок ваги (в грамах) для слоту ${slotLabels[sId]}:`, curG);
+                    applyGrams(val);
                 }
             });
         });
@@ -696,9 +708,9 @@ export function updatePrinterModalContent(p) {
         amsSlotsContainer.querySelectorAll(".btn-unassign-slot-spool").forEach(btn => {
             btn.addEventListener("click", () => {
                 const sId = btn.getAttribute("data-slot");
-                if (confirm("Зняти котушку зі слоту в базі даних?")) {
-                    const unloadHw = confirm("Запустити фізичне вивантаження (Unload Filament) на принтері?");
-                    sendPrinterAction({ action: "unassign_spool", slot_id: sId, unload_hardware: unloadHw });
+                if (confirm(`Зняти котушку зі слоту ${slotLabels[sId]}?\n\nНатисніть 'OK' щоб також запустити фізичне вивантаження нитки (Unload Filament) на принтері.`)) {
+                    sendPrinterAction({ action: "unassign_spool", slot_id: sId, unload_hardware: true });
+                    showToast(`Котушку знято зі слоту ${slotLabels[sId]}`, "info");
                 }
             });
         });

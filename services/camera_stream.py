@@ -114,7 +114,7 @@ def _fetch_bambu_port6000_jpeg(ip: str, access_code: str, timeout: float = 2.5) 
                 ssl_sock.close()
             except Exception:
                 pass
-        elif raw_socket:
+        if raw_socket:
             try:
                 raw_socket.close()
             except Exception:
@@ -304,6 +304,14 @@ async def async_stream_camera_frames(ip: str, access_code: str, request: Any = N
             def _fetch_next(g_obj: Any) -> Any:
                 return next(g_obj, None)
 
+            def _close_gen(g_obj: Any) -> None:
+                if g_obj is not None:
+                    try:
+                        g_obj.close()
+                    except Exception:
+                        pass
+
+            gen = None
             try:
                 gen = await asyncio.to_thread(_get_frame_gen)
                 while True:
@@ -316,8 +324,13 @@ async def async_stream_camera_frames(ip: str, access_code: str, request: Any = N
                     yielded_in_loop = True
                     consecutive_failures = 0
                     await asyncio.sleep(0.04)
+            except asyncio.CancelledError:
+                return
             except Exception as stream_err:
                 logger.debug(f"Live camera stream reconnecting for {ip}: {stream_err}")
+            finally:
+                if gen is not None:
+                    await asyncio.to_thread(_close_gen, gen)
 
         if not yielded_in_loop:
             # Fallback single frame capture if stream drops

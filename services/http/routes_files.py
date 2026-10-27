@@ -2,6 +2,7 @@
 File upload and 3MF / GCode print job execution endpoints.
 """
 
+import asyncio
 import gc
 import re
 import time
@@ -90,7 +91,7 @@ async def handle_file_upload(request: web.Request) -> web.Response:
             save_path.unlink(missing_ok=True)
             return web.json_response({"error": "Недійсний підпис .3mf файлу"}, status=400)
 
-        meta = parse_3mf_file(save_path, safe_filename)
+        meta = await asyncio.to_thread(parse_3mf_file, save_path, safe_filename)
 
         if not meta.get("valid"):
             save_path.unlink(missing_ok=True)
@@ -110,6 +111,7 @@ async def handle_file_upload(request: web.Request) -> web.Response:
                 color=meta.get("filament_color", ""),
                 filament_name=meta.get("filament_name", ""),
                 nozzle_diameter=meta.get("nozzle_diameter"),
+                weight_g=float(meta.get("weight_g", 0.0)),
             )
             printers_info.append(
                 {
@@ -175,7 +177,7 @@ async def handle_image_upload(request: web.Request) -> web.Response:
 
         from utils.image_utils import compress_part_photo
         try:
-            compressed = compress_part_photo(bytes(raw_bytes))
+            compressed = await asyncio.to_thread(compress_part_photo, bytes(raw_bytes))
         except Exception as img_err:
             logger.warning(f"Failed compressing image: {img_err}")
             return web.json_response({"error": "Не вдалося обробити зображення"}, status=400)
@@ -187,7 +189,7 @@ async def handle_image_upload(request: web.Request) -> web.Response:
         upload_dir.mkdir(parents=True, exist_ok=True)
         save_path = upload_dir / file_token
 
-        save_path.write_bytes(compressed)
+        await asyncio.to_thread(save_path.write_bytes, compressed)
 
         image_url = f"/uploads/{file_token}"
         return web.json_response({"status": "ok", "image_url": image_url, "file_token": file_token})
@@ -209,6 +211,10 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
     if not p:
         return web.json_response({"error": "Printer not found"}, status=404)
 
+    gcode_state = str(getattr(p, "gcode_state", "") or "").upper()
+    if gcode_state in ("RUNNING", "PAUSE", "PREPARE", "PREPARING", "BUILDING"):
+        return web.json_response({"error": f"Принтер вже виконує друк (статус: {gcode_state})"}, status=409)
+
     try:
         import os
         data = await request.json()
@@ -222,7 +228,7 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
         filename = data.get("filename") or file_token.split("_", 1)[-1]
 
         # Parse 3MF / Gcode metadata for current job weight & plate_name directly from disk
-        meta = parse_3mf_file(save_path, filename)
+        meta = await asyncio.to_thread(parse_3mf_file, save_path, filename)
         job_w = float(meta.get("weight_g", 0.0))
         plate_name = meta.get("plate_name", "plate_1.gcode")
 
@@ -241,6 +247,7 @@ async def handle_start_print_job(request: web.Request) -> web.Response:
             color=meta.get("filament_color", ""),
             filament_name=meta.get("filament_name", ""),
             nozzle_diameter=meta.get("nozzle_diameter"),
+            weight_g=job_w,
         )
         if not comp.get("compatible"):
             reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")

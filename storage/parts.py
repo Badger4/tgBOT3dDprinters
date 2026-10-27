@@ -39,7 +39,7 @@ class PartRepository(BaseStorage):
         if db_parts:
             return db_parts
 
-        data = await self.load_json(self.parts_file, {})
+        data = await self.load_json(self.parts_file, {}, bypass_redirect=True)
         res = {}
         if isinstance(data, list):
             res = {p["id"]: p for p in data if isinstance(p, dict) and "id" in p}

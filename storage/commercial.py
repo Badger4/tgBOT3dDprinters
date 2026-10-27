@@ -39,10 +39,10 @@ class CommercialRepository(BaseStorage):
         if db_presets:
             return db_presets
 
-        data = await self.load_json(self.presets_file, None)
+        data = await self.load_json(self.presets_file, None, bypass_redirect=True)
         if data is None or not data:
             legacy_file = self.base_dir / "presets.json"
-            legacy_data = await self.load_json(legacy_file, {})
+            legacy_data = await self.load_json(legacy_file, {}, bypass_redirect=True)
             if legacy_data:
                 data = legacy_data
                 await self.save_json(self.presets_file, data)
@@ -112,7 +112,29 @@ class CommercialRepository(BaseStorage):
         return ok
 
     async def load_history(self) -> list[dict[str, Any]]:
-        return await self.load_json(self.history_file, [])
+        def _query_db() -> list[dict[str, Any]]:
+            conn = self._get_db()
+            try:
+                cur = conn.execute("SELECT data_json FROM print_history ORDER BY timestamp ASC")
+                rows = cur.fetchall()
+                if rows:
+                    res = []
+                    for row in rows:
+                        try:
+                            res.append(json.loads(row[0]))
+                        except Exception:
+                            pass
+                    return res
+                return []
+            finally:
+                conn.close()
+
+        db_history = await asyncio.to_thread(_query_db)
+        if db_history:
+            return db_history
+
+        legacy_data = await self.load_json(self.history_file, [], bypass_redirect=True)
+        return legacy_data if isinstance(legacy_data, list) else []
 
     async def add_history_entry(self, entry: dict[str, Any]) -> bool:
         async with self.transaction_lock("history"):
@@ -221,12 +243,32 @@ class CommercialRepository(BaseStorage):
             if not target_entry:
                 return None
 
+            target_entry["status"] = "SCRAP"
             target_entry["is_scrap"] = True
             target_entry["scrap_reason"] = reason
             target_entry["wasted_weight_g"] = round(float(wasted_weight_g), 1)
             target_entry["refunded_g"] = round(float(refund_grams), 1)
             target_entry["note"] = f"Брак ❌ ({reason})"
 
+            def _update_db() -> None:
+                conn = self._get_db()
+                try:
+                    data_json = json.dumps(target_entry, ensure_ascii=False)
+                    conn.execute(
+                        """
+                        UPDATE print_history
+                        SET status = 'SCRAP', data_json = ?
+                        WHERE abs(timestamp - ?) < 0.5
+                        """,
+                        (data_json, float(timestamp)),
+                    )
+                    conn.commit()
+                except Exception as e:
+                    logger.error(f"Error updating scrap in print_history table: {e}")
+                finally:
+                    conn.close()
+
+            await asyncio.to_thread(_update_db)
             await self.save_json(self.history_file, history)
 
         # Handle spool refund if requested

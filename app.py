@@ -704,7 +704,7 @@ class PrinterBotApp:
                             f"Будь ласка, перевірте принтер."
                         )
                         await self.send_notification(
-                            "pause",
+                            "hms",
                             err_txt,
                             printer=p, reply_markup=get_error_notification_inline_keyboard(p.id),
                         )
@@ -726,7 +726,7 @@ class PrinterBotApp:
                                     f"Принтер потребує вашої уваги! Будь ласка, перевірте стан принтера. 🔧"
                                 )
                                 await self.send_notification(
-                                    "pause",
+                                    "hms",
                                     rem_err_txt,
                                     printer=p, reply_markup=get_error_notification_inline_keyboard(p.id),
                                 )
@@ -751,7 +751,7 @@ class PrinterBotApp:
                                 from bot.keyboards import get_maintenance_inline_keyboard
 
                                 await self.send_notification(
-                                    "pause",
+                                    "hms",
                                     maint_txt,
                                     printer=p,
                                     reply_markup=get_maintenance_inline_keyboard(p.id, item_k, item_name),
@@ -760,25 +760,25 @@ class PrinterBotApp:
                         else:
                             st[notif_key] = False
 
-                    # 7. AMS Humidity Alert (Desiccant alert when humidity >= 4)
+                    # 7. AMS Humidity Alert (Desiccant alert when humidity <= 2: 1/5 critical, 2/5 humid)
                     if getattr(p, "has_ams", False) and getattr(p, "notify", True):
                         h_idx = int(getattr(p, "ams_humidity_idx", 0) or 0)
-                        if h_idx >= 4:
+                        if 0 < h_idx <= 2:
                             last_hum_alert = float(st.get("lastAmsHumidityAlert", 0.0) or 0.0)
                             now_ts = time.time()
                             # Cooldown: 12 hours (43200s)
                             if (now_ts - last_hum_alert) > 43200.0:
-                                hum_state_str = "🟡 Підвищена (Рівень 4/5)" if h_idx == 4 else "🔴 Критична (Рівень 5/5, волого!)"
+                                hum_state_str = "🔴 Критична (Рівень 1/5, волого!)" if h_idx == 1 else "🟠 Підвищена (Рівень 2/5, волого)"
                                 hum_msg = (
                                     f"💧 <b>Увага: Підвищена вологість в AMS!</b>\n"
                                     f"🖨️ Принтер: <b>{html.escape(p.name)}</b>\n"
                                     f"📊 Стан осушувача: <b>{hum_state_str}</b>\n\n"
                                     f"<i>Силікагель у відсіку AMS наситився вологою! Замініть або просушіть осушувач, щоб зберегти пластик сухим. 📦</i>"
                                 )
-                                await self.send_notification("error", hum_msg, printer=p, parse_mode=ParseMode.HTML)
+                                await self.send_notification("hms", hum_msg, printer=p, parse_mode=ParseMode.HTML)
                                 st["lastAmsHumidityAlert"] = now_ts
                                 logger.info(f"💧 Sent AMS humidity alert for [{p.name}] (idx={h_idx})")
-                        elif h_idx <= 2:
+                        elif h_idx >= 4:
                             st["lastAmsHumidityAlert"] = 0.0
 
                     st["lastState"] = curr_state

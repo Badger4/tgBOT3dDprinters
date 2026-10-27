@@ -215,6 +215,8 @@ class TestPartsComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         mock_answer_photo = AsyncMock()
         object.__setattr__(parent_msg, "answer", mock_answer)
         object.__setattr__(parent_msg, "reply", mock_answer)
+        object.__setattr__(parent_msg, "edit_text", mock_answer)
+        object.__setattr__(parent_msg, "edit_reply_markup", mock_answer)
         object.__setattr__(parent_msg, "answer_document", mock_answer_doc)
         object.__setattr__(parent_msg, "answer_photo", mock_answer_photo)
 
@@ -407,11 +409,15 @@ class TestPartsComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
 
     async def test_delete_part_workflow(self):
         """Test deleting part from part card and from delete selection list."""
-        # 1. Delete part_102 directly from part card
+        # 1. Delete part_102 from part card (with confirmation)
         await self._send_cb("part_view_part_102")
         ans_del = await self._send_msg("🗑️ Видалити")
         self.assertTrue(ans_del.called)
-        self.assertIn("успішно", ans_del.all_text().lower())
+        self.assertIn("підтверджуєте", ans_del.all_text().lower())
+
+        ans_conf, _ = await self._send_cb("conf_del_part:part_102")
+        self.assertTrue(ans_conf.called)
+        self.assertIn("успішно", ans_conf.all_text().lower())
 
         parts = await self.app.storage.load_parts()
         self.assertNotIn("part_102", parts)
@@ -425,6 +431,8 @@ class TestPartsComprehensiveWorkflow(unittest.IsolatedAsyncioTestCase):
         # Click on part_101 in delete mode
         ans_del_cb, _ = await self._send_cb("part_view_part_101")
         self.assertTrue(ans_del_cb.called)
+        ans_del_cb_conf, _ = await self._send_cb("conf_del_part:part_101")
+        self.assertTrue(ans_del_cb_conf.called)
         parts_after = await self.app.storage.load_parts()
         self.assertNotIn("part_101", parts_after)
 

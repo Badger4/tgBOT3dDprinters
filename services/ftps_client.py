@@ -10,7 +10,10 @@ import ssl
 import zipfile
 from typing import Any
 
-from config import logger
+import tempfile
+from pathlib import Path
+
+from config import STORAGE_DIR, logger
 from utils.retry import async_retry
 
 
@@ -285,20 +288,58 @@ def fetch_bambu_ftps_info(ip: str, access_code: str, target_filename: str = "") 
             logger.debug(f"FTPS CWD to {chosen_folder} warning: {e_cwd}")
 
         clean_filename = chosen_file.split("/")[-1]
-        buf = io.BytesIO()
+
+        # Guard against OOM on Pi Zero 2W (427MB RAM): check file size first
+        MAX_FTPS_INFO_BYTES = 35 * 1024 * 1024  # 35 MB
         try:
-            ftps.retrbinary(f"RETR {clean_filename}", buf.write)
-        except Exception:
-            # Fallback to full path RETR if relative failed
-            ftps.cwd("/")
-            ftps.retrbinary(f"RETR {chosen_file}", buf.write)
+            remote_size = ftps.size(clean_filename)
+            if remote_size and remote_size > MAX_FTPS_INFO_BYTES:
+                logger.warning(
+                    f"⚠️ File {clean_filename} size ({remote_size / 1024 / 1024:.1f} MB) exceeds safety limit ({MAX_FTPS_INFO_BYTES / 1024 / 1024:.0f} MB). Skipping full FTPS download to prevent OOM."
+                )
+                return {}
+        except Exception as e_sz:
+            logger.debug(f"Could not query FTPS file size for {clean_filename}: {e_sz}")
 
-        data_bytes = buf.getvalue()
-        if not data_bytes:
-            return {}
+        # Stream directly to temporary file on disk rather than holding duplicate buffers in RAM
+        tmp_dir = STORAGE_DIR / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        temp_file = tempfile.NamedTemporaryFile(dir=tmp_dir, prefix="ftps_3mf_", suffix=".3mf", delete=False)
+        temp_path = Path(temp_file.name)
+        downloaded_bytes = 0
 
-        from services.gcode_parser import parse_3mf_file
-        return parse_3mf_file(data_bytes, clean_filename)
+        def _chunk_writer(chunk: bytes) -> None:
+            nonlocal downloaded_bytes
+            downloaded_bytes += len(chunk)
+            if downloaded_bytes > MAX_FTPS_INFO_BYTES:
+                raise ValueError(f"Exceeded max allowed FTPS download size ({MAX_FTPS_INFO_BYTES} bytes)")
+            temp_file.write(chunk)
+
+        try:
+            try:
+                ftps.retrbinary(f"RETR {clean_filename}", _chunk_writer)
+            except Exception:
+                ftps.cwd("/")
+                downloaded_bytes = 0
+                temp_file.seek(0)
+                temp_file.truncate()
+                ftps.retrbinary(f"RETR {chosen_file}", _chunk_writer)
+
+            temp_file.flush()
+            temp_file.close()
+
+            if downloaded_bytes == 0 or not temp_path.exists() or temp_path.stat().st_size == 0:
+                return {}
+
+            from services.gcode_parser import parse_3mf_file
+            return parse_3mf_file(temp_path, clean_filename)
+        finally:
+            if not temp_file.closed:
+                try:
+                    temp_file.close()
+                except Exception:
+                    pass
+            temp_path.unlink(missing_ok=True)
     except Exception as e:
         logger.error(f"❌ Bambu FTPS fetch info error for {ip}: {e}", exc_info=True)
         return {}

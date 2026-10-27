@@ -208,8 +208,10 @@ def delete_active_print_context(printer_id: str) -> None:
     """
     _ensure_cache_loaded()
 
-    if printer_id in _CONTEXT_MEMORY_CACHE:
-        _CONTEXT_MEMORY_CACHE.pop(printer_id, None)
+    if printer_id not in _CONTEXT_MEMORY_CACHE:
+        return
+
+    _CONTEXT_MEMORY_CACHE.pop(printer_id, None)
 
     try:
         if DB_PATH.exists():

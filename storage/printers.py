@@ -42,7 +42,7 @@ class PrinterRepository(BaseStorage):
             return printers_dict
 
         # Fallback to kv_store or printers.json on disk and migrate into relational table
-        legacy_data = await self.load_json(self.printers_file, {})
+        legacy_data = await self.load_json(self.printers_file, {}, bypass_redirect=True)
         loaded = {}
         if isinstance(legacy_data, list):
             loaded = {p["id"]: p for p in legacy_data if isinstance(p, dict) and "id" in p}

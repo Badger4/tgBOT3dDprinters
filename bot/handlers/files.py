@@ -121,6 +121,7 @@ async def handle_document_upload(message: Message, app):
                 color=meta.get("filament_color", ""),
                 filament_name=meta.get("filament_name", ""),
                 nozzle_diameter=meta.get("nozzle_diameter"),
+                weight_g=float(meta.get("weight_g", 0.0) or 0.0),
             )
             if c_info["compatible"]:
                 if c_info.get("level") in ["WARNING", "WARN"]:
@@ -279,12 +280,18 @@ async def handle_3mf_preset_choice(message: Message, app):
             color=pending_file.get("filament_color", ""),
             filament_name=pending_file.get("filament_name", ""),
             nozzle_diameter=file_nozzle,
+            weight_g=float(pending_file.get("weight_g", 0.0) or 0.0),
         )
         if c_info["compatible"]:
             kb_buttons.append([KeyboardButton(text=f"🚀 Запустити на {p.name}")])
     kb_buttons.append([KeyboardButton(text="💰 Розрахувати комерційну вартість 3MF")])
     kb_buttons.append([KeyboardButton(text="⬅️ Назад")])
     file_kb = ReplyKeyboardMarkup(keyboard=kb_buttons, resize_keyboard=True)
+    await message.answer(
+        "🚀 <b>Оберіть принтер для запуску або дію з файлом:</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=file_kb,
+    )
 
     if text == "📊 Розрахувати для всіх пресетів":
         for p in presets.values():
@@ -371,6 +378,7 @@ async def handle_select_printer_for_file(message: Message, app):
         color=pending_file.get("filament_color", ""),
         filament_name=pending_file.get("filament_name", ""),
         nozzle_diameter=file_nozzle,
+        weight_g=float(pending_file.get("weight_g", 0.0) or 0.0),
     )
     if not c_info["compatible"]:
         if c_info.get("reason_type") == "NOZZLE":
@@ -627,6 +635,14 @@ async def handle_confirm_start_print_job(message: Message, app):
             await message.answer("⚠️ Не вдалося прочитати файл для відправки на принтер. Надішліть файл ще раз.")
             return
 
+        gcode_state = str(getattr(target_p, "gcode_state", "") or "").upper()
+        if gcode_state in ("RUNNING", "PAUSE", "PREPARE", "PREPARING", "BUILDING"):
+            await message.answer(
+                f"⚠️ Принтер <b>{html.escape(target_p.name)}</b> вже виконує друк (статус: {gcode_state}). Запуск нового завдання неможливий.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
         msg_wait = await message.answer(
             f"🚀 ⏳ Завантажую <code>{html.escape(fname)}</code> на принтер <b>{html.escape(target_p.name)}</b> по FTPS та запускаю друк...",
             parse_mode=ParseMode.HTML,
@@ -657,7 +673,7 @@ async def handle_confirm_start_print_job(message: Message, app):
             await message.answer(
                 f"{print_msg}\n"
                 f"📦 Новий залишок нитки ({slot_label}): <b>{rem_g}g</b>\n\n"
-                f"✅ <b>Друк успішно запущено!</b>\nФайл відправлено на виконання на принтер <b>{html.escape(p.name)}</b>.",
+                f"✅ <b>Друк успішно запущено!</b>\nФайл відправлено на виконання на принтер <b>{html.escape(target_p.name)}</b>.",
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_printer_menu_keyboard(target_p),
             )

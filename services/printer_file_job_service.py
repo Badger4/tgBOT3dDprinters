@@ -118,6 +118,11 @@ async def start_print_job(
     if not printer._client or not printer._client.is_connected():
         return False, "⚠️ MQTT з'єднання з принтером відсутнє."
 
+    # 0. Check printer state - reject if already running a print job
+    gcode_state = str(getattr(printer, "gcode_state", "") or "").upper()
+    if gcode_state in ("RUNNING", "PAUSE", "PREPARE", "PREPARING", "BUILDING"):
+        return False, f"⚠️ Принтер {printer.name} вже виконує друк (статус: {gcode_state}). Запуск нового завдання неможливий."
+
     upload_fn = _get_printer_dep("upload_3mf_to_bambu", upload_3mf_to_bambu)
     verify_fn = _get_printer_dep("verify_bambu_file_size", verify_bambu_file_size)
     parse_3mf_fn = _get_printer_dep("parse_3mf_file", parse_3mf_file)
@@ -126,31 +131,7 @@ async def start_print_job(
     from models.printer import build_ams_mapping as default_build_ams_mapping
     build_ams_mapping_fn = _get_printer_dep("build_ams_mapping", default_build_ams_mapping)
 
-    # 1. Upload 3MF file to SD card via FTPS
-    remote_path = await asyncio.to_thread(upload_fn, printer.ip, printer.access_code, file_bytes, filename)
-    if not remote_path:
-        return False, f"⚠️ Не вдалося завантажити файл по FTPS на {printer.name} (перевірте IP {printer.ip} та SD-карту)."
-
-    # Verify file size on printer MicroSD card via FTPS SIZE command
-    expected_size = len(file_bytes)
-    verified = await asyncio.to_thread(verify_fn, printer.ip, printer.access_code, remote_path, expected_size)
-    if not verified:
-        logger.warning(
-            f"⚠️ SD card size verification unconfirmed for {remote_path} on [{printer.name}]. Proceeding with job dispatch..."
-        )
-
-    # 2. Prepare MQTT project_file command with correct file:///sdcard/ URL path and MD5 hash
-    clean_file = remote_path.split("/")[-1]
-    if remote_path.startswith("file:///sdcard/"):
-        url_path = remote_path
-    elif remote_path.startswith("sdcard/"):
-        url_path = f"file:///{remote_path}"
-    elif remote_path.startswith("/"):
-        url_path = f"file:///sdcard{remote_path}"
-    else:
-        url_path = f"file:///sdcard/{remote_path}"
-
-    # Dynamically verify sub_path inside 3MF container
+    # 1. Dynamically verify sub_path inside 3MF container
     sub_path = "Metadata/plate_1.gcode"
     if zipfile.is_zipfile(io.BytesIO(file_bytes)):
         try:
@@ -188,10 +169,7 @@ async def start_print_job(
     if not clean_subtask or re.match(r"^[_ -]+$", clean_subtask):
         clean_subtask = "Деталь 3D"
 
-    printer.subtask_name = clean_subtask
-    printer._custom_job_name = clean_subtask
-
-    # Pre-calculate filament weight & extract plate objects from uploaded 3MF file
+    # 2. Pre-calculate filament weight & extract plate objects from 3MF BEFORE FTPS upload
     m_info: dict[str, Any] = {}
     try:
         m_info = parse_3mf_fn(file_bytes, filename)
@@ -233,7 +211,7 @@ async def start_print_job(
     req_fil = str(m_info.get("filament_type") or "PLA").strip() if m_info else "PLA"
     target_slot = ams_slot
 
-    # Automatic AMS slot detection if not explicitly passed
+    # 3. Check AMS compatibility BEFORE FTPS upload
     if target_slot is None:
         if has_ams_hardware and use_ams:
             matched_idx = printer.find_matching_ams_slot(
@@ -286,6 +264,33 @@ async def start_print_job(
         deduct_key = printer.get_active_spool_key()
         if deduct_key is None and not has_ams_hardware:
             deduct_key = AMSSlot.EXTERNAL.value
+
+    # 4. Upload 3MF file to SD card via FTPS only after validation passes
+    printer.subtask_name = clean_subtask
+    printer._custom_job_name = clean_subtask
+
+    remote_path = await asyncio.to_thread(upload_fn, printer.ip, printer.access_code, file_bytes, filename)
+    if not remote_path:
+        return False, f"⚠️ Не вдалося завантажити файл по FTPS на {printer.name} (перевірте IP {printer.ip} та SD-карту)."
+
+    # Verify file size on printer MicroSD card via FTPS SIZE command
+    expected_size = len(file_bytes)
+    verified = await asyncio.to_thread(verify_fn, printer.ip, printer.access_code, remote_path, expected_size)
+    if not verified:
+        logger.warning(
+            f"⚠️ SD card size verification unconfirmed for {remote_path} on [{printer.name}]. Proceeding with job dispatch..."
+        )
+
+    # 5. Prepare MQTT project_file command with correct file:///sdcard/ URL path and MD5 hash
+    clean_file = remote_path.split("/")[-1]
+    if remote_path.startswith("file:///sdcard/"):
+        url_path = remote_path
+    elif remote_path.startswith("sdcard/"):
+        url_path = f"file:///{remote_path}"
+    elif remote_path.startswith("/"):
+        url_path = f"file:///sdcard{remote_path}"
+    else:
+        url_path = f"file:///sdcard/{remote_path}"
 
     if deduct_key is not None:
         printer._current_job_slot_key = deduct_key

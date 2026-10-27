@@ -31,7 +31,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Defaults matching production Raspberry Pi environment
 DEFAULT_HOST = os.environ.get("PI_HOST") or os.environ.get("PI_IP") or "192.168.1.47"
 DEFAULT_USER = os.environ.get("PI_USER", "host2")
-DEFAULT_PASS = os.environ.get("PI_PASS", "ADM82172")
+DEFAULT_PASS = os.environ.get("PI_PASS")
 DEFAULT_DIR = os.environ.get("PI_DIR", "/home/host2/bot_dir")
 DEFAULT_SERVICE = os.environ.get("PI_SERVICE", "tgbot")
 DEFAULT_PORT = int(os.environ.get("PI_PORT", "22"))

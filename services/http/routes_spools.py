@@ -272,7 +272,8 @@ async def handle_export_warehouse_csv(request: web.Request) -> web.Response:
         report_type = request.query.get("type", "spools")
 
         from services.report_generator import generate_warehouse_pdf_report
-        pdf_bytes = generate_warehouse_pdf_report(
+        pdf_bytes = await asyncio.to_thread(
+            generate_warehouse_pdf_report,
             spools, parts, report_type=report_type, printers=getattr(app_obj, "printers", None)
         )
 
@@ -378,7 +379,7 @@ async def handle_export_spools_pdf(request: web.Request) -> web.Response:
         req_format = request.query.get("format", "").lower()
         if req_format != "html":
             from services.report_generator import generate_spools_pdf_report
-            pdf_bytes = generate_spools_pdf_report(spools, printers=getattr(app_obj, "printers", None))
+            pdf_bytes = await asyncio.to_thread(generate_spools_pdf_report, spools, printers=getattr(app_obj, "printers", None))
             fname = f"spools_inventory_{int(time.time())}.pdf"
             disp_type = "inline" if request.query.get("inline") == "1" else "attachment"
             return web.Response(

@@ -3,6 +3,8 @@
  * Provides unified HTTP client with automatic auth headers & centralized backend route callers.
  */
 
+import { triggerHaptic } from "./utils.js";
+
 export function getSessionToken() {
     return localStorage.getItem("3d_farm_session") || localStorage.getItem("web_session_token") || "";
 }
@@ -49,6 +51,125 @@ export async function apiFetch(url, options = {}) {
         }
     }
     return res;
+}
+
+/**
+ * Injects session token or telegram initData into query parameters of an export URL
+ * so that both fetch and native browser downloads carry valid authorization.
+ */
+export function buildAuthenticatedExportUrl(rawUrl, { token = "", initData = "" } = {}) {
+    const sToken = token || getSessionToken();
+    const sInitData = initData || getTelegramInitData();
+
+    try {
+        const dummyBase = "http://localhost";
+        const isRelative = !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://");
+        const parsed = new URL(rawUrl, dummyBase);
+
+        if (sToken && !parsed.searchParams.has("token")) {
+            parsed.searchParams.set("token", sToken);
+        }
+        if (sInitData && !parsed.searchParams.has("initData")) {
+            parsed.searchParams.set("initData", sInitData);
+        }
+
+        if (isRelative) {
+            return parsed.pathname + parsed.search + parsed.hash;
+        }
+        return parsed.toString();
+    } catch (_) {
+        return rawUrl;
+    }
+}
+
+/**
+ * Safely downloads a protected PDF report using fetch with auth headers
+ * and automatic fallback to authenticated blob object URL.
+ */
+export async function downloadAuthenticatedPdf(url, defaultFilename = "document.pdf", btnElement = null) {
+    if (!url) return;
+
+    let originalHtml = "";
+    if (btnElement) {
+        if (btnElement.getAttribute("data-busy") === "true") return;
+        btnElement.setAttribute("data-busy", "true");
+        originalHtml = btnElement.innerHTML;
+        btnElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> PDF...';
+        btnElement.style.pointerEvents = "none";
+    }
+
+    try {
+        triggerHaptic("light");
+        const authenticatedUrl = buildAuthenticatedExportUrl(url);
+
+        const res = await window.fetch(authenticatedUrl);
+        if (!res.ok) {
+            let errMsg = `Помилка сервера: HTTP ${res.status}`;
+            try {
+                const j = await res.json();
+                if (j && j.error) errMsg = j.error;
+            } catch (_) {}
+            throw new Error(errMsg);
+        }
+
+        const blob = await res.blob();
+        let filename = defaultFilename;
+        const disposition = res.headers.get("Content-Disposition");
+        if (disposition && disposition.includes("filename=")) {
+            const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+            if (match && match[1]) filename = decodeURIComponent(match[1].trim());
+        }
+
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 2000);
+        triggerHaptic("success");
+    } catch (err) {
+        console.error("Authenticated PDF download failed:", err);
+        triggerHaptic("error");
+        alert("Не вдалося завантажити PDF: " + (err.message || err));
+    } finally {
+        if (btnElement) {
+            btnElement.removeAttribute("data-busy");
+            btnElement.innerHTML = originalHtml;
+            btnElement.style.pointerEvents = "";
+        }
+    }
+}
+
+/**
+ * Global click interceptor for all PDF export links to prevent 401/403 navigation errors.
+ */
+export function initPdfExportDelegation() {
+    if (window._pdfExportDelegated) return;
+    window._pdfExportDelegated = true;
+
+    document.addEventListener("click", (e) => {
+        const link = e.target.closest('a[href*="/export_pdf"], button[data-export-pdf], a[data-export-pdf]');
+        if (link) {
+            e.preventDefault();
+            e.stopPropagation();
+            const href = link.getAttribute("href") || link.getAttribute("data-export-pdf") || "";
+            if (!href || href === "#") return;
+
+            let defaultName = link.dataset?.filename || link.getAttribute("data-filename") || "";
+            if (!defaultName) {
+                if (href.includes("/history/")) defaultName = "print_history.pdf";
+                else if (href.includes("/spools/movements/")) defaultName = "spool_movements.pdf";
+                else if (href.includes("/spools/")) defaultName = "spools_inventory.pdf";
+                else if (href.includes("/parts/")) defaultName = "parts_inventory.pdf";
+                else if (href.includes("/commercial/")) defaultName = "commercial_quote.pdf";
+                else defaultName = "report.pdf";
+            }
+
+            downloadAuthenticatedPdf(href, defaultName, link);
+        }
+    });
 }
 
 // Printers API
@@ -304,6 +425,20 @@ export async function fetchGlobalSettingsApi() {
     return res.json();
 }
 
+export async function saveGlobalSettingsApi(settings) {
+    const res = await apiFetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings)
+    });
+    return res.json();
+}
+
+export async function fetchHealthApi() {
+    const res = await apiFetch("/health");
+    return res.json();
+}
+
 export async function fetchUsersApi() {
     const res = await apiFetch("/api/users");
     return res.json();
@@ -355,4 +490,7 @@ export const api = {
     deleteCommercialPreset: deleteCommercialPresetApi,
     calculateCommercial: calculateCommercialApi,
     fetchFiles: fetchFilesApi,
+    getHealth: fetchHealthApi,
+    getGlobalSettings: fetchGlobalSettingsApi,
+    saveGlobalSettings: saveGlobalSettingsApi,
 };

@@ -244,6 +244,10 @@ async def handle_print_part(request: web.Request) -> web.Response:
     if not printer:
         return web.json_response({"error": "Printer not found"}, status=404)
 
+    gcode_state = str(getattr(printer, "gcode_state", "") or "").upper()
+    if gcode_state in ("RUNNING", "PAUSE", "PREPARE", "PREPARING", "BUILDING"):
+        return web.json_response({"error": f"Принтер вже виконує друк (статус: {gcode_state})"}, status=409)
+
     three_mf_id = part.get("three_mf")
     if not three_mf_id:
         return web.json_response({"error": "Для цієї деталі немає збереженого .3mf файлу"}, status=400)
@@ -297,6 +301,7 @@ async def handle_print_part(request: web.Request) -> web.Response:
             color=part.get("color", ""),
             filament_name=part.get("filament_name", ""),
             nozzle_diameter=part.get("nozzle_diameter"),
+            weight_g=float(part.get("weight_g") or part.get("weight") or 0.0),
         )
         if not comp.get("compatible"):
             reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
@@ -331,7 +336,7 @@ async def handle_export_parts_csv(request: web.Request) -> web.Response:
         parts = await app_obj.storage.load_parts()
 
         from services.report_generator import generate_parts_pdf_report
-        pdf_bytes = generate_parts_pdf_report(parts)
+        pdf_bytes = await asyncio.to_thread(generate_parts_pdf_report, parts)
 
         headers = {
             "Content-Disposition": 'attachment; filename="parts_report.pdf"; filename*=UTF-8\'\'parts_report.pdf',
@@ -424,7 +429,7 @@ async def handle_export_parts_pdf(request: web.Request) -> web.Response:
         req_format = request.query.get("format", "").lower()
         if req_format != "html":
             from services.report_generator import generate_parts_pdf_report
-            pdf_bytes = generate_parts_pdf_report(parts)
+            pdf_bytes = await asyncio.to_thread(generate_parts_pdf_report, parts)
             fname = f"parts_inventory_{int(time.time())}.pdf"
             disp_type = "inline" if request.query.get("inline") == "1" else "attachment"
             return web.Response(

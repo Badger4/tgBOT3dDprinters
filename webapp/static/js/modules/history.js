@@ -160,7 +160,7 @@ export function renderHistoryList(history) {
                 <td>${weightVal} g</td>
                 <td>
                     <div class="d-flex gap-1">
-                        <button class="btn btn-xs btn-outline btn-reprint-entry" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" title="Повторити друк">
+                        <button class="btn btn-xs btn-outline btn-reprint-entry btn-reprint-history" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" title="Повторити друк">
                             <i class="fa-solid fa-rotate-right"></i>
                         </button>
                         ${!isScrap ? `
@@ -238,13 +238,50 @@ export function applyHistoryFilters() {
     renderHistoryList(filtered);
 }
 
-export async function reprintJob(taskName, origPrinterName, origPrinterId) {
+/**
+ * Safely extracts taskName, printerName, and printerId from any argument type
+ * (string, DOM element with data attributes, or plain object) to eliminate TypeError crashes.
+ */
+export function normalizeReprintTaskData(taskOrElement, origPrinterName = "", origPrinterId = "") {
+    let taskName = "";
+    let printerName = origPrinterName || "";
+    let printerId = origPrinterId || "";
+
+    if (taskOrElement && typeof taskOrElement === "object") {
+        if (typeof taskOrElement.getAttribute === "function") {
+            taskName = taskOrElement.getAttribute("data-task") || taskOrElement.dataset?.task || "";
+            printerName = printerName || taskOrElement.getAttribute("data-printer") || taskOrElement.dataset?.printer || "";
+            printerId = printerId || taskOrElement.getAttribute("data-printer-id") || taskOrElement.dataset?.printerId || "";
+        } else {
+            taskName = taskOrElement.taskName || taskOrElement.subtask_name || taskOrElement.task || taskOrElement.file || taskOrElement.name || "";
+            printerName = printerName || taskOrElement.printerName || taskOrElement.printer_name || taskOrElement.printer || "";
+            printerId = printerId || taskOrElement.printerId || taskOrElement.printer_id || taskOrElement.printer_sn || "";
+        }
+    } else {
+        taskName = String(taskOrElement || "");
+    }
+
+    return {
+        taskName: taskName.trim(),
+        printerName: String(printerName || "").trim(),
+        printerId: String(printerId || "").trim()
+    };
+}
+
+export async function reprintJob(taskOrElement, origPrinterName, origPrinterId) {
+    const { taskName, printerName, printerId } = normalizeReprintTaskData(taskOrElement, origPrinterName, origPrinterId);
+
+    if (!taskName) {
+        alert("⚠️ Не вдалося визначити назву моделі для повторного друку.");
+        return;
+    }
+
     if (!state.printers || state.printers.length === 0) {
         alert("⚠️ Немає підключених принтерів у фермі!");
         return;
     }
 
-    const targetPrinter = state.printers.find(p => p.id === origPrinterId || p.name === origPrinterName || (p.name && origPrinterName && p.name.toLowerCase().includes(origPrinterName.toLowerCase()))) || state.printers[0];
+    const targetPrinter = state.printers.find(p => p.id === printerId || p.name === printerName || (p.name && printerName && p.name.toLowerCase().includes(printerName.toLowerCase()))) || state.printers[0];
 
     const confirmed = confirm(`🚀 Повторно кинути на друк модель "${taskName}"?\n\nПринтер: ${targetPrinter.name}`);
     if (!confirmed) return;
@@ -261,7 +298,7 @@ export async function reprintJob(taskName, origPrinterName, origPrinterId) {
             } catch (e) {}
         }
 
-        const normTask = taskName.trim().toLowerCase();
+        const normTask = taskName.toLowerCase();
         const matchedPart = partsList.find(p => {
             if (!p.name) return false;
             const normP = p.name.trim().toLowerCase();
@@ -416,6 +453,58 @@ export async function submitMarkScrap() {
     }
 }
 
+export async function refreshHistory() {
+    const btn = document.getElementById("btn-refresh-history");
+    if (btn && btn.disabled) return;
+    if (btn) btn.disabled = true;
+    const icon = btn?.querySelector("i");
+    if (icon) icon.classList.add("fa-spin");
+    triggerHaptic("light");
+    try {
+        await loadHistory();
+    } finally {
+        if (icon) {
+            setTimeout(() => icon.classList.remove("fa-spin"), 400);
+        }
+        if (btn) btn.disabled = false;
+    }
+}
+
+export async function clearAllHistory() {
+    const btn = document.getElementById("btn-clear-history");
+    if (btn && btn.disabled) return;
+
+    if (!confirm("⚠️ Ви впевнені, що хочете повністю очистити всю історію друку?\n\nЦю дію неможливо скасувати!")) {
+        return;
+    }
+
+    triggerHaptic("warning");
+    let origHtml = "";
+    if (btn) {
+        origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Очищення...';
+    }
+
+    try {
+        const res = await clearAllHistoryApi();
+        if (res && res.error) {
+            throw new Error(res.error);
+        }
+        triggerHaptic("success");
+        await loadHistory();
+    } catch (e) {
+        console.error("Clear all history error:", e);
+        triggerHaptic("error");
+        alert("Помилка очищення історії: " + (e.message || e));
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
+    }
+}
+
 export async function deleteHistoryItem(ts) {
     if (ts && confirm("Видалити цей запис із історії?")) {
         try {
@@ -428,10 +517,17 @@ export async function deleteHistoryItem(ts) {
 }
 
 export function initHistoryEventListeners() {
+    if (state.historyModuleBound) return;
+    state.historyModuleBound = true;
+
     ["history-filter-search", "history-filter-printer", "history-filter-date"].forEach(id => {
         document.getElementById(id)?.addEventListener("input", applyHistoryFilters);
         document.getElementById(id)?.addEventListener("change", applyHistoryFilters);
     });
+
+    document.getElementById("btn-refresh-history")?.addEventListener("click", refreshHistory);
+    document.getElementById("btn-clear-history")?.addEventListener("click", clearAllHistory);
+
     document.getElementById("scrap-pct-slider")?.addEventListener("input", updateScrapCalculations);
     document.getElementById("btn-submit-scrap")?.addEventListener("click", submitMarkScrap);
     document.getElementById("close-scrap-modal")?.addEventListener("click", closeScrapModal);

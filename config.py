@@ -156,6 +156,8 @@ class SensitiveDataFilter(logging.Filter):
             text = text.replace(TELEGRAM_BOT_TOKEN, "[TELEGRAM_BOT_TOKEN_MASKED]")
         if API_SECRET_KEY and len(API_SECRET_KEY) > 3 and API_SECRET_KEY in text:
             text = text.replace(API_SECRET_KEY, "[API_SECRET_KEY_MASKED]")
+        if WEB_ADMIN_PASSWORD and len(WEB_ADMIN_PASSWORD) >= 3 and WEB_ADMIN_PASSWORD in text:
+            text = text.replace(WEB_ADMIN_PASSWORD, "[WEB_ADMIN_PASSWORD_MASKED]")
         if CLOUDFLARE_TUNNEL_TOKEN and CLOUDFLARE_TUNNEL_TOKEN in text:
             text = text.replace(CLOUDFLARE_TUNNEL_TOKEN, "[CLOUDFLARE_TUNNEL_TOKEN_MASKED]")
         text = re.sub(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "[CLOUDFLARE_TUNNEL_TOKEN_MASKED]", text)
@@ -166,7 +168,10 @@ class SensitiveDataFilter(logging.Filter):
             r'(access[_-]?code["\']?\s*[:=]\s*["\']?)([^"\'\s,}{&]+)', r"\1••••••••", text, flags=re.IGNORECASE
         )
         text = re.sub(
-            r'([?&](?:access[_-]?code|token|api[_-]?key|init[_-]?data|tgWebAppInitData)=)([^"\'\s,&]+)',
+            r'(password["\']?\s*[:=]\s*["\']?)([^"\'\s,}{&]+)', r"\1••••••••", text, flags=re.IGNORECASE
+        )
+        text = re.sub(
+            r'([?&](?:access[_-]?code|password|token|api[_-]?key|init[_-]?data|tgWebAppInitData)=)([^"\'\s,&]+)',
             r"\1••••••••",
             text,
             flags=re.IGNORECASE,
@@ -179,7 +184,7 @@ STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 from logging.handlers import RotatingFileHandler
 
-# Setup logging with SensitiveDataFilter
+# Setup logging with SensitiveDataFilter attached to handlers (single pass per record, preventing 4x CPU waste on Pi)
 sensitive_filter = SensitiveDataFilter()
 file_handler = RotatingFileHandler(
     STORAGE_DIR / "printer_bot.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
@@ -195,14 +200,6 @@ logging.basicConfig(
     force=True,
     handlers=[file_handler, stream_handler],
 )
-
-# Explicitly attach filter to Root logger and third-party library loggers (aiohttp, aiogram)
-root_lg = logging.getLogger()
-root_lg.addFilter(sensitive_filter)
-
-for lg_name in ("PrinterBot", "aiohttp.access", "aiohttp.server", "aiohttp.web", "aiogram"):
-    sub_lg = logging.getLogger(lg_name)
-    sub_lg.addFilter(sensitive_filter)
 
 logger = logging.getLogger("PrinterBot")
 

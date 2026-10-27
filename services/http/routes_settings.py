@@ -2,6 +2,7 @@
 Commercial presets, history, health check, global settings, and WebApp static index routes.
 """
 
+import asyncio
 import html
 import time
 from pathlib import Path
@@ -450,7 +451,7 @@ async def handle_export_history_csv(request: web.Request) -> web.Response:
 
     from services.report_generator import generate_history_pdf_report
 
-    pdf_bytes = generate_history_pdf_report(history)
+    pdf_bytes = await asyncio.to_thread(generate_history_pdf_report, history)
     filename = f"farm_history_{int(time.time())}.pdf"
     return web.Response(
         body=pdf_bytes,
@@ -943,7 +944,7 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
             if not u_id:
                 return web.json_response({"error": "Користувача не ідентифіковано"}, status=400)
 
-            pdf_bytes = generate_history_pdf_report(history)
+            pdf_bytes = await asyncio.to_thread(generate_history_pdf_report, history)
             fname = f"print_history_{int(time.time())}.pdf"
             doc_file = BufferedInputFile(pdf_bytes, filename=fname)
             cap = f"📊 <b>Звіт історії друку</b>\nВиконано робіт: <b>{total_prints}</b>\nВитрачено пластику: <b>{(total_weight_g/1000.0):.2f} кг</b>"
@@ -957,7 +958,7 @@ async def handle_export_history_pdf(request: web.Request) -> web.Response:
         req_format = request.query.get("format", "").lower()
         if req_format != "html":
             from services.report_generator import generate_history_pdf_report
-            pdf_bytes = generate_history_pdf_report(history)
+            pdf_bytes = await asyncio.to_thread(generate_history_pdf_report, history)
             fname = f"print_history_{int(time.time())}.pdf"
             disp_type = "inline" if request.query.get("inline") == "1" else "attachment"
             return web.Response(

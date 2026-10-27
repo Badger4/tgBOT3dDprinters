@@ -89,7 +89,7 @@ async def open_parts_list(message: Message, state: FSMContext, app: Any, lang: s
     text_keyboard = get_parts_reply_keyboard(lang)
     inline_keyboard = get_parts_inline_keyboard(parts)
 
-    await message.answer(".", reply_markup=text_keyboard)
+    await message.answer("📂 <b>Склад деталей</b>", parse_mode=ParseMode.HTML, reply_markup=text_keyboard)
     if not parts:
         await message.answer(
             "🧩 <b>Склад деталей порожній!</b>\nНатисніть <b>Добавити</b>, щоб додати першу деталь.",
@@ -174,7 +174,7 @@ def resolve_part_metadata(part: dict[str, Any]) -> bool:
 
 
 async def send_part_info(target_message: Message, part: dict[str, Any], text_keyboard: ReplyKeyboardMarkup, inline_keyboard: InlineKeyboardMarkup) -> None:
-    await target_message.answer(".", reply_markup=text_keyboard)
+    await target_message.answer("⚙️ <b>Панель керування деталлю:</b>", parse_mode=ParseMode.HTML, reply_markup=text_keyboard)
 
     resolve_part_metadata(part)
 
@@ -264,11 +264,23 @@ async def handle_select_part_view(callback: CallbackQuery, state: FSMContext, ap
         return
 
     if current_state == PartEditingStates.select_part_for_delete:
-        del parts[part_id]
-        await app.storage.save_parts(parts)
-        await callback.message.answer("✅ <b>Деталь успішно видалено!</b>", parse_mode=ParseMode.HTML)
-        await open_parts_list(callback.message, state, app, lang)
-        await callback.answer()
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        confirm_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🗑️ Підтвердити видалення", callback_data=f"conf_del_part:{part_id}"),
+                    InlineKeyboardButton(text="❌ Скасувати", callback_data=f"canc_del_part:{part_id}"),
+                ]
+            ]
+        )
+        await callback.message.edit_text(
+            f"⚠️ <b>Ви підтверджуєте видалення деталі?</b>\n\n"
+            f"🧩 Деталь: <b>{html.escape(part.get('name', 'Деталь'))}</b>\n"
+            f"<i>Цю дію неможливо скасувати!</i>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=confirm_kb,
+        )
+        await callback.answer("⚠️ Підтвердіть видалення")
         return
 
     if current_state == PartEditingStates.select_part_for_print:
@@ -356,6 +368,11 @@ SEARCH_MAIN_MENU_TEXTS = [
 ]
 
 SEARCH_NAVIGATION_TEXTS = [
+    "🔔 сповіщення", "сповіщення", "🔔 notifications", "notifications",
+    "👑 адмінка", "адмінка", "👑 admin", "admin", "адмін-панель",
+    "💰 комерція", "комерція", "калькулятор", "commercial",
+    "⚙️ налаштування", "налаштування", "⚙️ settings", "settings",
+    "📜 історія", "історія", "history",
     "📦 склад", "склад", "📦 warehouse", "warehouse", "📦 склад котушок", "склад котушок",
     "🧵 філамент & ams", "філамент & ams", "🧵 філамент", "філамент", "🧵 filament", "filament",
     "🖨️ принтери", "принтери", "🖨️ printers", "printers",
@@ -452,7 +469,7 @@ async def back_to_main_menu_or_list(message: Message, state: FSMContext, app: An
         await state.clear()
         kb = get_main_keyboard(is_admin=is_admin, lang=lang)
         from utils.i18n import t
-        await message.answer(t("warehouse_title", lang), reply_markup=kb)
+        await message.answer(t("warehouse_title", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
     if current_state in (
@@ -468,7 +485,7 @@ async def back_to_main_menu_or_list(message: Message, state: FSMContext, app: An
         await state.clear()
         kb = get_main_keyboard(is_admin=is_admin, lang=lang)
         from utils.i18n import t
-        await message.answer(t("warehouse_title", lang), reply_markup=kb)
+        await message.answer(t("warehouse_title", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
 @router.message(PartEditingStates.search_query)
@@ -487,7 +504,7 @@ async def process_search_part_query(message: Message, state: FSMContext, app: An
         await state.clear()
         is_admin = await app.is_user_admin(str(message.from_user.id)) if (app and message.from_user) else False
         from utils.i18n import t
-        await message.answer(t("warehouse_title", lang), reply_markup=get_main_keyboard(is_admin, lang))
+        await message.answer(t("warehouse_title", lang), parse_mode=ParseMode.HTML, reply_markup=get_main_keyboard(is_admin, lang))
         return
 
     if text_lower in SEARCH_PDF_TEXTS:
@@ -508,6 +525,26 @@ async def process_search_part_query(message: Message, state: FSMContext, app: An
 
     if text_lower in SEARCH_NAVIGATION_TEXTS:
         await state.clear()
+        if text_lower in ["🔔 сповіщення", "сповіщення", "🔔 notifications", "notifications"]:
+            from bot.handlers.notifications import handle_notifications_menu
+            await handle_notifications_menu(message, app)
+            return
+        elif text_lower in ["⚙️ налаштування", "налаштування", "⚙️ settings", "settings"]:
+            from bot.handlers.notifications import handle_notifications_menu
+            await handle_notifications_menu(message, app)
+            return
+        elif text_lower in ["👑 адмінка", "адмінка", "👑 admin", "admin", "адмін-панель"]:
+            from bot.handlers.admin import handle_admin_menu
+            await handle_admin_menu(message, app)
+            return
+        elif text_lower in ["💰 комерція", "комерція", "калькулятор", "commercial"]:
+            from bot.handlers.commercial import handle_commercial_menu
+            await handle_commercial_menu(message, app)
+            return
+        elif text_lower in ["📜 історія", "історія", "history"]:
+            from bot.handlers.dashboard import handle_history
+            await handle_history(message, app)
+            return
         if text_lower in ["➕ додати котушку", "додати котушку", "➕ add spool", "add spool"]:
             from bot.handlers.filament.add import handle_add_spool_start
             await handle_add_spool_start(message, app, state)
@@ -534,7 +571,7 @@ async def process_search_part_query(message: Message, state: FSMContext, app: An
         else:
             is_admin = await app.is_user_admin(str(message.from_user.id)) if (app and message.from_user) else False
             from utils.i18n import t
-            await message.answer(t("warehouse_title", lang), reply_markup=get_main_keyboard(is_admin, lang))
+            await message.answer(t("warehouse_title", lang), parse_mode=ParseMode.HTML, reply_markup=get_main_keyboard(is_admin, lang))
         return
 
     query = text_lower
@@ -558,7 +595,7 @@ async def process_search_part_query(message: Message, state: FSMContext, app: An
     kb = get_parts_inline_keyboard(filtered)
     await state.set_state(PartEditingStates.in_parts_list)
     reply_kb = get_parts_reply_keyboard(lang)
-    await message.answer(".", reply_markup=reply_kb)
+    await message.answer("🔍 <b>Результати пошуку:</b>", parse_mode=ParseMode.HTML, reply_markup=reply_kb)
     await message.answer(
         f"🔍 <b>Знайдено деталей: {len(filtered)}</b>\nОберіть деталь зі списку:",
         parse_mode=ParseMode.HTML,

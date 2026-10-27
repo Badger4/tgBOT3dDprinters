@@ -83,9 +83,14 @@ async def handle_part_print_select(callback: CallbackQuery, state: FSMContext, a
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("part_exec_print") | F.data.startswith("pxp:"))
+@router.callback_query(F.data.startswith("part_exec_print") | F.data.startswith("pxp:") | F.data.startswith("conf_pxp:"))
 async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app: Any) -> None:
-    raw = callback.data.replace("part_exec_print_", "").replace("part_exec_print:", "").replace("pxp:", "")
+    raw = (
+        callback.data.replace("part_exec_print_", "")
+        .replace("part_exec_print:", "")
+        .replace("conf_pxp:", "")
+        .replace("pxp:", "")
+    )
     if ":" in raw:
         data_parts = raw.split(":", 1)
     else:
@@ -106,6 +111,11 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
 
     if not printer:
         await callback.answer("⚠️ Обраний принтер недоступний!", show_alert=True)
+        return
+
+    gcode_state = str(getattr(printer, "gcode_state", "") or "").upper()
+    if gcode_state in ("RUNNING", "PAUSE", "PREPARE", "PREPARING", "BUILDING"):
+        await callback.answer(f"⚠️ Принтер вже виконує друк (статус: {gcode_state})", show_alert=True)
         return
 
     three_mf_id = part.get("three_mf")
@@ -129,6 +139,7 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
         color=part.get("color", ""),
         filament_name=part.get("filament_name", ""),
         nozzle_diameter=part.get("nozzle_diameter"),
+        weight_g=float(part.get("weight_g") or part.get("weight") or 0.0),
     )
     if not comp.get("compatible"):
         reason = comp.get("reason", "🛑 Несумісний принтер або пластик!")
@@ -169,6 +180,59 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
                 f"<i>Будь ласка, заправте потрібний пластик на принтер або оберіть інший принтер.</i>",
                 parse_mode=ParseMode.HTML,
             )
+        return
+
+    # Check confirmation step (pxp requires confirmation, conf_pxp and part_exec_print proceed)
+    is_confirmed = callback.data.startswith("conf_pxp:") or callback.data.startswith("part_exec_print")
+    if not is_confirmed:
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        p_name = html.escape(printer.name)
+        part_name = html.escape(part.get("name", "Деталь"))
+        fil_type = html.escape(part.get("filament_type", "PLA"))
+        weight_val = part.get("weight_g", part.get("weight", 0.0))
+        time_val = part.get("print_time_mins", part.get("time_mins", 0))
+
+        confirm_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🚀 Підтвердити старт друку",
+                        callback_data=f"conf_pxp:{part_id}:{printer_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="❌ Скасувати",
+                        callback_data=f"canc_pxp:{part_id}",
+                    )
+                ],
+            ]
+        )
+        info_lines = [
+            "🚀 <b>Підтвердження запуску друку</b>\n",
+            f"🧩 <b>Деталь:</b> {part_name}",
+            f"🖨️ <b>Принтер:</b> {p_name}",
+            f"🧵 <b>Пластик:</b> {fil_type}",
+        ]
+        if weight_val:
+            info_lines.append(f"⚖️ <b>Вага:</b> {weight_val}г")
+        if time_val:
+            info_lines.append(f"⏱️ <b>Час:</b> ~{int(time_val)} хв")
+        info_lines.append("\n<i>Натисніть кнопку нижче для відправки .3mf на принтер:</i>")
+
+        try:
+            await callback.message.edit_text(
+                "\n".join(info_lines),
+                parse_mode=ParseMode.HTML,
+                reply_markup=confirm_kb,
+            )
+        except Exception:
+            await callback.message.answer(
+                "\n".join(info_lines),
+                parse_mode=ParseMode.HTML,
+                reply_markup=confirm_kb,
+            )
+        await callback.answer("⚠️ Підтвердіть запуск друку")
         return
 
     await callback.answer("⏳ Завантаження .3mf файлу та відправка на принтер...")
@@ -239,5 +303,12 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
             await callback.message.answer(f"⚠️ Помилка запуску друку: {msg}")
     except Exception as e:
         await callback.message.answer(f"⚠️ Помилка отримання або відправки файлу: {e}")
+
+
+@router.callback_query(F.data.startswith("canc_pxp:"))
+async def handle_cancel_part_print(callback: CallbackQuery, state: FSMContext, app: Any) -> None:
+    await callback.message.edit_text("❌ Запуск друку деталі скасовано.")
+    await callback.answer("Скасовано")
+
 
 

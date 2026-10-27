@@ -1,8 +1,9 @@
 /**
- * 3D Farm Manager - Settings, User Access & Internationalization (i18n)
+ * 3D Farm Manager - Settings, User Access, Fleet Health & Internationalization (i18n)
  */
 
 import { escapeHtml, triggerHaptic } from "./utils.js";
+import { showToast } from "./modals.js";
 import { state } from "./state.js";
 import {
     fetchUserSettingsApi,
@@ -12,7 +13,9 @@ import {
     fetchUsersApi,
     saveUserAccessApi,
     deleteUserApi,
-    fetchPrintersApi
+    fetchPrintersApi,
+    fetchHealthApi,
+    saveGlobalSettingsApi
 } from "./api.js";
 
 export const i18nDict = {
@@ -82,14 +85,20 @@ export const i18nDict = {
         opt_limit_50: "📦 Менше 50г",
         opt_limit_100: "📦 Менше 100г",
         opt_limit_200: "📦 Менше 200г",
-        lang_select_label: "Мова / Language",
+        lang_select_label: "Мова інтерфейсу / Language",
         save_settings_btn: "Зберегти налаштування",
         save_success: "✅ Налаштування успішно збережено!",
         user_access_control_title: "Управління доступом користувачів (Адмінка)",
         th_user: "Користувач",
         th_role: "Роль",
         th_access_status: "Статус доступу",
-        th_actions: "Дії"
+        th_actions: "Дії",
+        server_farm_status_title: "Стан сервера та ферми",
+        sys_uptime_label: "Час безвідмовної роботи:",
+        connected_printers_label: "Підключені принтери:",
+        rest_api_status_label: "REST API Статус:",
+        status_active: "Активний",
+        loading_users: "Завантаження користувачів..."
     },
     en: {
         nav_printers: "Farm",
@@ -157,17 +166,49 @@ export const i18nDict = {
         opt_limit_50: "📦 Under 50g",
         opt_limit_100: "📦 Under 100g",
         opt_limit_200: "📦 Under 200g",
-        lang_select_label: "Language / Мова",
+        lang_select_label: "Language / Мова інтерфейсу",
         save_settings_btn: "Save Settings",
         save_success: "✅ Settings successfully saved!",
         user_access_control_title: "User Access Control (Admin)",
         th_user: "User",
         th_role: "Role",
         th_access_status: "Access Status",
-        th_actions: "Actions"
+        th_actions: "Actions",
+        server_farm_status_title: "Server & Farm Status",
+        sys_uptime_label: "Uptime:",
+        connected_printers_label: "Connected Printers:",
+        rest_api_status_label: "REST API Status:",
+        status_active: "Active",
+        loading_users: "Loading users..."
     }
 };
 
+/**
+ * Formats uptime seconds into human-readable duration
+ */
+export function formatUptime(seconds, lang = "uk") {
+    const sec = Math.max(0, parseInt(seconds, 10) || 0);
+    const isEn = lang === "en";
+    const d = Math.floor(sec / 86400);
+    const h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+
+    if (d > 0) {
+        return isEn ? `${d}d ${h}h ${m}m` : `${d} д ${h} год ${m} хв`;
+    }
+    if (h > 0) {
+        return isEn ? `${h}h ${m}m ${s}s` : `${h} год ${m} хв ${s} сек`;
+    }
+    if (m > 0) {
+        return isEn ? `${m}m ${s}s` : `${m} хв ${s} сек`;
+    }
+    return isEn ? `${s}s` : `${s} сек`;
+}
+
+/**
+ * Switch active application language and translate UI elements
+ */
 export function setAppLanguage(lang) {
     if (!lang || !["uk", "en"].includes(lang.toLowerCase())) lang = "uk";
     lang = lang.toLowerCase();
@@ -175,7 +216,9 @@ export function setAppLanguage(lang) {
     localStorage.setItem("app_lang", lang);
 
     const langSelect = document.getElementById("setting-app-language");
-    if (langSelect) langSelect.value = lang;
+    if (langSelect && langSelect.value !== lang) {
+        langSelect.value = lang;
+    }
 
     const currentDict = i18nDict[lang] || i18nDict.uk;
     document.querySelectorAll("[data-i18n]").forEach(el => {
@@ -186,126 +229,383 @@ export function setAppLanguage(lang) {
     });
 }
 
+/**
+ * Load global user settings, notification rules, language and system status
+ */
 export async function loadSettings() {
     try {
-        const settings = await fetchUserSettingsApi();
-        if (!settings) return;
+        const [settingsRes, _] = await Promise.allSettled([
+            fetchUserSettingsApi(),
+            updateServerHealthAndStats()
+        ]);
 
-        const notif = settings.notifications || {};
-        if (document.getElementById("setting-notify-start")) document.getElementById("setting-notify-start").checked = notif.start ?? true;
-        if (document.getElementById("setting-notify-finish")) document.getElementById("setting-notify-finish").checked = notif.finish ?? true;
-        if (document.getElementById("setting-notify-pause")) document.getElementById("setting-notify-pause").checked = notif.pause ?? true;
-        if (document.getElementById("setting-notify-hms")) document.getElementById("setting-notify-hms").checked = notif.hms ?? true;
-        if (document.getElementById("setting-notify-remind-clear")) document.getElementById("setting-notify-remind-clear").checked = notif.remind_clear ?? true;
-        if (document.getElementById("setting-notify-min-time")) document.getElementById("setting-notify-min-time").value = notif.min_time_to_end ?? 0;
-        if (document.getElementById("setting-notify-min-filament")) document.getElementById("setting-notify-min-filament").value = notif.min_filament ?? 0;
+        const settings = settingsRes.status === "fulfilled" ? settingsRes.value : null;
 
-        const savedLang = settings.language || localStorage.getItem("app_lang") || "uk";
-        setAppLanguage(savedLang);
+        if (settings) {
+            const notif = settings.notify || settings.notifications || {};
+            const setChk = (id1, id2, val) => {
+                const el1 = document.getElementById(id1);
+                if (el1) el1.checked = Boolean(val);
+                const el2 = document.getElementById(id2);
+                if (el2) el2.checked = Boolean(val);
+            };
+            const setVal = (id1, id2, val) => {
+                const el1 = document.getElementById(id1);
+                if (el1) el1.value = val !== undefined && val !== null ? val : 0;
+                const el2 = document.getElementById(id2);
+                if (el2) el2.value = val !== undefined && val !== null ? val : 0;
+            };
 
-        await loadUsersTable();
+            setChk("global-notify-start", "setting-notify-start", notif.start ?? true);
+            setChk("global-notify-finish", "setting-notify-finish", notif.finish ?? true);
+            setChk("global-notify-pause", "setting-notify-pause", notif.pause ?? true);
+            setChk("global-notify-hms", "setting-notify-hms", notif.hms ?? true);
+            setChk("global-notify-remind-clear", "setting-notify-remind-clear", notif.remind_clear ?? true);
+            setVal("global-notify-min-time", "setting-notify-min-time", notif.min_time_to_end ?? 0);
+            setVal("global-notify-min-filament", "setting-notify-min-filament", notif.min_filament ?? 0);
+
+            const savedLang = settings.language || localStorage.getItem("app_lang") || "uk";
+            setAppLanguage(savedLang);
+
+            // Admin User Access Control Card
+            const isAdmin = Boolean(settings.user?.is_admin || settings.user?.role === "ADMIN");
+            const adminCard = document.getElementById("admin-users-card");
+            if (adminCard) {
+                if (isAdmin) {
+                    adminCard.style.display = "block";
+                    await loadUsersTable();
+                } else {
+                    adminCard.style.display = "none";
+                }
+            }
+        }
+
+        // Populate per-printer select in Tab 5
+        await populatePrinterSettingsSelect();
     } catch (e) {
         console.error("Failed loading settings:", e);
     }
 }
 
+/**
+ * Save global settings and apply them to user profile and all printers
+ */
 export async function saveSettings() {
-    const notifyObj = {
-        start: document.getElementById("setting-notify-start")?.checked ?? true,
-        finish: document.getElementById("setting-notify-finish")?.checked ?? true,
-        pause: document.getElementById("setting-notify-pause")?.checked ?? true,
-        hms: document.getElementById("setting-notify-hms")?.checked ?? true,
-        remind_clear: document.getElementById("setting-notify-remind-clear")?.checked ?? true,
-        min_time_to_end: parseInt(document.getElementById("setting-notify-min-time")?.value || 0),
-        min_filament: parseInt(document.getElementById("setting-notify-min-filament")?.value || 0)
+    const applyBtn = document.getElementById("apply-global-settings-btn") || document.getElementById("save-settings-btn");
+    if (applyBtn?.getAttribute("data-busy") === "true") return;
+
+    const originalHtml = applyBtn ? applyBtn.innerHTML : "";
+    if (applyBtn) {
+        applyBtn.setAttribute("data-busy", "true");
+        applyBtn.disabled = true;
+        applyBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Збереження...`;
+    }
+
+    const getChk = (id1, id2) => {
+        const el = document.getElementById(id1) || document.getElementById(id2);
+        return el ? el.checked : true;
     };
-    const lang = document.getElementById("setting-app-language")?.value || "uk";
+    const getVal = (id1, id2, def) => {
+        const el = document.getElementById(id1) || document.getElementById(id2);
+        return el ? parseInt(el.value, 10) : def;
+    };
+
+    const notifyObj = {
+        start: getChk("global-notify-start", "setting-notify-start"),
+        finish: getChk("global-notify-finish", "setting-notify-finish"),
+        pause: getChk("global-notify-pause", "setting-notify-pause"),
+        hms: getChk("global-notify-hms", "setting-notify-hms"),
+        remind_clear: getChk("global-notify-remind-clear", "setting-notify-remind-clear"),
+        min_time_to_end: getVal("global-notify-min-time", "setting-notify-min-time", 0),
+        min_filament: getVal("global-notify-min-filament", "setting-notify-min-filament", 0)
+    };
+
+    const langEl = document.getElementById("setting-app-language");
+    const lang = langEl ? langEl.value : (state.currentLanguage || "uk");
 
     try {
-        await saveUserSettingsApi({ notifications: notifyObj, language: lang });
+        // 1. Save user specific settings
+        const userRes = await saveUserSettingsApi({ notify: notifyObj, notifications: notifyObj, language: lang });
+        if (userRes && userRes.error) throw new Error(userRes.error);
+
+        // 2. Propagate notification settings to all known printers in the fleet
+        if (Array.isArray(state.printers) && state.printers.length > 0) {
+            await Promise.allSettled(
+                state.printers.map(p => savePrinterSettingsApi(p.id, { notify: notifyObj }))
+            );
+        }
+
+        // 3. Save global backend configuration
+        try {
+            await saveGlobalSettingsApi({ notify: notifyObj, language: lang });
+        } catch (_) {}
+
         triggerHaptic("success");
         setAppLanguage(lang);
-        alert(i18nDict[lang]?.save_success || "✅ Налаштування успішно збережено!");
+        showToast(i18nDict[lang]?.save_success || "✅ Налаштування успішно збережено!", "success");
     } catch (e) {
         triggerHaptic("error");
         console.error("Save settings error:", e);
-        alert("⚠️ Помилка збереження налаштувань.");
+        showToast("⚠️ Помилка збереження налаштувань: " + (e.message || e), "error");
+    } finally {
+        if (applyBtn) {
+            applyBtn.removeAttribute("data-busy");
+            applyBtn.disabled = false;
+            applyBtn.innerHTML = originalHtml;
+        }
     }
 }
 
+/**
+ * Builds HTML table row for a registered Telegram user with 5 aligned columns
+ */
+export function buildUserRowHtml(u) {
+    const uId = u.user_id || u.id || "";
+    const isApproved = u.approved === true || u.is_approved === true || u.status === "approved";
+    const statusBadge = isApproved
+        ? `<span class="badge badge-success">Дозволено</span>`
+        : `<span class="badge badge-warning">Очікує</span>`;
+
+    const displayName = u.name || (u.first_name ? `${u.first_name} ${u.last_name || ""}`.trim() : "") || (u.username ? "@" + u.username : "") || String(uId);
+    const role = (u.role || "USER").toUpperCase();
+    const roleBadge = `<span class="badge ${role === "ADMIN" ? "badge-primary" : "badge-secondary"}">${escapeHtml(role)}</span>`;
+
+    return `
+        <tr>
+            <td><strong>${escapeHtml(displayName)}</strong></td>
+            <td><code>${escapeHtml(String(uId))}</code></td>
+            <td>${roleBadge}</td>
+            <td>${statusBadge}</td>
+            <td>
+                <div class="d-flex gap-1">
+                    ${!isApproved ? `
+                    <button type="button" class="btn btn-xs btn-success btn-approve-user" data-id="${escapeHtml(String(uId))}" title="Дозволити доступ">
+                        <i class="fa-solid fa-check"></i>
+                    </button>` : `
+                    <button type="button" class="btn btn-xs btn-outline-warning btn-revoke-user" data-id="${escapeHtml(String(uId))}" title="Заблокувати доступ">
+                        <i class="fa-solid fa-ban"></i>
+                    </button>`}
+                    <button type="button" class="btn btn-xs btn-outline-danger btn-delete-user" data-id="${escapeHtml(String(uId))}" title="Видалити користувача">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
+/**
+ * Load and render Admin Users Table
+ */
 export async function loadUsersTable() {
     const tbody = document.getElementById("users-table-body");
     if (!tbody) return;
 
     try {
-        const users = await fetchUsersApi();
+        const rawUsers = await fetchUsersApi();
+        const users = Array.isArray(rawUsers) ? rawUsers : (rawUsers?.users || []);
+
         if (!users || users.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted p-3">Користувачів не знайдено</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted p-3">Користувачів не знайдено</td></tr>`;
             return;
         }
 
-        tbody.innerHTML = users.map(u => {
-            const isApproved = u.status === "approved" || u.is_approved;
-            const statusBadge = isApproved
-                ? `<span class="badge badge-success">Дозволено</span>`
-                : `<span class="badge badge-warning">Очікує</span>`;
-
-            return `
-                <tr>
-                    <td><strong>${escapeHtml(u.username || u.name || String(u.user_id))}</strong></td>
-                    <td>${escapeHtml(u.role || "user")}</td>
-                    <td>${statusBadge}</td>
-                    <td>
-                        <div class="d-flex gap-1">
-                            ${!isApproved ? `
-                            <button class="btn btn-xs btn-success btn-approve-user" data-id="${u.user_id}">
-                                <i class="fa-solid fa-check"></i>
-                            </button>` : `
-                            <button class="btn btn-xs btn-outline-warning btn-revoke-user" data-id="${u.user_id}">
-                                <i class="fa-solid fa-ban"></i>
-                            </button>`}
-                            <button class="btn btn-xs btn-outline-danger btn-delete-user" data-id="${u.user_id}">
-                                <i class="fa-solid fa-trash"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `;
-        }).join("");
+        tbody.innerHTML = users.map(u => buildUserRowHtml(u)).join("");
 
         tbody.querySelectorAll(".btn-approve-user").forEach(b => {
             b.addEventListener("click", async () => {
                 const id = b.getAttribute("data-id");
-                await saveUserAccessApi({ user_id: id, status: "approved" });
-                loadUsersTable();
+                b.disabled = true;
+                try {
+                    const res = await saveUserAccessApi({ user_id: id, approved: true, status: "approved" });
+                    if (res && res.error) {
+                        showToast("⚠️ Помилка зміни доступу: " + res.error, "error");
+                        b.disabled = false;
+                        return;
+                    }
+                    triggerHaptic("success");
+                    showToast("✅ Доступ надано", "success");
+                    await loadUsersTable();
+                } catch (err) {
+                    b.disabled = false;
+                    showToast("⚠️ Помилка зміни доступу: " + (err.message || err), "error");
+                }
             });
         });
+
         tbody.querySelectorAll(".btn-revoke-user").forEach(b => {
             b.addEventListener("click", async () => {
                 const id = b.getAttribute("data-id");
-                await saveUserAccessApi({ user_id: id, status: "pending" });
-                loadUsersTable();
+                b.disabled = true;
+                try {
+                    const res = await saveUserAccessApi({ user_id: id, approved: false, status: "pending" });
+                    if (res && res.error) {
+                        showToast("⚠️ Помилка зміни доступу: " + res.error, "error");
+                        b.disabled = false;
+                        return;
+                    }
+                    triggerHaptic("warning");
+                    showToast("Доступ заблоковано", "info");
+                    await loadUsersTable();
+                } catch (err) {
+                    b.disabled = false;
+                    showToast("⚠️ Помилка зміни доступу: " + (err.message || err), "error");
+                }
             });
         });
+
         tbody.querySelectorAll(".btn-delete-user").forEach(b => {
             b.addEventListener("click", async () => {
                 const id = b.getAttribute("data-id");
-                if (confirm("Видалити цього користувача?")) {
-                    await deleteUserApi(id);
-                    loadUsersTable();
+                if (confirm(`Видалити користувача ${id}?`)) {
+                    b.disabled = true;
+                    try {
+                        const res = await deleteUserApi(id);
+                        if (res && res.error) {
+                            showToast("⚠️ Помилка видалення: " + res.error, "error");
+                            b.disabled = false;
+                            return;
+                        }
+                        triggerHaptic("medium");
+                        showToast("Користувача видалено", "info");
+                        await loadUsersTable();
+                    } catch (err) {
+                        b.disabled = false;
+                        showToast("⚠️ Помилка видалення: " + (err.message || err), "error");
+                    }
                 }
             });
         });
     } catch (e) {
         console.error("Failed loading users table:", e);
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger p-3">Помилка завантаження користувачів: ${escapeHtml(e.message || String(e))}</td></tr>`;
     }
 }
 
+/**
+ * Fetch server health & telemetry (/health) and update status indicators
+ */
+export async function updateServerHealthAndStats() {
+    const elUptime = document.getElementById("sys-uptime");
+    const elPrinters = document.getElementById("sys-printers-count");
+    const elCpu = document.getElementById("sys-cpu-temp");
+    const elRam = document.getElementById("sys-ram-usage");
+    const elDisk = document.getElementById("sys-disk-free");
+
+    try {
+        const data = await fetchHealthApi();
+        if (!data) return;
+
+        const lang = state.currentLanguage || "uk";
+
+        if (elUptime && data.uptime_seconds !== undefined) {
+            elUptime.textContent = formatUptime(data.uptime_seconds, lang);
+        }
+
+        if (elPrinters) {
+            const active = data.active_printers ?? 0;
+            const total = data.total_printers ?? (state.printers?.length ?? 0);
+            elPrinters.textContent = lang === "en" ? `${active} active / ${total} total` : `${active} активних / ${total} всього`;
+        }
+
+        const sys = data.system || {};
+        if (elCpu) {
+            if (sys.cpu_temp_c !== null && sys.cpu_temp_c !== undefined) {
+                elCpu.textContent = `${sys.cpu_temp_c}°C`;
+            } else {
+                elCpu.textContent = "-";
+            }
+        }
+
+        if (elRam) {
+            if (sys.ram_pct !== null && sys.ram_pct !== undefined) {
+                const used = sys.ram_used_mb || 0;
+                const total = sys.ram_total_mb || 0;
+                elRam.textContent = `${sys.ram_pct}% (${used} / ${total} MB)`;
+            } else {
+                elRam.textContent = "-";
+            }
+        }
+
+        if (elDisk) {
+            if (sys.disk_free_gb !== null && sys.disk_free_gb !== undefined) {
+                const free = sys.disk_free_gb;
+                const total = sys.disk_total_gb || 0;
+                const pct = sys.disk_pct !== undefined ? `${sys.disk_pct}%` : "";
+                elDisk.textContent = `${free} GB ${pct ? `(${pct})` : ""} / ${total} GB`;
+            } else {
+                elDisk.textContent = "-";
+            }
+        }
+    } catch (e) {
+        console.error("Failed updating server health telemetry:", e);
+    }
+}
+
+/**
+ * Populate printer dropdown in the Tab 5 settings card
+ */
+export async function populatePrinterSettingsSelect() {
+    const select = document.getElementById("printer-settings-select");
+    if (!select) return;
+
+    // If the user is currently interacting with the dropdown, don't wipe it
+    if (document.activeElement === select) return;
+
+    let printers = state.printers;
+    if (!printers || !Array.isArray(printers) || printers.length === 0) {
+        try {
+            printers = await fetchPrintersApi();
+            state.printers = printers;
+        } catch (_) {
+            printers = [];
+        }
+    }
+
+    // Compare list signature to prevent flickering/re-rendering when printers list did not change
+    const signature = (printers || []).map(p => `${p.id}:${p.name}:${p.model || p.printer_model || ""}`).join("|");
+    if (select.dataset.sig === signature && select.children.length > 1) {
+        return;
+    }
+    select.dataset.sig = signature;
+
+    const currentVal = select.value;
+    select.innerHTML = `<option value="">-- Оберіть принтер --</option>`;
+
+    if (Array.isArray(printers)) {
+        printers.forEach(p => {
+            const opt = document.createElement("option");
+            opt.value = p.id;
+            opt.textContent = `${p.name || p.id} (${p.model || p.printer_model || "Bambu Lab"})`;
+            select.appendChild(opt);
+        });
+    }
+
+    if (currentVal && printers.some(p => String(p.id) === String(currentVal))) {
+        select.value = currentVal;
+    } else {
+        const formContainer = document.getElementById("printer-settings-form-container");
+        if (formContainer && !select.value) {
+            formContainer.style.display = "none";
+        }
+    }
+}
+
+/**
+ * Load individual printer settings into the Tab 5 form
+ */
 export async function loadPrinterSettings(printerId) {
-    if (!printerId) return;
+    const formContainer = document.getElementById("printer-settings-form-container");
+    if (!printerId) {
+        if (formContainer) formContainer.style.display = "none";
+        return;
+    }
+
     try {
         const s = await fetchPrinterSettingsApi(printerId);
         if (!s) return;
+
+        if (formContainer) formContainer.style.display = "block";
 
         const sel = (id, val) => {
             const el = document.getElementById(id);
@@ -325,6 +625,11 @@ export async function loadPrinterSettings(printerId) {
         sel("p-setting-ams", s.ams_enabled === true ? "true" : (s.ams_enabled === false ? "false" : "auto"));
         sel("p-setting-maint-interval", s.maintenance_interval_hours || 100);
 
+        const counterEl = document.getElementById("p-setting-maint-counter-val");
+        if (counterEl) {
+            counterEl.textContent = `${s.maintenance_hours_counter ?? 0.0} год`;
+        }
+
         const n = s.notify || {};
         chk("p-setting-notify-start", n.start ?? true);
         chk("p-setting-notify-finish", n.finish ?? true);
@@ -338,6 +643,126 @@ export async function loadPrinterSettings(printerId) {
     }
 }
 
+/**
+ * Save per-printer settings edited inside Tab 5
+ */
+export async function savePrinterSettingsFromTab() {
+    const sel = document.getElementById("printer-settings-select");
+    const pId = sel?.value;
+    if (!pId) {
+        alert("Будь ласка, оберіть принтер зі списку.");
+        return;
+    }
+
+    const saveBtn = document.getElementById("save-printer-settings-btn");
+    if (saveBtn?.getAttribute("data-busy") === "true") return;
+
+    const originalBtnHtml = saveBtn ? saveBtn.innerHTML : "";
+    if (saveBtn) {
+        saveBtn.setAttribute("data-busy", "true");
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Збереження...`;
+    }
+
+    const notifyObj = {
+        start: document.getElementById("p-setting-notify-start")?.checked ?? true,
+        finish: document.getElementById("p-setting-notify-finish")?.checked ?? true,
+        pause: document.getElementById("p-setting-notify-pause")?.checked ?? true,
+        hms: document.getElementById("p-setting-notify-hms")?.checked ?? true,
+        remind_clear: document.getElementById("p-setting-notify-remind-clear")?.checked ?? true,
+        min_time_to_end: parseInt(document.getElementById("p-setting-notify-min-time")?.value || 0, 10),
+        min_filament: parseInt(document.getElementById("p-setting-notify-min-filament")?.value || 0, 10),
+    };
+
+    const payload = {
+        name: document.getElementById("p-setting-name")?.value || "",
+        ip: document.getElementById("p-setting-ip")?.value || "",
+        accessCode: document.getElementById("p-setting-access-code")?.value || "",
+        serialNumber: document.getElementById("p-setting-sn")?.value || "",
+        printer_model: document.getElementById("p-setting-model")?.value || "A1",
+        nozzle_diameter: document.getElementById("p-setting-nozzle-diameter")?.value || "0.4",
+        ams_enabled: document.getElementById("p-setting-ams")?.value === "true" ? true : (document.getElementById("p-setting-ams")?.value === "false" ? false : "auto"),
+        maintenance_interval_hours: parseInt(document.getElementById("p-setting-maint-interval")?.value || 100, 10),
+        notify: notifyObj,
+    };
+
+    if (payload.accessCode?.includes("•")) {
+        delete payload.accessCode;
+    }
+
+    try {
+        const res = await savePrinterSettingsApi(pId, payload);
+        if (res && res.error) throw new Error(res.error);
+        triggerHaptic("success");
+        showToast("✅ Налаштування принтера успішно збережено!", "success");
+
+        if (typeof window.fetchPrinters === "function") {
+            await window.fetchPrinters();
+        } else {
+            const printers = await fetchPrintersApi();
+            state.printers = printers;
+        }
+        await populatePrinterSettingsSelect();
+    } catch (e) {
+        triggerHaptic("error");
+        console.error("Failed saving printer settings via tab:", e);
+        showToast("⚠️ Помилка збереження налаштувань: " + (e.message || e), "error");
+    } finally {
+        if (saveBtn) {
+            saveBtn.removeAttribute("data-busy");
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalBtnHtml;
+        }
+    }
+}
+
+/**
+ * Reset printer maintenance hours counter
+ */
+export async function resetPrinterMaintenance() {
+    const sel = document.getElementById("printer-settings-select");
+    const pId = sel?.value;
+    if (!pId) {
+        showToast("Оберіть принтер зі списку!", "warning");
+        return;
+    }
+
+    if (!confirm("Ви впевнені, що хочете скинути лічильник напрацювання годин ТО для цього принтера?")) {
+        return;
+    }
+
+    const resetBtn = document.getElementById("p-setting-reset-maint-btn");
+    const originalHtml = resetBtn ? resetBtn.innerHTML : "";
+    if (resetBtn) {
+        resetBtn.disabled = true;
+        resetBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Скидання...`;
+    }
+
+    try {
+        const res = await savePrinterSettingsApi(pId, { reset_maintenance: true });
+        if (res && res.error) throw new Error(res.error);
+        triggerHaptic("success");
+        const counterEl = document.getElementById("p-setting-maint-counter-val");
+        if (counterEl) {
+            const newCount = res?.settings?.maintenance_hours_counter ?? 0.0;
+            counterEl.textContent = `${newCount} год`;
+        }
+        showToast("✅ Лічильник годин технічного обслуговування скинуто на 0.0 год!", "success");
+    } catch (e) {
+        triggerHaptic("error");
+        console.error("Failed resetting maintenance:", e);
+        showToast("⚠️ Помилка при скиданні лічильника ТО: " + (e.message || e), "error");
+    } finally {
+        if (resetBtn) {
+            resetBtn.disabled = false;
+            resetBtn.innerHTML = originalHtml;
+        }
+    }
+}
+
+/**
+ * Open modal for quick printer settings from farm card
+ */
 export async function openPrinterSettingsModal(printerId) {
     if (!printerId) return;
     state.selectedPrinterId = printerId;
@@ -384,6 +809,9 @@ export async function openPrinterSettingsModal(printerId) {
     }
 }
 
+/**
+ * Save settings from quick modal
+ */
 export async function savePrinterSettingsModal() {
     const pId = document.getElementById("ps-modal-printer-id")?.value;
     if (!pId) return;
@@ -394,8 +822,8 @@ export async function savePrinterSettingsModal() {
         pause: document.getElementById("ps-modal-notify-pause")?.checked ?? true,
         hms: document.getElementById("ps-modal-notify-hms")?.checked ?? true,
         remind_clear: document.getElementById("ps-modal-notify-remind-clear")?.checked ?? true,
-        min_time_to_end: parseInt(document.getElementById("ps-modal-notify-min-time")?.value || 0),
-        min_filament: parseInt(document.getElementById("ps-modal-notify-min-filament")?.value || 0),
+        min_time_to_end: parseInt(document.getElementById("ps-modal-notify-min-time")?.value || 0, 10),
+        min_filament: parseInt(document.getElementById("ps-modal-notify-min-filament")?.value || 0, 10),
     };
 
     const payload = {
@@ -406,13 +834,18 @@ export async function savePrinterSettingsModal() {
         printer_model: document.getElementById("ps-modal-model")?.value || "A1",
         nozzle_diameter: document.getElementById("ps-modal-nozzle-diameter")?.value || "0.4",
         ams_enabled: document.getElementById("ps-modal-ams")?.value === "true" ? true : (document.getElementById("ps-modal-ams")?.value === "false" ? false : "auto"),
-        maintenance_interval_hours: parseInt(document.getElementById("ps-modal-maint-interval")?.value || 100),
+        maintenance_interval_hours: parseInt(document.getElementById("ps-modal-maint-interval")?.value || 100, 10),
         notify: notifyObj,
     };
 
+    if (payload.accessCode?.includes("•")) {
+        delete payload.accessCode;
+    }
+
     try {
-        await savePrinterSettingsApi(pId, payload);
-        alert("✅ Налаштування принтера успішно збережено!");
+        const res = await savePrinterSettingsApi(pId, payload);
+        if (res && res.error) throw new Error(res.error);
+        showToast("✅ Налаштування принтера успішно збережено!", "success");
         document.getElementById("printer-settings-modal")?.classList.remove("active");
         if (typeof window.fetchPrinters === "function") {
             await window.fetchPrinters();
@@ -420,17 +853,42 @@ export async function savePrinterSettingsModal() {
             const printers = await fetchPrintersApi();
             state.printers = printers;
         }
+        await populatePrinterSettingsSelect();
     } catch (e) {
         console.error("Failed saving printer settings via modal:", e);
-        alert("⚠️ Помилка зв'язку із сервером: " + e);
+        showToast("⚠️ Помилка зв'язку із сервером: " + (e.message || e), "error");
     }
 }
 
+/**
+ * Wire all event listeners for Settings tab & related modals
+ */
 export function initSettingsEventListeners() {
+    if (state.settingsModuleBound) return;
+    state.settingsModuleBound = true;
+
+    // Global settings button (both IDs supported)
+    document.getElementById("apply-global-settings-btn")?.addEventListener("click", saveSettings);
     document.getElementById("save-settings-btn")?.addEventListener("click", saveSettings);
+
+    // Language switcher
     document.getElementById("setting-app-language")?.addEventListener("change", (e) => {
         setAppLanguage(e.target.value);
     });
+
+    // Per-printer dropdown selection in Tab 5
+    document.getElementById("printer-settings-select")?.addEventListener("change", (e) => {
+        const pId = e.target.value;
+        loadPrinterSettings(pId);
+    });
+
+    // Per-printer save button in Tab 5
+    document.getElementById("save-printer-settings-btn")?.addEventListener("click", savePrinterSettingsFromTab);
+
+    // Per-printer maintenance reset button in Tab 5
+    document.getElementById("p-setting-reset-maint-btn")?.addEventListener("click", resetPrinterMaintenance);
+
+    // Modal printer settings
     document.getElementById("close-printer-settings-modal")?.addEventListener("click", () => {
         document.getElementById("printer-settings-modal")?.classList.remove("active");
     });

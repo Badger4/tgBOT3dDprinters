@@ -3,7 +3,7 @@
  * Modular ES Architecture
  */
 
-import { setupFetchInterceptor, api } from "./modules/api.js";
+import { setupFetchInterceptor, api, downloadAuthenticatedPdf, initPdfExportDelegation } from "./modules/api.js";
 import { state, initLegacyStateBridges } from "./modules/state.js";
 import { escapeHtml, formatRemainingTime, getPrinterStatusInfo, triggerHaptic } from "./modules/utils.js";
 import { initSSEStream, setupVisibilityHandler } from "./modules/sse.js";
@@ -11,9 +11,22 @@ import { initCommercialCalculator, loadCommercialPresets, recalculateCommercial,
 import { fetchPrinters, renderPrinters, openPrinterModal, closePrinterModal, initPrintersModule, updatePrinterModalContent } from "./modules/printers.js";
 import { loadMaterials, renderFilteredSpoolsInventory, openAddSpoolModal, closeSpoolModal, submitSaveSpool, openAssignSpoolModal, closeAssignSpoolModal, confirmAssignSpool, openSpoolMovementsModal, closeSpoolMovementsModal, openSpoolMovementsFor, initSpoolsModule } from "./modules/spools.js";
 import { loadParts, renderPartsList, openAddPartModal, closeAddPartModal, submitSavePart, adjustPartQuantity, deletePart, showPartDetails, closePartDetailsModal, initPartsModule, triggerPrintPartById } from "./modules/parts.js";
-import { loadHistory, renderHistoryList, openScrapModal, closeScrapModal, submitMarkScrap, initHistoryModule } from "./modules/history.js";
-import { loadSettings, saveSettings, setAppLanguage, applyLanguageDictionary, openPrinterSettingsModal, initSettingsModule } from "./modules/settings.js";
-import { initModalsModule, showToast, updateBackButton, closeTopmostModal } from "./modules/modals.js";
+import { loadHistory, renderHistoryList, openScrapModal, closeScrapModal, submitMarkScrap, initHistoryModule, refreshHistory, clearAllHistory, reprintJob, deleteHistoryItem } from "./modules/history.js";
+import {
+    loadSettings,
+    saveSettings,
+    setAppLanguage,
+    applyLanguageDictionary,
+    openPrinterSettingsModal,
+    initSettingsModule,
+    populatePrinterSettingsSelect,
+    loadPrinterSettings,
+    savePrinterSettingsFromTab,
+    resetPrinterMaintenance,
+    updateServerHealthAndStats,
+    loadUsersTable
+} from "./modules/settings.js";
+import { initModalsModule, showToast, updateBackButton, closeTopmostModal, setupSafeAlertFallback } from "./modules/modals.js";
 
 // ============================================================================
 // Backward-Compatibility Facades on Window
@@ -56,6 +69,20 @@ window.closePresetModal = closePresetModal;
 window.submitSavePreset = submitSavePreset;
 window.deletePreset = deletePreset;
 window.exportCommercialPdf = exportCommercialPdf;
+window.refreshHistory = refreshHistory;
+window.clearAllHistory = clearAllHistory;
+window.reprintJob = reprintJob;
+window.deleteHistoryItem = deleteHistoryItem;
+window.downloadAuthenticatedPdf = downloadAuthenticatedPdf;
+window.loadSettings = loadSettings;
+window.saveSettings = saveSettings;
+window.setAppLanguage = setAppLanguage;
+window.populatePrinterSettingsSelect = populatePrinterSettingsSelect;
+window.loadPrinterSettings = loadPrinterSettings;
+window.savePrinterSettingsFromTab = savePrinterSettingsFromTab;
+window.resetPrinterMaintenance = resetPrinterMaintenance;
+window.updateServerHealthAndStats = updateServerHealthAndStats;
+window.loadUsersTable = loadUsersTable;
 
 // ============================================================================
 // Header 3MF Upload & Quick Action Modal
@@ -282,6 +309,9 @@ async function bootstrapApp() {
     // 1. Setup fetch credentials & token interceptor
     setupFetchInterceptor();
 
+    // 1.1 Non-blocking toasts fallback for window.alert
+    setupSafeAlertFallback();
+
     // 2. Setup legacy state bridges for backward compatibility
     initLegacyStateBridges();
 
@@ -298,6 +328,7 @@ async function bootstrapApp() {
     initSettingsModule();
     initHeaderFileUpload();
     initTabNavigation();
+    initPdfExportDelegation();
 
     // 5. Wire top-bar refresh button
     const refreshBtn = document.getElementById("refresh-btn");
@@ -334,6 +365,9 @@ async function bootstrapApp() {
         if (state.selectedPrinterId && document.getElementById("printer-modal")?.classList.contains("active")) {
             const currentP = state.printers.find(p => p.id === state.selectedPrinterId);
             if (currentP) updatePrinterModalContent(currentP);
+        }
+        if (typeof populatePrinterSettingsSelect === "function") {
+            populatePrinterSettingsSelect();
         }
     };
 

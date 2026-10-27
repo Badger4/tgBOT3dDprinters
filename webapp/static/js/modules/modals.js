@@ -56,32 +56,142 @@ export function closeTopmostModal() {
  * Toast Notification system
  */
 export function showToast(message, type = "info", duration = 3000) {
+    if (!message) return;
     let container = document.getElementById("toast-container");
     if (!container) {
         container = document.createElement("div");
         container.id = "toast-container";
-        container.style.cssText = "position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: var(--z-toast, 2000); display: flex; flex-direction: column; gap: 8px; pointer-events: none; width: max-content; max-width: 90vw;";
         document.body.appendChild(container);
     }
 
     const toast = document.createElement("div");
     toast.className = `toast-pill toast-${type}`;
-    toast.style.cssText = "pointer-events: auto; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.15); color: #f8fafc; padding: 8px 16px; border-radius: 9999px; font-size: 13px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.3); backdrop-filter: blur(8px); display: flex; align-items: center; gap: 8px; animation: toastIn 0.2s ease-out;";
 
     let icon = '<i class="fa-solid fa-circle-info color-blue"></i>';
     if (type === "success") icon = '<i class="fa-solid fa-circle-check color-green"></i>';
     else if (type === "warning") icon = '<i class="fa-solid fa-triangle-exclamation color-amber"></i>';
     else if (type === "error") icon = '<i class="fa-solid fa-circle-xmark color-red"></i>';
 
-    toast.innerHTML = `${icon} <span>${message}</span>`;
+    toast.innerHTML = `${icon}<span>${escapeHtml(String(message))}</span>`;
+
+    // Click to dismiss immediately
+    toast.addEventListener("click", () => {
+        toast.style.opacity = "0";
+        toast.style.transform = "translateY(-10px)";
+        setTimeout(() => toast.remove(), 250);
+    });
+
     container.appendChild(toast);
 
     setTimeout(() => {
-        toast.style.opacity = "0";
-        toast.style.transform = "translateY(-10px)";
-        toast.style.transition = "all 0.25s ease-in";
-        setTimeout(() => toast.remove(), 250);
+        if (toast.parentElement) {
+            toast.style.opacity = "0";
+            toast.style.transform = "translateY(-10px)";
+            setTimeout(() => toast.remove(), 250);
+        }
     }, duration);
+}
+
+/**
+ * Modern non-blocking dialog to replace window.prompt
+ */
+export function showPromptDialog({ title = "Введення", message = "", defaultValue = "", placeholder = "", confirmText = "OK", cancelText = "Скасувати", onConfirm } = {}) {
+    let backdrop = document.getElementById("prompt-dialog-backdrop");
+    if (!backdrop) {
+        backdrop = document.createElement("div");
+        backdrop.id = "prompt-dialog-backdrop";
+        backdrop.className = "modal-backdrop";
+        backdrop.innerHTML = `
+            <div class="modal-window" style="max-width: 360px;">
+                <div class="modal-header">
+                    <h3 id="prompt-dialog-title" class="modal-title">Введення</h3>
+                    <button type="button" class="btn-close" id="prompt-dialog-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p id="prompt-dialog-msg" class="text-muted mb-2"></p>
+                    <input type="text" id="prompt-dialog-input" class="form-control" autocomplete="off" />
+                </div>
+                <div class="modal-footer" style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+                    <button type="button" class="btn btn-secondary" id="prompt-dialog-cancel">Скасувати</button>
+                    <button type="button" class="btn btn-primary" id="prompt-dialog-confirm">OK</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(backdrop);
+    }
+
+    const titleEl = document.getElementById("prompt-dialog-title");
+    const msgEl = document.getElementById("prompt-dialog-msg");
+    const inputEl = document.getElementById("prompt-dialog-input");
+    const closeBtn = document.getElementById("prompt-dialog-close");
+    const cancelBtn = document.getElementById("prompt-dialog-cancel");
+    const confirmBtn = document.getElementById("prompt-dialog-confirm");
+
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = message;
+    if (confirmBtn) confirmBtn.textContent = confirmText;
+    if (cancelBtn) cancelBtn.textContent = cancelText;
+
+    if (inputEl) {
+        inputEl.value = defaultValue !== undefined ? String(defaultValue) : "";
+        inputEl.placeholder = placeholder;
+    }
+
+    function closeDialog() {
+        backdrop.classList.remove("active");
+        backdrop.style.display = "none";
+    }
+
+    function handleConfirm() {
+        const val = inputEl ? inputEl.value : "";
+        closeDialog();
+        if (typeof onConfirm === "function") {
+            onConfirm(val);
+        }
+    }
+
+    if (closeBtn) closeBtn.onclick = closeDialog;
+    if (cancelBtn) cancelBtn.onclick = closeDialog;
+    if (confirmBtn) confirmBtn.onclick = handleConfirm;
+    backdrop.onclick = (e) => {
+        if (e.target === backdrop) closeDialog();
+    };
+
+    if (inputEl) {
+        inputEl.onkeydown = (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                handleConfirm();
+            } else if (e.key === "Escape") {
+                e.preventDefault();
+                closeDialog();
+            }
+        };
+    }
+
+    backdrop.style.display = "flex";
+    backdrop.classList.add("active");
+    setTimeout(() => {
+        if (inputEl) {
+            inputEl.focus();
+            inputEl.select();
+        }
+    }, 50);
+}
+window.showPromptDialog = showPromptDialog;
+
+/**
+ * Replaces blocking window.alert with modern non-blocking toasts across the WebApp
+ */
+export function setupSafeAlertFallback() {
+    window.alert = function(msg) {
+        if (!msg) return;
+        const str = String(msg);
+        const isError = /помилка|error|failed|не вдалося|невірн|некоректн/i.test(str);
+        const isSuccess = /успішно|success|збережено|готово|скинуто/i.test(str);
+        const type = isError ? "error" : (isSuccess ? "success" : "info");
+        showToast(str, type, 3500);
+    };
 }
 
 /**
@@ -328,19 +438,28 @@ export function initEventDelegation() {
     if (hTbody && !hTbody._delegated) {
         hTbody._delegated = true;
         hTbody.addEventListener("click", async (e) => {
-            const reprintBtn = e.target.closest(".btn-reprint-history");
+            const reprintBtn = e.target.closest(".btn-reprint-history, .btn-reprint-entry");
             if (reprintBtn) {
-                reprintJob(reprintBtn);
+                e.preventDefault();
+                e.stopPropagation();
+                const taskName = reprintBtn.getAttribute("data-task") || "";
+                const printerName = reprintBtn.getAttribute("data-printer") || "";
+                const printerId = reprintBtn.getAttribute("data-printer-id") || "";
+                reprintJob(taskName, printerName, printerId);
                 return;
             }
             const delBtn = e.target.closest(".btn-delete-history-entry");
             if (delBtn) {
+                e.preventDefault();
+                e.stopPropagation();
                 const ts = delBtn.getAttribute("data-ts");
                 if (ts) deleteHistoryItem(ts);
                 return;
             }
             const scrapBtn = e.target.closest(".btn-mark-scrap");
             if (scrapBtn) {
+                e.preventDefault();
+                e.stopPropagation();
                 const data = {
                     ts: scrapBtn.getAttribute("data-ts"),
                     weight: parseFloat(scrapBtn.getAttribute("data-weight")) || 0,
