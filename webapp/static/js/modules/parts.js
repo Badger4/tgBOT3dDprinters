@@ -13,6 +13,22 @@ import {
     uploadImageApi
 } from "./api.js";
 
+export function filterParts(partsMapOrArray, query = "") {
+    const list = Array.isArray(partsMapOrArray)
+        ? partsMapOrArray
+        : Object.values(partsMapOrArray || {});
+    const q = (query || "").trim().toLowerCase();
+    if (!q) return list;
+
+    return list.filter(p => {
+        const nameMatch = p.name && String(p.name).toLowerCase().includes(q);
+        const modelMatch = p.printer_model && String(p.printer_model).toLowerCase().includes(q);
+        const filMatch = p.filament_type && String(p.filament_type).toLowerCase().includes(q);
+        const fileMatch = (p.three_mf || p.three_mf_name) && String(p.three_mf || p.three_mf_name).toLowerCase().includes(q);
+        return Boolean(nameMatch || modelMatch || filMatch || fileMatch);
+    });
+}
+
 export async function loadParts(fromCache = false) {
     const partsListEl = document.getElementById("parts-list");
     const partsBadgeEl = document.getElementById("parts-summary-badge");
@@ -32,10 +48,10 @@ export async function loadParts(fromCache = false) {
             partSearchClearBtn.style.display = searchQuery ? "flex" : "none";
         }
 
-        const allKeys = Object.keys(state.parts);
+        const allParts = Object.values(state.parts || {});
         let totalCount = 0;
-        allKeys.forEach(k => {
-            const cnt = parseInt(state.parts[k].count || state.parts[k].quantity || 0, 10);
+        allParts.forEach(p => {
+            const cnt = parseInt(p.count || p.quantity || 0, 10);
             totalCount += cnt;
         });
 
@@ -43,15 +59,9 @@ export async function loadParts(fromCache = false) {
             partsBadgeEl.textContent = `${totalCount} шт`;
         }
 
-        const keys = allKeys.filter(id => {
-            if (!searchQuery) return true;
-            const p = state.parts[id];
-            const nameMatch = p.name && p.name.toLowerCase().includes(searchQuery);
-            const modelMatch = p.printer_model && p.printer_model.toLowerCase().includes(searchQuery);
-            return nameMatch || modelMatch;
-        });
+        const filteredParts = filterParts(allParts, searchQuery);
 
-        if (keys.length === 0) {
+        if (filteredParts.length === 0) {
             partsListEl.innerHTML = searchQuery ? `
                 <div class="empty-state p-4 text-center">
                     <i class="fa-solid fa-magnifying-glass color-amber" style="font-size: 2.5rem;"></i>
@@ -67,10 +77,10 @@ export async function loadParts(fromCache = false) {
         }
 
         let html = "";
-        keys.forEach(id => {
-            const part = state.parts[id];
+        filteredParts.forEach(part => {
             const count = parseInt(part.count || part.quantity || 0, 10);
-            const threeMf = part.three_mf ? escapeHtml(part.three_mf_name || "Файл .3mf") : "";
+            const safeId = escapeHtml(String(part.id));
+            const threeMf = part.three_mf ? escapeHtml(part.three_mf_name || part.three_mf) : "";
             const imageSrc = part.image && (part.image.startsWith("http") || part.image.startsWith("/")) ? part.image : "";
             const pModelBadge = part.printer_model && part.printer_model !== 'Unknown'
                 ? `<span class="badge badge-outline text-info border-info ms-2" style="font-size: 0.75rem;"><i class="fa-solid fa-print"></i> ${escapeHtml(part.printer_model)}</span>`
@@ -82,7 +92,7 @@ export async function loadParts(fromCache = false) {
             html += `
                 <div class="spool-item-card part-item-card glass-card mb-3 p-3">
                     <div class="part-card-header">
-                        <div class="part-card-main-info" data-id="${part.id}" title="Натисніть для перегляду деталей моделі">
+                        <div class="part-card-main-info" data-id="${safeId}" title="Натисніть для перегляду деталей моделі">
                             ${imageSrc
                                 ? `<img src="${escapeHtml(imageSrc)}" class="part-preview-thumb" alt="${escapeHtml(part.name)}">`
                                 : `<div class="part-preview-placeholder"><i class="fa-solid fa-cube color-green fs-5"></i></div>`
@@ -98,30 +108,30 @@ export async function loadParts(fromCache = false) {
                             </div>
                         </div>
                         <div class="part-card-actions">
-                            <button class="icon-btn btn-edit-part" data-id="${part.id}" title="Редагувати">
+                            <button class="icon-btn btn-edit-part" data-id="${safeId}" title="Редагувати">
                                 <i class="fa-solid fa-pen-to-square"></i>
                             </button>
-                            <button class="icon-btn btn-delete-part text-danger" data-id="${part.id}" title="Видалити">
+                            <button class="icon-btn btn-delete-part text-danger" data-id="${safeId}" title="Видалити">
                                 <i class="fa-solid fa-trash"></i>
                             </button>
                         </div>
                     </div>
 
                     ${threeMf ? `
-                        <div class="part-card-file-row" data-id="${part.id}" style="cursor: pointer;" title="Натисніть для детальної інформації">
+                        <div class="part-card-file-row" data-id="${safeId}" style="cursor: pointer;" title="Натисніть для детальної інформації">
                             <i class="fa-solid fa-file"></i>
                             <span><strong>.3mf:</strong> ${threeMf}</span>
                         </div>
                     ` : ''}
 
                     <div class="part-card-footer">
-                        <button class="btn btn-sm btn-primary btn-print-part" data-id="${part.id}">
+                        <button class="btn btn-sm btn-primary btn-print-part" data-id="${safeId}">
                             <i class="fa-solid fa-rocket"></i> Кинути на друк
                         </button>
                         <div class="part-card-qty-counter">
-                            <button class="btn btn-sm btn-outline btn-part-qty-dec" data-id="${part.id}">-</button>
+                            <button class="btn btn-sm btn-outline btn-part-qty-dec" data-id="${safeId}">-</button>
                             <strong class="fs-6 px-1 text-info">${count} шт</strong>
-                            <button class="btn btn-sm btn-outline btn-part-qty-inc" data-id="${part.id}">+</button>
+                            <button class="btn btn-sm btn-outline btn-part-qty-inc" data-id="${safeId}">+</button>
                         </div>
                     </div>
                 </div>
@@ -148,6 +158,12 @@ export function openAddPartModal(part = null) {
     const partImageFileInput = document.getElementById("part-image-file-input");
     const previewWrap = document.getElementById("part-image-preview-wrap");
     const previewImg = document.getElementById("part-image-preview");
+
+    const progressEl = document.getElementById("part-3mf-upload-progress");
+    if (progressEl) {
+        progressEl.style.display = "none";
+        progressEl.textContent = "";
+    }
 
     if (!modal) return;
 
@@ -198,6 +214,11 @@ export function closeAddPartModal() {
     const modal = document.getElementById("add-part-modal");
     if (modal) modal.classList.remove("active");
     state.editingPartId = null;
+    const progressEl = document.getElementById("part-3mf-upload-progress");
+    if (progressEl) {
+        progressEl.style.display = "none";
+        progressEl.textContent = "";
+    }
 }
 
 export async function submitSavePart(e) {
@@ -205,6 +226,9 @@ export async function submitSavePart(e) {
         e.preventDefault();
         e.stopPropagation();
     }
+    const saveBtn = document.getElementById("save-part-submit");
+    if (saveBtn && saveBtn.disabled) return;
+
     const editId = document.getElementById("edit-part-id")?.value;
     const name = document.getElementById("part-name-input")?.value?.trim();
     const count = parseInt(document.getElementById("part-count-input")?.value || "1", 10);
@@ -214,6 +238,12 @@ export async function submitSavePart(e) {
     if (!name) {
         alert("⚠️ Будь ласка, введіть назву деталі!");
         return;
+    }
+
+    const origText = saveBtn ? saveBtn.innerHTML : "";
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin me-1"></i> Збереження...`;
     }
 
     const payload = {
@@ -226,18 +256,24 @@ export async function submitSavePart(e) {
 
     try {
         const result = await savePartApi(payload);
-        if (result.status === "ok" || result.part || !result.error) {
+        const isSuccess = Boolean(result && !result.error && (result.status === "ok" || result.part));
+        if (isSuccess) {
             triggerHaptic("success");
             closeAddPartModal();
             await loadParts();
         } else {
             triggerHaptic("error");
-            alert("⚠️ Помилка збереження деталі: " + (result.error || "Невідомо"));
+            alert("⚠️ Помилка збереження деталі: " + (result?.error || "Невідомо"));
         }
     } catch (err) {
         triggerHaptic("error");
         console.error("Save part error:", err);
         alert("⚠️ Мережева помилка збереження деталі.");
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = origText || "💾 Зберегти деталь";
+        }
     }
 }
 
@@ -279,6 +315,12 @@ export function showPartDetails(partId) {
     if (!part) return;
 
     const modal = document.getElementById("part-details-modal");
+    const progressEl = document.getElementById("part-3mf-upload-progress");
+    if (progressEl) {
+        progressEl.style.display = "none";
+        progressEl.textContent = "";
+    }
+
     if (!modal) return;
 
     const titleEl = document.getElementById("part-details-title");
@@ -517,11 +559,45 @@ async function executeLaunchPartPrint(part, selectedPrinter) {
     }
 }
 
-export function initPartUploadListeners() {
-    const fileInput = document.getElementById("part-3mf-file-input");
-    const dropZone = document.getElementById("part-3mf-dropzone");
+export function initPartsModule() {
+    if (state.partsModuleBound) return;
+    state.partsModuleBound = true;
 
-    if (fileInput && dropZone) {
+    // 1. Search input & clear button
+    const partSearchInput = document.getElementById("part-search-input");
+    const partSearchClearBtn = document.getElementById("part-search-clear-btn");
+
+    if (partSearchInput) {
+        partSearchInput.addEventListener("input", () => {
+            if (partSearchClearBtn) {
+                partSearchClearBtn.style.display = partSearchInput.value.trim().length > 0 ? "inline-flex" : "none";
+            }
+            loadParts(true);
+        });
+    }
+
+    if (partSearchClearBtn && partSearchInput) {
+        partSearchClearBtn.addEventListener("click", () => {
+            partSearchInput.value = "";
+            partSearchClearBtn.style.display = "none";
+            partSearchInput.focus();
+            loadParts(true);
+        });
+    }
+
+    // 2. 3MF File input (always wired independently of dropzone presence)
+    const fileInput = document.getElementById("part-3mf-file-input");
+    if (fileInput) {
+        fileInput.addEventListener("change", () => {
+            if (fileInput.files?.length) {
+                handle3mfFileUpload(fileInput.files[0]);
+            }
+        });
+    }
+
+    // 3. 3MF Dropzone (supports click-to-browse and drag-and-drop)
+    const dropZone = document.getElementById("part-3mf-dropzone");
+    if (dropZone && fileInput) {
         dropZone.addEventListener("click", () => fileInput.click());
         dropZone.addEventListener("dragover", (e) => {
             e.preventDefault();
@@ -536,13 +612,9 @@ export function initPartUploadListeners() {
                 handle3mfFileUpload(fileInput.files[0]);
             }
         });
-        fileInput.addEventListener("change", () => {
-            if (fileInput.files?.length) {
-                handle3mfFileUpload(fileInput.files[0]);
-            }
-        });
     }
 
+    // 4. Image file input upload
     const imgInput = document.getElementById("part-image-file-input");
     if (imgInput) {
         imgInput.addEventListener("change", async () => {
@@ -558,16 +630,22 @@ export function initPartUploadListeners() {
                     if (imgUrlInput) imgUrlInput.value = res.url;
                     if (previewImg) previewImg.src = res.url;
                     if (previewWrap) previewWrap.style.display = "block";
+                    triggerHaptic("success");
                 }
             } catch (e) {
                 console.error("Upload image error:", e);
+                triggerHaptic("error");
             }
         });
     }
 
+    // 5. Close and submit action buttons
+    document.getElementById("close-add-part-modal")?.addEventListener("click", closeAddPartModal);
     document.getElementById("cancel-part-submit")?.addEventListener("click", closeAddPartModal);
     document.getElementById("save-part-submit")?.addEventListener("click", submitSavePart);
 }
+
+export const initPartUploadListeners = initPartsModule;
 
 async function handle3mfFileUpload(file) {
     if (!file) return;
@@ -576,31 +654,47 @@ async function handle3mfFileUpload(file) {
     const threeMfInput = document.getElementById("part-3mf-input");
     const detectedModelEl = document.getElementById("part-detected-model");
 
-    if (progressEl) progressEl.textContent = "⏳ Завантаження та аналіз .3mf файлу...";
+    if (progressEl) {
+        progressEl.style.display = "block";
+        progressEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin me-1"></i> Завантаження та аналіз .3mf файлу...`;
+    }
 
     const formData = new FormData();
     formData.append("file", file);
 
     try {
         const res = await uploadFileApi(formData);
-        if (res.status === "ok") {
+        if (res && res.status === "ok") {
             if (threeMfInput) threeMfInput.value = res.file_token || res.filename || file.name;
             if (nameInput && !nameInput.value.trim()) {
                 nameInput.value = file.name.replace(/\.(3mf|gcode)$/i, "");
             }
             if (detectedModelEl && res.printer_model && res.printer_model !== "Unknown") {
-                detectedModelEl.textContent = `🖨️ Визначена модель принтера: ${res.printer_model}`;
+                const filInfo = res.filament_type ? ` (${res.filament_type})` : "";
+                const weightInfo = res.weight_g ? ` • ${res.weight_g}г` : "";
+                detectedModelEl.textContent = `🖨️ Визначена модель: ${res.printer_model}${filInfo}${weightInfo}`;
                 detectedModelEl.style.display = "block";
             }
-            if (progressEl) progressEl.textContent = `✅ Файл успішно завантажено (${file.name})`;
+            if (progressEl) {
+                progressEl.style.display = "block";
+                progressEl.innerHTML = `<span class="text-success"><i class="fa-solid fa-check me-1"></i> Файл успішно завантажено (${escapeHtml(file.name)})</span>`;
+            }
+            triggerHaptic("success");
         } else {
-            if (progressEl) progressEl.textContent = `⚠️ Помилка: ${res.error || "Не вдалося завантажити"}`;
+            if (progressEl) {
+                progressEl.style.display = "block";
+                progressEl.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-exclamation me-1"></i> ${escapeHtml(res?.error || "Не вдалося завантажити")}</span>`;
+            }
+            triggerHaptic("error");
         }
     } catch (e) {
         console.error("3mf upload error:", e);
-        if (progressEl) progressEl.textContent = "⚠️ Мережева помилка завантаження файлу.";
+        if (progressEl) {
+            progressEl.style.display = "block";
+            progressEl.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-exclamation me-1"></i> Мережева помилка завантаження файлу.</span>`;
+        }
+        triggerHaptic("error");
     }
 }
 
-export const initPartsModule = initPartUploadListeners;
 export const renderPartsList = loadParts;

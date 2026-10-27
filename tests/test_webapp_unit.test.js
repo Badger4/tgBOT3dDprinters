@@ -531,3 +531,74 @@ describe('Spool Movements Audit Filtering', () => {
         assert.equal(filterSpoolMovements(mockMovements, { query: 'PETG' }).length, 2);
     });
 });
+
+describe('Parts Warehouse Filtering & Search', () => {
+    function filterParts(partsMapOrArray, query = '') {
+        const list = Array.isArray(partsMapOrArray)
+            ? partsMapOrArray
+            : Object.values(partsMapOrArray || {});
+        const q = (query || '').trim().toLowerCase();
+        if (!q) return list;
+
+        return list.filter(p => {
+            const nameMatch = p.name && String(p.name).toLowerCase().includes(q);
+            const modelMatch = p.printer_model && String(p.printer_model).toLowerCase().includes(q);
+            const filMatch = p.filament_type && String(p.filament_type).toLowerCase().includes(q);
+            const fileMatch = (p.three_mf || p.three_mf_name) && String(p.three_mf || p.three_mf_name).toLowerCase().includes(q);
+            return Boolean(nameMatch || modelMatch || filMatch || fileMatch);
+        });
+    }
+
+    const mockParts = [
+        { id: 'p1', name: 'Кронштейн P1S', printer_model: 'Bambu Lab P1S', filament_type: 'PETG', three_mf: 'p1s_bracket.3mf', count: 5 },
+        { id: 'p2', name: 'Шестерня A1 mini', printer_model: 'Bambu Lab A1 mini', filament_type: 'PLA', three_mf: 'gear_v2.3mf', count: 12 },
+        { id: 'p3', name: 'Корпус роз\'єму XT60', printer_model: 'Unknown', filament_type: 'ABS', three_mf: '', count: 3 },
+        { id: 'p4', name: 'Калібрувальний кубик Voron', printer_model: 'Voron 2.4', filament_type: 'ASA', three_mf: 'cube20mm.3mf', count: 0 },
+    ];
+
+    it('returns all parts when search query is empty or whitespace', () => {
+        assert.equal(filterParts(mockParts, '').length, 4);
+        assert.equal(filterParts(mockParts, '   ').length, 4);
+        assert.equal(filterParts(mockParts, null).length, 4);
+    });
+
+    it('filters parts case-insensitively by name', () => {
+        const res = filterParts(mockParts, 'кронштейн');
+        assert.equal(res.length, 1);
+        assert.equal(res[0].id, 'p1');
+
+        const resUpper = filterParts(mockParts, 'ШЕСТЕРНЯ');
+        assert.equal(resUpper.length, 1);
+        assert.equal(resUpper[0].id, 'p2');
+    });
+
+    it('filters parts by printer model', () => {
+        const res = filterParts(mockParts, 'A1 mini');
+        assert.equal(res.length, 1);
+        assert.equal(res[0].id, 'p2');
+
+        const resP1S = filterParts(mockParts, 'P1S');
+        assert.equal(resP1S.length, 1);
+        assert.equal(resP1S[0].id, 'p1');
+    });
+
+    it('filters parts by filament type', () => {
+        const res = filterParts(mockParts, 'PETG');
+        assert.equal(res.length, 1);
+        assert.equal(res[0].id, 'p1');
+
+        const resAbs = filterParts(mockParts, 'ABS');
+        assert.equal(resAbs.length, 1);
+        assert.equal(resAbs[0].id, 'p3');
+    });
+
+    it('filters parts by 3mf filename', () => {
+        const res = filterParts(mockParts, 'cube20mm');
+        assert.equal(res.length, 1);
+        assert.equal(res[0].id, 'p4');
+    });
+
+    it('returns empty array when query does not match any field', () => {
+        assert.equal(filterParts(mockParts, 'неіснуюча_деталь').length, 0);
+    });
+});

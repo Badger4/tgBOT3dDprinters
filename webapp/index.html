@@ -1451,11 +1451,11 @@
 
 
     <!-- PART MODAL (ADD / EDIT PART) -->
-    <div id="add-part-modal" class="modal-backdrop">
+    <div id="add-part-modal" class="modal-backdrop" onclick="if(event.target===this)window.closeAddPartModal()">
         <div class="modal-window">
             <div class="modal-header">
                 <h3><i class="fa-solid fa-puzzle-piece"></i> 🧩 <span id="part-modal-title">Нова деталь</span></h3>
-                <button id="close-add-part-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
+                <button type="button" id="close-add-part-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="modal-body">
                 <form id="add-part-form" onsubmit="return false;">
@@ -1478,8 +1478,13 @@
                     </div>
                     <div class="form-group">
                         <label>Завантажити файл .3mf (із пристрою)</label>
+                        <div id="part-3mf-dropzone" class="file-dropzone mb-2 p-3 text-center" style="border: 2px dashed rgba(255,255,255,0.2); border-radius: 8px; cursor: pointer; background: rgba(255,255,255,0.02);">
+                            <i class="fa-solid fa-file-arrow-up fs-3 color-green mb-1"></i>
+                            <p class="m-0 text-muted" style="font-size: 0.85rem;">Натисніть або перетягніть .3mf файл сюди</p>
+                        </div>
                         <input type="file" id="part-3mf-file-input" class="form-control" accept=".3mf">
                         <input type="hidden" id="part-3mf-input" value="">
+                        <div id="part-3mf-upload-progress" class="small text-muted mt-1" style="display:none;"></div>
                         <small id="part-detected-model" class="text-info mt-1 d-block" style="display:none;"></small>
                     </div>
                     <div class="d-flex gap-2 mt-3">
@@ -1517,6 +1522,6 @@
     <!-- html2pdf Library for PDF exports (deferred background load) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp Application JS -->
-    <script type="module" src="/static/js/app.js?v=1145"></script>
+    <script type="module" src="/static/js/app.js?v=1146"></script>
 </body>
 </html>

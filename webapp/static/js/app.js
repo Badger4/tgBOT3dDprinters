@@ -30,6 +30,7 @@ window.closeSpoolMovementsModal = closeSpoolMovementsModal;
 window.openSpoolMovementsFor = openSpoolMovementsFor;
 
 window.openAddPartModal = openAddPartModal;
+window.closeAddPartModal = closeAddPartModal;
 window.closePartDetailsModal = closePartDetailsModal;
 window.submitSavePart = submitSavePart;
 window.showPartDetails = showPartDetails;
