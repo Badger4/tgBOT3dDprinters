@@ -6,6 +6,7 @@ import { escapeHtml, formatRemainingTime, getPrinterStatusInfo, cleanSubtaskName
 import { renderCockpitPrinterCard, renderClassicPrinterCard } from "./cockpit.js";
 import { state } from "./state.js";
 import { api, getWebSessionToken } from "./api.js";
+import { openPrinterSettingsModal } from "./settings.js";
 
 const ENABLE_COCKPIT_CARDS = true;
 
@@ -161,8 +162,10 @@ export function renderPrinters(printers = state.printers) {
         return;
     }
 
-    const runningCount = printers.filter(p => getPrinterStatusInfo(p.state).code === "RUNNING").length;
+    const isBusy = (code) => code === "RUNNING" || code === "PREPARE";
+    const runningCount = printers.filter(p => isBusy(getPrinterStatusInfo(p.state).code)).length;
     const pauseCount = printers.filter(p => getPrinterStatusInfo(p.state).code === "PAUSE").length;
+    const activeTotal = runningCount + pauseCount;
 
     let subDetail = [];
     if (runningCount > 0) subDetail.push(`друк: ${runningCount}`);
@@ -170,10 +173,20 @@ export function renderPrinters(printers = state.printers) {
     const subStr = subDetail.length > 0 ? ` (${subDetail.join(', ')})` : '';
 
     if (activeCountEl) {
-        activeCountEl.textContent = `${printers.length}/${printers.length}${subStr}`;
+        activeCountEl.textContent = `${activeTotal}/${printers.length}${subStr}`;
     }
 
     if (printersGrid) {
+        // Collect existing peek boxes with an active image to avoid snapshot reload/flicker
+        const activePeekImgs = new Map();
+        printers.forEach(p => {
+            const peekBox = document.getElementById(`cockpit-peek-${p.id}`);
+            const img = peekBox?.querySelector("img");
+            if (img && img.src && img.style.display !== "none") {
+                activePeekImgs.set(String(p.id), img);
+            }
+        });
+
         printersGrid.innerHTML = printers.map(p => {
             const rawSt = String(p.state || "IDLE").toUpperCase();
             const statusInfo = getPrinterStatusInfo(rawSt);
@@ -257,6 +270,17 @@ export function renderPrinters(printers = state.printers) {
                 return renderClassicPrinterCard(p, statusInfo, modelName, isPrinting, progress, timeStr, layerStr, filamentDisplay, hasPhysicalSpool, slotGrams, printerModelVal, serialVal, fullSearchText);
             }
         }).join("");
+
+        // Restore active peek images so the existing decoded image is retained without reload/flicker
+        activePeekImgs.forEach((oldImg, pId) => {
+            const newBox = document.getElementById(`cockpit-peek-${pId}`);
+            if (newBox) {
+                const currentImg = newBox.querySelector("img");
+                if (currentImg) {
+                    currentImg.replaceWith(oldImg);
+                }
+            }
+        });
     }
 
     // Render Compact Dashboard Grid only when active to avoid wasting CPU/DOM cycles
@@ -265,6 +289,17 @@ export function renderPrinters(printers = state.printers) {
             localStorage.getItem("farm_view_mode") === "compact";
 
         if (isCompactActive) {
+            window._lastCompactSnapshotTime = window._lastCompactSnapshotTime || {};
+            // Collect existing compact thumbnail images to avoid flickering
+            const activeThumbs = new Map();
+            printers.forEach(p => {
+                const card = dashboardGrid.querySelector(`.glass-card[data-id="${p.id}"]`);
+                const img = card?.querySelector("img");
+                if (img && img.src && img.style.display !== "none") {
+                    activeThumbs.set(String(p.id), img);
+                }
+            });
+
             dashboardGrid.innerHTML = printers.map(p => {
                 const rawSt = String(p.state || "IDLE").toUpperCase();
                 const statusInfo = getPrinterStatusInfo(rawSt);
@@ -280,11 +315,14 @@ export function renderPrinters(printers = state.printers) {
                 const initData = window.Telegram?.WebApp?.initData || "";
                 const initDataParam = initData ? `?initData=${encodeURIComponent(initData)}` : '';
                 
-                // Only request snapshot if compact view is active, printer is online, and not in failed cooldown
+                // Refresh snapshot every 15 seconds if online and not in failed cooldown
                 const failedAt = window._failedSnapshots?.[p.id] || 0;
                 const isFailedCooldown = (Date.now() - failedAt) < 45000;
+                const lastFetched = window._lastCompactSnapshotTime[p.id] || 0;
+                const needsRefresh = (Date.now() - lastFetched) > 15000;
                 const canLoadSnapshot = isOnline && !isFailedCooldown;
-                const thumbSrc = canLoadSnapshot ? `/api/printers/${p.id}/snapshot${initDataParam}` : '';
+                const timeParam = needsRefresh ? `${initDataParam ? '&' : '?'}t=${Date.now()}` : '';
+                const thumbSrc = canLoadSnapshot ? `/api/printers/${p.id}/snapshot${initDataParam}${timeParam}` : '';
                 
                 return `
                     <div class="glass-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-state="${statusInfo.code}" style="padding: 10px; cursor: pointer; display: flex; flex-direction: column; position: relative;">
@@ -292,7 +330,7 @@ export function renderPrinters(printers = state.printers) {
                             ${escapeHtml(p.name)}
                         </div>
                         <div style="width: 100%; aspect-ratio: 4/3; background: #000; border-radius: var(--radius-sm); overflow: hidden; position: relative; margin-bottom: 8px;">
-                            ${thumbSrc ? `<img src="${thumbSrc}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;" onload="if(window._failedSnapshots) delete window._failedSnapshots['${p.id}'];" onerror="this.style.display='none'; window._failedSnapshots = window._failedSnapshots || {}; window._failedSnapshots['${p.id}'] = Date.now(); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />` : ''}
+                            ${thumbSrc ? `<img src="${thumbSrc}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;" onload="if(window._failedSnapshots) delete window._failedSnapshots['${p.id}']; window._lastCompactSnapshotTime['${p.id}'] = Date.now();" onerror="this.style.display='none'; window._failedSnapshots = window._failedSnapshots || {}; window._failedSnapshots['${p.id}'] = Date.now(); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />` : ''}
                             <div style="${thumbSrc ? 'display: none;' : 'display: flex;'} position: absolute; inset: 0; align-items: center; justify-content: center; color: var(--text-dim); background: rgba(0,0,0,0.5);">
                                 <i class="fa-solid ${!isOnline ? 'fa-power-off' : 'fa-camera-slash'}"></i>
                             </div>
@@ -314,6 +352,19 @@ export function renderPrinters(printers = state.printers) {
                     </div>
                 `;
             }).join("");
+
+            // Restore active thumbnails to eliminate flicker unless refresh is due
+            activeThumbs.forEach((oldImg, pId) => {
+                const lastFetched = window._lastCompactSnapshotTime[pId] || 0;
+                const isRecent = (Date.now() - lastFetched) < 15000;
+                if (isRecent) {
+                    const card = dashboardGrid.querySelector(`.glass-card[data-id="${pId}"]`);
+                    const newImg = card?.querySelector("img");
+                    if (newImg) {
+                        newImg.replaceWith(oldImg);
+                    }
+                }
+            });
         }
     }
 
@@ -1249,7 +1300,9 @@ export function initPrintersModule() {
     const btnCalibrate = document.getElementById("btn-action-calibrate");
     const btnResetMaint = document.getElementById("btn-action-reset-maint");
     const btnSkipObjectModal = document.getElementById("btn-action-skip-object");
-    const closeModalBtn = document.getElementById("close-printer-modal");
+    const closeModalBtn = document.getElementById("close-printer-modal") || document.getElementById("close-modal-btn");
+    const printerModal = document.getElementById("printer-modal");
+    const btnPrinterSettings = document.getElementById("btn-printer-settings");
     const refreshCamBtn = document.getElementById("refresh-cam-btn");
     const fullscreenCamBtn = document.getElementById("fullscreen-cam-btn");
     const cameraImg = document.getElementById("camera-snapshot-img");
@@ -1288,6 +1341,18 @@ export function initPrintersModule() {
     }
 
     if (closeModalBtn) closeModalBtn.addEventListener("click", closePrinterModal);
+    if (printerModal) {
+        printerModal.addEventListener("click", (e) => {
+            if (e.target === printerModal) closePrinterModal();
+        });
+    }
+    if (btnPrinterSettings) {
+        btnPrinterSettings.addEventListener("click", () => {
+            if (state.selectedPrinterId) {
+                openPrinterSettingsModal(state.selectedPrinterId);
+            }
+        });
+    }
     if (refreshCamBtn) refreshCamBtn.addEventListener("click", () => {
         triggerHaptic("light");
         if (state.selectedPrinterId) loadCameraSnapshot(state.selectedPrinterId);
@@ -1383,21 +1448,26 @@ export function initPrintersModule() {
         btnActionDelete.addEventListener("click", async () => {
             const targetId = document.getElementById("ps-modal-printer-id")?.value || state.selectedPrinterId;
             if (!targetId) return;
-            if (confirm("Ви дійсно хочете ВИДАЛИТИ цей принтер з системи?")) {
+            const p = (state.printers || []).find(x => x.id === targetId);
+            const pName = p ? p.name : targetId;
+            if (confirm(`Ви дійсно бажаєте ВИДАЛИТИ принтер "${pName}" з системи?`)) {
                 triggerHaptic("medium");
+                btnActionDelete.disabled = true;
                 try {
                     const data = await api.deletePrinter(targetId);
                     if (data.status === "ok") {
                         document.getElementById("printer-settings-modal")?.classList.remove("active");
                         document.getElementById("printer-modal")?.classList.remove("active");
                         state.selectedPrinterId = null;
-                        fetchPrinters();
+                        await fetchPrinters();
                     } else {
                         alert("Помилка видалення принтера: " + (data.error || "Невідомо"));
                     }
                 } catch (e) {
                     console.error("Delete printer error:", e);
                     alert("Помилка при видаленні принтера.");
+                } finally {
+                    btnActionDelete.disabled = false;
                 }
             }
         });

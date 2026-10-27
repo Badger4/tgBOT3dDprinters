@@ -277,8 +277,14 @@ export async function handleQuickPauseResume(pId, btnEl, e) {
         const data = await controlPrinterApi(pId, action);
         if (data.status === "ok") {
             triggerHaptic("success");
-            const printers = await fetchPrintersApi();
-            state.printers = printers;
+            if (typeof window.fetchPrinters === "function") {
+                await window.fetchPrinters();
+            } else {
+                const printers = await fetchPrintersApi();
+                if (Array.isArray(printers)) {
+                    state.printers = printers;
+                }
+            }
         } else {
             triggerHaptic("error");
             alert(`⚠️ Не вдалося змінити стан друку: ${data.error || ""}`);

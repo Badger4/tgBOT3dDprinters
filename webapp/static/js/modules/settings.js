@@ -12,7 +12,6 @@ import {
     fetchUsersApi,
     saveUserAccessApi,
     deleteUserApi,
-    deletePrinterApi,
     fetchPrintersApi
 } from "./api.js";
 
@@ -415,8 +414,12 @@ export async function savePrinterSettingsModal() {
         await savePrinterSettingsApi(pId, payload);
         alert("✅ Налаштування принтера успішно збережено!");
         document.getElementById("printer-settings-modal")?.classList.remove("active");
-        const printers = await fetchPrintersApi();
-        state.printers = printers;
+        if (typeof window.fetchPrinters === "function") {
+            await window.fetchPrinters();
+        } else {
+            const printers = await fetchPrintersApi();
+            state.printers = printers;
+        }
     } catch (e) {
         console.error("Failed saving printer settings via modal:", e);
         alert("⚠️ Помилка зв'язку із сервером: " + e);
@@ -433,24 +436,14 @@ export function initSettingsEventListeners() {
     });
     document.getElementById("save-printer-settings-modal-btn")?.addEventListener("click", savePrinterSettingsModal);
 
-    // Delete printer button inside settings modal
-    document.getElementById("btn-action-delete")?.addEventListener("click", async () => {
-        const pId = document.getElementById("ps-modal-printer-id")?.value || state.selectedPrinterId;
-        if (!pId) return;
-        const p = state.printers.find(x => x.id === pId);
-        const name = p ? p.name : pId;
-        if (confirm(`Ви дійсно бажаєте ВИДАЛИТИ принтер "${name}" з системи?`)) {
-            try {
-                await deletePrinterApi(pId);
-                document.getElementById("printer-settings-modal")?.classList.remove("active");
-                document.getElementById("printer-modal")?.classList.remove("active");
-                const printers = await fetchPrintersApi();
-                state.printers = printers;
-            } catch (e) {
-                console.error("Delete printer error:", e);
+    const psModal = document.getElementById("printer-settings-modal");
+    if (psModal) {
+        psModal.addEventListener("click", (e) => {
+            if (e.target === psModal) {
+                psModal.classList.remove("active");
             }
-        }
-    });
+        });
+    }
 }
 
 export const initSettingsModule = initSettingsEventListeners;
