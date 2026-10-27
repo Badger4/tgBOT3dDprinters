@@ -146,6 +146,24 @@ export async function deleteSpoolApi(spoolId) {
     return res.json();
 }
 
+export async function mountSpoolApi(spoolId, printerId, slotKey = "0") {
+    const res = await apiFetch(`/api/spools/${spoolId}/mount`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ printer_id: printerId, slot_key: String(slotKey) })
+    });
+    return res.json();
+}
+
+export async function unmountSpoolApi(spoolId) {
+    const res = await apiFetch(`/api/spools/${spoolId}/unmount`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+    });
+    return res.json();
+}
+
 export async function fetchSpoolMovementsApi() {
     const res = await apiFetch("/api/spools/movements");
     return res.json();

@@ -398,3 +398,136 @@ describe('AMS Slot Data Normalization', () => {
         assert.equal(slots[0].percentage, 67);
     });
 });
+
+describe('Spools Warehouse Inventory Filtering', () => {
+    const mockSpools = {
+        's1': { id: 's1', name: 'Bambu PLA Basic Black', type: 'PLA', color: '#000000', quantity: 2, remaining_grams: 1000 },
+        's2': { id: 's2', name: 'Sunlu PETG White', type: 'PETG', color: '#ffffff', quantity: 1, remaining_grams: 800 },
+        's3': { id: 's3', name: 'Devil Design TPU Red', type: 'TPU', color: '#ef4444', quantity: 1, remaining_grams: 500 },
+        's4': { id: 's4', name: 'eSUN ABS+ Black', type: 'ABS', color: '#111111', quantity: 1, remaining_grams: 900 },
+        's5': { id: 's5', name: 'Polymaker PolyLite ASA Grey', type: 'ASA', color: '#64748b', quantity: 1, remaining_grams: 750 },
+        's6': { id: 's6', name: 'ColorFabb PA-CF Carbon', type: 'PA-CF', color: '#333333', quantity: 1, remaining_grams: 600 },
+        's7': { id: 's7', name: 'Mounted Spool', type: 'PLA', color: '#22c55e', quantity: 1, assigned_printer_id: 'p1' },
+        's8': { id: 's8', name: 'Empty Stock Spool', type: 'PLA', color: '#000000', quantity: 0, remaining_grams: 0 }
+    };
+
+    function filterSpools(spoolsDict, query = '', matFilter = 'ALL') {
+        const allUnassigned = Object.values(spoolsDict || {}).filter(s => !s.assigned_printer_id && (s.quantity !== undefined ? Number(s.quantity) : 1) > 0);
+        const q = (query || '').trim().toLowerCase();
+        const mf = (matFilter || 'ALL').toUpperCase();
+
+        return allUnassigned.filter(s => {
+            const sType = String(s.type || 'PLA').toUpperCase();
+            const sName = String(s.name || '').toLowerCase();
+            const sColor = String(s.color || '').toLowerCase();
+
+            const matchesQuery = !q || sName.includes(q) || sType.toLowerCase().includes(q) || sColor.includes(q);
+            if (!matchesQuery) return false;
+
+            if (mf === 'ALL') return true;
+            if (mf === 'PLA') return sType.includes('PLA');
+            if (mf === 'PETG') return sType.includes('PETG') || sType.includes('PCTG') || sType.includes('PET');
+            if (mf === 'TPU') return sType.includes('TPU');
+            if (mf === 'ABS/ASA') return sType.includes('ABS') || sType.includes('ASA');
+            if (mf === 'OTHER') {
+                return !(sType.includes('PLA') || sType.includes('PETG') || sType.includes('PCTG') || sType.includes('PET') || sType.includes('TPU') || sType.includes('ABS') || sType.includes('ASA'));
+            }
+            return true;
+        });
+    }
+
+    it('filters out assigned spools and zero-quantity items', () => {
+        const result = filterSpools(mockSpools, '', 'ALL');
+        assert.equal(result.length, 6);
+        assert.ok(!result.some(s => s.id === 's7'));
+        assert.ok(!result.some(s => s.id === 's8'));
+    });
+
+    it('filters by material pill PLA, PETG, TPU, ABS/ASA, and OTHER', () => {
+        assert.equal(filterSpools(mockSpools, '', 'PLA').length, 1);
+        assert.equal(filterSpools(mockSpools, '', 'PETG').length, 1);
+        assert.equal(filterSpools(mockSpools, '', 'TPU').length, 1);
+        assert.equal(filterSpools(mockSpools, '', 'ABS/ASA').length, 2);
+        assert.equal(filterSpools(mockSpools, '', 'OTHER').length, 1);
+    });
+
+    it('filters by search query case-insensitively across name, type and color', () => {
+        const resName = filterSpools(mockSpools, 'Sunlu');
+        assert.equal(resName.length, 1);
+        assert.equal(resName[0].id, 's2');
+
+        const resColor = filterSpools(mockSpools, '#ef4444');
+        assert.equal(resColor.length, 1);
+        assert.equal(resColor[0].id, 's3');
+
+        const resCombined = filterSpools(mockSpools, 'black', 'PLA');
+        assert.equal(resCombined.length, 1);
+        assert.equal(resCombined[0].id, 's1');
+    });
+});
+
+describe('Spool Movements Audit Filtering', () => {
+    function filterSpoolMovements(movementsList, { spoolId = 'all', action = 'all', period = 'all', query = '' } = {}) {
+        const list = Array.isArray(movementsList) ? movementsList : [];
+        const now = 1700000000; // Fixed test timestamp
+        let minTime = 0;
+        if (period === 'today') {
+            minTime = now - 3600;
+        } else if (period === 'week') {
+            minTime = now - (7 * 86400);
+        }
+
+        const q = (query || '').trim().toLowerCase();
+
+        return list.filter(item => {
+            if (spoolId !== 'all' && String(item.spool_id) !== String(spoolId)) return false;
+            if (action !== 'all') {
+                if (action === 'stock') {
+                    if (item.action !== 'stock' && item.action !== 'initial_stock' && item.action !== 'refill') return false;
+                } else if (String(item.action) !== String(action)) {
+                    return false;
+                }
+            }
+            if (minTime > 0 && (item.timestamp || 0) < minTime) return false;
+            if (q) {
+                const searchable = `${item.spool_name || ''} ${item.note || ''} ${item.reason || ''} ${item.printer_name || ''} ${item.user || ''}`.toLowerCase();
+                if (!searchable.includes(q)) return false;
+            }
+            return true;
+        });
+    }
+
+    const mockMovements = [
+        { id: 'm1', spool_id: 's1', spool_name: 'Bambu PLA Black', action: 'initial_stock', weight_change_g: 1000, new_weight_g: 1000, user: 'Admin', reason: 'Склад', timestamp: 1700000000 },
+        { id: 'm2', spool_id: 's1', spool_name: 'Bambu PLA Black', action: 'print', weight_change_g: -45.5, new_weight_g: 954.5, user: 'X1C-01', reason: 'Друк деталі', timestamp: 1700000000 },
+        { id: 'm3', spool_id: 's2', spool_name: 'Sunlu PETG White', action: 'refill', weight_change_g: 500, new_weight_g: 800, user: 'Admin', reason: 'Поповнення', timestamp: 1700000000 },
+        { id: 'm4', spool_id: 's2', spool_name: 'Sunlu PETG White', action: 'manual_edit', weight_change_g: -10, new_weight_g: 790, user: 'Admin', reason: 'Коригування', timestamp: 1690000000 },
+        { id: 'm5', spool_id: 's3', spool_name: 'eSUN ABS+ Red', action: 'write_off', weight_change_g: -500, new_weight_g: 0, user: 'Operator', reason: 'Списання браку', timestamp: 1690000000 },
+    ];
+
+    it('filters movements by specific spool ID', () => {
+        const res = filterSpoolMovements(mockMovements, { spoolId: 's1' });
+        assert.equal(res.length, 2);
+        assert.ok(res.every(m => m.spool_id === 's1'));
+    });
+
+    it('filters stock actions matching both initial_stock and refill', () => {
+        const res = filterSpoolMovements(mockMovements, { action: 'stock' });
+        assert.equal(res.length, 2);
+        assert.ok(res.some(m => m.action === 'initial_stock'));
+        assert.ok(res.some(m => m.action === 'refill'));
+    });
+
+    it('filters by distinct actions (print, write_off, manual_edit)', () => {
+        assert.equal(filterSpoolMovements(mockMovements, { action: 'print' }).length, 1);
+        assert.equal(filterSpoolMovements(mockMovements, { action: 'write_off' }).length, 1);
+        assert.equal(filterSpoolMovements(mockMovements, { action: 'manual_edit' }).length, 1);
+    });
+
+    it('filters by search query across spool name, user, and reason', () => {
+        assert.equal(filterSpoolMovements(mockMovements, { query: 'Operator' }).length, 1);
+        assert.equal(filterSpoolMovements(mockMovements, { query: 'X1C-01' }).length, 1);
+        assert.equal(filterSpoolMovements(mockMovements, { query: 'Списання' }).length, 1);
+        assert.equal(filterSpoolMovements(mockMovements, { query: 'PETG' }).length, 2);
+    });
+});

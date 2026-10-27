@@ -9,7 +9,7 @@ import { escapeHtml, formatRemainingTime, getPrinterStatusInfo, triggerHaptic } 
 import { initSSEStream, setupVisibilityHandler } from "./modules/sse.js";
 import { initCommercialCalculator, loadCommercialPresets, recalculateCommercial } from "./modules/commercial.js";
 import { fetchPrinters, renderPrinters, openPrinterModal, closePrinterModal, initPrintersModule, updatePrinterModalContent } from "./modules/printers.js";
-import { loadMaterials, renderFilteredSpoolsInventory, openAddSpoolModal, closeSpoolModal, submitSaveSpool, openAssignSpoolModal, openSpoolMovementsModal, closeSpoolMovementsModal, openSpoolMovementsFor } from "./modules/spools.js";
+import { loadMaterials, renderFilteredSpoolsInventory, openAddSpoolModal, closeSpoolModal, submitSaveSpool, openAssignSpoolModal, closeAssignSpoolModal, confirmAssignSpool, openSpoolMovementsModal, closeSpoolMovementsModal, openSpoolMovementsFor, initSpoolsModule } from "./modules/spools.js";
 import { loadParts, renderPartsList, openAddPartModal, closeAddPartModal, submitSavePart, adjustPartQuantity, deletePart, showPartDetails, closePartDetailsModal, initPartsModule, triggerPrintPartById } from "./modules/parts.js";
 import { loadHistory, renderHistoryList, openScrapModal, closeScrapModal, submitMarkScrap, initHistoryModule } from "./modules/history.js";
 import { loadSettings, saveSettings, setAppLanguage, applyLanguageDictionary, openPrinterSettingsModal, initSettingsModule } from "./modules/settings.js";
@@ -23,6 +23,8 @@ window.openAddSpoolModal = openAddSpoolModal;
 window.closeSpoolModal = closeSpoolModal;
 window.submitSaveSpool = submitSaveSpool;
 window.openAssignSpoolModal = openAssignSpoolModal;
+window.closeAssignSpoolModal = closeAssignSpoolModal;
+window.confirmAssignSpool = confirmAssignSpool;
 window.openSpoolMovementsModal = openSpoolMovementsModal;
 window.closeSpoolMovementsModal = closeSpoolMovementsModal;
 window.openSpoolMovementsFor = openSpoolMovementsFor;
@@ -283,6 +285,7 @@ async function bootstrapApp() {
     // 4. Initialize all feature modules
     initModalsModule();
     initPrintersModule();
+    initSpoolsModule();
     initCommercialCalculator();
     initPartsModule();
     initHistoryModule();

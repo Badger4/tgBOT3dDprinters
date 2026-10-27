@@ -9,15 +9,17 @@ import {
     fetchSpoolsApi,
     saveSpoolApi,
     deleteSpoolApi,
+    mountSpoolApi,
+    unmountSpoolApi,
     controlPrinterApi,
     fetchSpoolMovementsApi,
     getMovementsPdfExportUrl
 } from "./api.js";
 
 export async function loadMaterials() {
-    const container = document.getElementById("ams-printers-container");
-    if (container) {
-        container.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-circle-notch fa-spin"></i> Завантаження...</div>`;
+    const spoolsList = document.getElementById("spools-list");
+    if (spoolsList && (!state.spools || Object.keys(state.spools).length === 0)) {
+        spoolsList.innerHTML = `<div class="loading-spinner"><i class="fa-solid fa-circle-notch fa-spin"></i> Завантаження котушок...</div>`;
     }
 
     try {
@@ -29,123 +31,42 @@ export async function loadMaterials() {
         state.printers = printers || [];
         state.spools = spools || {};
 
-        if (container) {
-            if (!state.printers || state.printers.length === 0) {
-                container.innerHTML = `<p class="text-muted text-center p-3">Немає активних принтерів</p>`;
-            } else {
-                const spoolsList = Object.values(state.spools);
-
-                container.innerHTML = state.printers.map(p => {
-                    const hasAms = Boolean(p.has_ams);
-                    const activeKey = String(p.active_slot_key || "254");
-                    const slots = p.ams_slots || {};
-                    const slotKeys = hasAms ? ["0", "1", "2", "3", "254"] : ["254"];
-                    const slotLabels = { "0": "A1", "1": "A2", "2": "A3", "3": "A4", "254": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач", "255": hasAms ? "VT (Зовнішній)" : "Зовнішній котушкотримач" };
-                    const amsBadge = hasAms
-                        ? `<span class="badge badge-success" style="font-size:10px; font-weight:500;"><i class="fa-solid fa-layer-group"></i> AMS Підключено</span>`
-                        : `<span class="badge badge-secondary" style="font-size:10px; font-weight:500;"><i class="fa-solid fa-spool"></i> Пряма подача (Без AMS)</span>`;
-
-                    return `
-                        <div class="ams-printer-block glass-card p-3 mb-3">
-                            <div class="ams-printer-title d-flex justify-content-between align-items-center mb-2">
-                                <div class="d-flex align-items-center gap-2">
-                                    <strong><i class="fa-solid fa-print color-blue"></i> ${escapeHtml(p.name)}</strong>
-                                    ${amsBadge}
-                                </div>
-                                <small class="text-muted">Тип: <b>${escapeHtml(p.filament_type || 'PLA')}</b> • ${p.price_per_kg || 650} ₴/кг</small>
-                            </div>
-                            <div class="ams-slots-grid">
-                                ${slotKeys.map(k => {
-                                    const grams = slots[k] !== undefined ? slots[k] : (slots["255"] !== undefined && k === "254" ? slots["255"] : 0);
-                                    const isActive = (k === activeKey || (k === "254" && activeKey === "255") || (k === "255" && activeKey === "254"));
-                                    const assignedSpool = spoolsList.find(s => s.assigned_printer_id === p.id && (String(s.assigned_slot_key) === k || (k === "254" && String(s.assigned_slot_key) === "255")));
-                                    const trayInfo = (p.ams_trays_info || {})[k] || (k === "254" ? (p.ams_trays_info || {})["255"] : {}) || {};
-                                    const hasAmsTray = Boolean(!trayInfo.empty && trayInfo.type);
-                                    const hasAssigned = Boolean(assignedSpool && (assignedSpool.remaining_grams > 0 || assignedSpool.name));
-                                    const hasPhysicalSpool = hasAssigned || hasAmsTray || (isActive && p.filament_type && p.filament_type !== "Невизначено" && grams > 0);
-
-                                    if (!hasPhysicalSpool) {
-                                        return `
-                                            <div class="ams-slot-card empty-slot ${isActive ? 'active-slot' : ''}">
-                                                <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
-                                                    <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
-                                                </div>
-                                                <div class="empty-slot-placeholder">
-                                                    <i class="fa-regular fa-circle-dashed"></i>
-                                                    <span>Порожній простір</span>
-                                                </div>
-                                            </div>`;
-                                    }
-
-                                    let spoolColor = '#3b82f6';
-                                    let spoolName = 'Котушка';
-                                    let spoolType = 'PLA';
-                                    let pct = Math.min(100, Math.max(0, Math.round((grams / 1000) * 100)));
-
-                                    if (assignedSpool) {
-                                        spoolColor = assignedSpool.color || '#3b82f6';
-                                        spoolName = escapeHtml(assignedSpool.name);
-                                        spoolType = escapeHtml(assignedSpool.type);
-                                        const maxCap = assignedSpool.initial_grams || assignedSpool.total_grams || 1000;
-                                        pct = Math.min(100, Math.max(0, Math.round((grams / maxCap) * 100)));
-                                    } else if (hasAmsTray) {
-                                        spoolColor = trayInfo.color || (isActive ? '#22c55e' : '#3b82f6');
-                                        spoolType = escapeHtml(trayInfo.type);
-                                        spoolName = trayInfo.sub_brands ? `Bambu ${spoolType} ${escapeHtml(trayInfo.sub_brands)}` : `Bambu ${spoolType}`;
-                                        if (trayInfo.remain !== undefined && trayInfo.remain >= 0) {
-                                            pct = trayInfo.remain;
-                                        }
-                                    } else if (isActive) {
-                                        spoolColor = '#22c55e';
-                                        spoolName = 'Активна нитка';
-                                        spoolType = escapeHtml(p.filament_type || 'PLA');
-                                    }
-
-                                    return `
-                                        <div class="ams-slot-card ${isActive ? 'active-slot' : ''}">
-                                            <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
-                                                <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
-                                                <div class="d-flex gap-1">
-                                                    <button class="btn btn-xs btn-outline btn-edit-slot-grams" data-printer="${p.id}" data-slot="${k}" title="Встановити залишок (г)">
-                                                        <i class="fa-solid fa-pencil"></i>
-                                                    </button>
-                                                    ${assignedSpool ? `
-                                                    <button class="btn btn-xs btn-outline-danger btn-unassign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Зняти котушку">
-                                                        <i class="fa-solid fa-xmark"></i>
-                                                     </button>` : ''}
-                                                </div>
-                                            </div>
-                                            <div class="d-flex align-items-center gap-2 mb-1" style="min-width:0;">
-                                                ${renderVisualSpoolSvg(spoolColor, grams, assignedSpool ? (assignedSpool.initial_grams || 1000) : 1000, 26)}
-                                                <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0;">
-                                                    <strong>${spoolName}</strong> <small class="text-muted">(${spoolType})</small>
-                                                </div>
-                                            </div>
-                                            <div class="d-flex align-items-center justify-content-between" style="font-size:11px;">
-                                                <span>${grams}g</span>
-                                                <span class="text-muted">${pct}%</span>
-                                            </div>
-                                            <div class="progress-bar-wrap sm mt-1">
-                                                <div class="progress-bar ${pct < 15 ? 'red' : 'green'}" style="width: ${pct}%;"></div>
-                                            </div>
-                                        </div>`;
-                                }).join("")}
-                            </div>
-                        </div>`;
-                }).join("");
-            }
-        }
-
         renderFilteredSpoolsInventory();
     } catch (e) {
         console.error("Error loading materials:", e);
     }
 }
 
+export function filterWarehouseSpools(spoolsListOrObj, { query = "", matFilter = "all" } = {}) {
+    const rawList = Array.isArray(spoolsListOrObj) ? spoolsListOrObj : Object.values(spoolsListOrObj || {});
+    const allUnassigned = rawList.filter(s => !s.assigned_printer_id && (s.quantity !== undefined ? Number(s.quantity) : 1) > 0);
+    const q = (query || "").trim().toLowerCase();
+    const filter = (matFilter || "all").toUpperCase();
+
+    return allUnassigned.filter(s => {
+        const sType = String(s.type || "PLA").toUpperCase();
+        const sName = String(s.name || "").toLowerCase();
+        const sColor = String(s.color || "").toLowerCase();
+
+        const matchesQuery = !q || sName.includes(q) || sType.toLowerCase().includes(q) || sColor.includes(q);
+        if (!matchesQuery) return false;
+
+        if (filter === "ALL") return true;
+        if (filter === "PLA") return sType.includes("PLA");
+        if (filter === "PETG") return sType.includes("PETG") || sType.includes("PCTG") || sType.includes("PET");
+        if (filter === "TPU") return sType.includes("TPU");
+        if (filter === "ABS/ASA") return sType.includes("ABS") || sType.includes("ASA");
+        if (filter === "OTHER") {
+            return !(sType.includes("PLA") || sType.includes("PETG") || sType.includes("PCTG") || sType.includes("PET") || sType.includes("TPU") || sType.includes("ABS") || sType.includes("ASA"));
+        }
+        return true;
+    });
+}
+
 export function renderFilteredSpoolsInventory() {
     const spoolsList = document.getElementById("spools-list");
     if (!spoolsList) return;
-    const allUnassigned = Object.values(state.spools || {}).filter(s => !s.assigned_printer_id && (s.quantity || 1) > 0);
+    const allUnassigned = Object.values(state.spools || {}).filter(s => !s.assigned_printer_id && (s.quantity !== undefined ? Number(s.quantity) : 1) > 0);
 
     if (allUnassigned.length === 0) {
         spoolsList.innerHTML = `<p class="text-muted text-center p-3">Склад порожній. Натисніть "+ Нова котушка", щоб додати.</p>`;
@@ -157,57 +78,45 @@ export function renderFilteredSpoolsInventory() {
     const activeMatBtn = document.querySelector("#spool-filter-pills .pill-btn.active");
     const matFilter = (activeMatBtn?.getAttribute("data-mat-filter") || "all").toUpperCase();
 
-    const filtered = allUnassigned.filter(s => {
-        const sType = String(s.type || "PLA").toUpperCase();
-        const sName = String(s.name || "").toLowerCase();
-        const sColor = String(s.color || "").toLowerCase();
-
-        const matchesQuery = !query || sName.includes(query) || sType.toLowerCase().includes(query) || sColor.includes(query);
-        if (!matchesQuery) return false;
-
-        if (matFilter === "ALL") return true;
-        if (matFilter === "PLA") return sType.includes("PLA");
-        if (matFilter === "PETG") return sType.includes("PETG") || sType.includes("PCTG") || sType.includes("PET");
-        if (matFilter === "TPU") return sType.includes("TPU");
-        if (matFilter === "ABS/ASA") return sType.includes("ABS") || sType.includes("ASA");
-        if (matFilter === "OTHER") {
-            return !(sType.includes("PLA") || sType.includes("PETG") || sType.includes("PCTG") || sType.includes("PET") || sType.includes("TPU") || sType.includes("ABS") || sType.includes("ASA"));
-        }
-        return true;
-    });
+    const filtered = filterWarehouseSpools(allUnassigned, { query, matFilter });
 
     if (filtered.length === 0) {
         spoolsList.innerHTML = `<p class="text-muted text-center p-3">За вибраним фільтром котушок не знайдено.</p>`;
         return;
     }
 
-    spoolsList.innerHTML = filtered.map(s => `
+    spoolsList.innerHTML = filtered.map(s => {
+        const remGrams = s.remaining_grams !== undefined ? s.remaining_grams : 1000;
+        const totalGrams = s.initial_grams || s.total_grams || 1000;
+        const safeId = escapeHtml(String(s.id));
+        return `
         <div class="spool-item glass-card p-3 mb-2 d-flex justify-content-between align-items-center">
             <div class="spool-left d-flex align-items-center gap-2">
-                ${renderVisualSpoolSvg(s.color || '#3b82f6', s.remaining_grams, s.initial_grams || s.total_grams, 44)}
+                ${renderVisualSpoolSvg(s.color || '#3b82f6', remGrams, totalGrams, 44)}
                 <div class="spool-details">
                     <h4 style="margin:0; font-size:14px;">
                         ${escapeHtml(s.name)} 
                         <span class="badge badge-secondary" style="font-size:10px; font-weight:500; margin-left:4px;">📦 ${s.quantity || 1} шт</span>
                     </h4>
-                    <small class="text-muted">${escapeHtml(s.type || 'PLA')} • ${s.price_per_kg || s.price_uah || 650} ₴/кг • ⚡ ${s.remaining_grams || 1000}g</small>
+                    <small class="text-muted">${escapeHtml(s.type || 'PLA')} • ${s.price_per_kg || s.price_uah || 650} ₴/кг • ⚡ ${remGrams}g</small>
                 </div>
             </div>
             <div class="spool-right d-flex align-items-center gap-2">
-                <button class="btn btn-xs btn-outline btn-history-spool" data-id="${s.id}" title="Історія аудиту руху">
+                <button class="btn btn-xs btn-outline btn-history-spool" data-id="${safeId}" title="Історія аудиту руху">
                     <i class="fa-solid fa-clock-rotate-left"></i>
                 </button>
-                <button class="btn btn-xs btn-primary btn-assign-spool" data-id="${s.id}" title="Встановити на принтер">
+                <button class="btn btn-xs btn-primary btn-assign-spool" data-id="${safeId}" title="Встановити на принтер">
                     <i class="fa-solid fa-truck-ramp-box"></i> На принтер
                 </button>
-                <button class="btn btn-xs btn-outline btn-edit-spool" data-id="${s.id}" title="Редагувати">
+                <button class="btn btn-xs btn-outline btn-edit-spool" data-id="${safeId}" title="Редагувати">
                     <i class="fa-solid fa-pen-to-square"></i>
                 </button>
-                <button class="btn btn-xs btn-outline-danger btn-delete-spool" data-id="${s.id}" title="Видалити">
+                <button class="btn btn-xs btn-outline-danger btn-delete-spool" data-id="${safeId}" title="Видалити">
                     <i class="fa-solid fa-trash"></i>
                 </button>
             </div>
-        </div>`).join("");
+        </div>`;
+    }).join("");
 }
 
 export function openAddSpoolModal(spool = null) {
@@ -333,27 +242,42 @@ export async function submitSaveSpool(e) {
     }
 }
 
-export function openAssignSpoolModal(printers) {
+export function openAssignSpoolModal(printers = null) {
     const modal = document.getElementById("assign-spool-modal");
     if (!modal) return;
     const selPrinter = document.getElementById("assign-printer-select");
     const selSlot = document.getElementById("assign-slot-select");
     const spoolNameSpan = document.getElementById("assign-spool-name");
 
-    if (spoolNameSpan && state.selectedSpoolForAssign) {
-        spoolNameSpan.textContent = `${state.selectedSpoolForAssign.name} (${state.selectedSpoolForAssign.remaining_grams}g)`;
+    const spool = state.selectedSpoolForAssign;
+    if (spoolNameSpan) {
+        if (spool) {
+            const remGrams = spool.remaining_grams !== undefined ? spool.remaining_grams : 1000;
+            spoolNameSpan.textContent = `${spool.name || 'Котушка'} (${spool.type || 'PLA'} • ${remGrams}g)`;
+        } else {
+            spoolNameSpan.textContent = "Котушка не обрана";
+        }
     }
 
+    const printerList = printers || state.printers || [];
     if (selPrinter) {
-        selPrinter.innerHTML = (printers || []).map(p => `
-            <option value="${p.id}">${escapeHtml(p.name)} (${p.has_ams ? 'З AMS' : 'Без AMS'})</option>
-        `).join("");
+        if (printerList.length === 0) {
+            selPrinter.innerHTML = `<option value="">Немає доступних принтерів</option>`;
+        } else {
+            selPrinter.innerHTML = printerList.map(p => `
+                <option value="${p.id}">${escapeHtml(p.name)} (${p.has_ams ? 'З AMS' : 'Пряма подача'})</option>
+            `).join("");
+        }
     }
 
     function updateSlots() {
         const pId = selPrinter?.value;
-        const p = (printers || []).find(x => x.id === pId);
-        if (!selSlot || !p) return;
+        const p = printerList.find(x => x.id === pId);
+        if (!selSlot) return;
+        if (!p) {
+            selSlot.innerHTML = `<option value="">Немає слотів</option>`;
+            return;
+        }
         if (p.has_ams) {
             selSlot.innerHTML = `
                 <option value="0">Слот A1</option>
@@ -372,6 +296,64 @@ export function openAssignSpoolModal(printers) {
 
     triggerHaptic("light");
     modal.classList.add("active");
+}
+
+export function closeAssignSpoolModal() {
+    const modal = document.getElementById("assign-spool-modal");
+    if (modal) modal.classList.remove("active");
+    state.selectedSpoolForAssign = null;
+}
+
+export async function confirmAssignSpool() {
+    const btn = document.getElementById("confirm-assign-spool-btn");
+    if (btn && btn.disabled) return;
+
+    const spool = state.selectedSpoolForAssign;
+    if (!spool || !spool.id) {
+        alert("⚠️ Будь ласка, оберіть котушку зі складу!");
+        return;
+    }
+
+    const selPrinter = document.getElementById("assign-printer-select");
+    const selSlot = document.getElementById("assign-slot-select");
+    const printerId = selPrinter ? selPrinter.value : "";
+    const slotKey = selSlot ? selSlot.value : "0";
+
+    if (!printerId) {
+        alert("⚠️ Будь ласка, оберіть принтер для встановлення котушки!");
+        return;
+    }
+
+    const origText = btn ? btn.innerHTML : "";
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Встановлення...`;
+    }
+
+    try {
+        const res = await mountSpoolApi(spool.id, printerId, slotKey);
+        const isSuccess = Boolean(res && !res.error && (res.status === "ok" || res.spool));
+        if (isSuccess) {
+            triggerHaptic("success");
+            closeAssignSpoolModal();
+            await loadMaterials();
+            if (typeof window.fetchPrinters === "function") {
+                await window.fetchPrinters();
+            }
+        } else {
+            triggerHaptic("error");
+            alert("⚠️ Помилка призначення: " + (res?.error || "Невідома помилка"));
+        }
+    } catch (err) {
+        triggerHaptic("error");
+        console.error("Mount spool error:", err);
+        alert("⚠️ Мережева помилка при призначенні котушки на принтер.");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origText || "Встановити на принтер";
+        }
+    }
 }
 
 export async function openSpoolMovementsModal(options = {}) {
@@ -433,6 +415,42 @@ export function closeSpoolMovementsModal(e) {
     }
 }
 
+export function filterSpoolMovements(movementsList, { spoolId = "all", action = "all", period = "all", query = "" } = {}) {
+    const list = Array.isArray(movementsList) ? movementsList : [];
+    const now = Date.now() / 1000;
+    let minTime = 0;
+    if (period === "today") {
+        const d = new Date();
+        minTime = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000;
+    } else if (period === "yesterday") {
+        const d = new Date();
+        minTime = (new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000) - 86400;
+    } else if (period === "week") {
+        minTime = now - (7 * 86400);
+    } else if (period === "month") {
+        minTime = now - (30 * 86400);
+    }
+
+    const q = (query || "").trim().toLowerCase();
+
+    return list.filter(item => {
+        if (spoolId !== "all" && String(item.spool_id) !== String(spoolId)) return false;
+        if (action !== "all") {
+            if (action === "stock") {
+                if (item.action !== "stock" && item.action !== "initial_stock" && item.action !== "refill") return false;
+            } else if (String(item.action) !== String(action)) {
+                return false;
+            }
+        }
+        if (minTime > 0 && (item.timestamp || 0) < minTime) return false;
+        if (q) {
+            const searchable = `${item.spool_name || ''} ${item.note || ''} ${item.reason || ''} ${item.printer_name || ''} ${item.user || ''}`.toLowerCase();
+            if (!searchable.includes(q)) return false;
+        }
+        return true;
+    });
+}
+
 export function renderFilteredMovements() {
     const tbody = document.getElementById("spool-movements-table-body");
     const spoolSelect = document.getElementById("mov-filter-spool");
@@ -446,27 +464,11 @@ export function renderFilteredMovements() {
     const filterDate = dateSelect ? dateSelect.value : "all";
     const filterQuery = searchInput ? searchInput.value.trim().toLowerCase() : "";
 
-    const now = new Date();
-    let minTime = 0;
-    if (filterDate === "today") {
-        minTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
-    } else if (filterDate === "yesterday") {
-        minTime = (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000) - 86400;
-    } else if (filterDate === "week") {
-        minTime = (now.getTime() / 1000) - (7 * 86400);
-    } else if (filterDate === "month") {
-        minTime = (now.getTime() / 1000) - (30 * 86400);
-    }
-
-    const filtered = (state.allMovementsCache || []).filter(item => {
-        if (filterSpool !== "all" && String(item.spool_id) !== String(filterSpool)) return false;
-        if (filterAction !== "all" && String(item.action) !== String(filterAction)) return false;
-        if (minTime > 0 && (item.timestamp || 0) < minTime) return false;
-        if (filterQuery) {
-            const searchable = `${item.spool_name || ''} ${item.note || ''} ${item.reason || ''} ${item.printer_name || ''}`.toLowerCase();
-            if (!searchable.includes(filterQuery)) return false;
-        }
-        return true;
+    const filtered = filterSpoolMovements(state.allMovementsCache || [], {
+        spoolId: filterSpool,
+        action: filterAction,
+        period: filterDate,
+        query: filterQuery
     });
 
     if (filtered.length === 0) {
@@ -474,12 +476,24 @@ export function renderFilteredMovements() {
         return;
     }
 
+    const actionLabels = {
+        "initial_stock": "📦 Поповнення",
+        "refill": "📦 Поповнення",
+        "stock": "📦 Поповнення",
+        "print": "🖨️ Друк",
+        "manual_edit": "✏️ Коригування",
+        "write_off": "🗑️ Списання"
+    };
+
     tbody.innerHTML = filtered.map(item => {
-        const delta = Number(item.delta_grams || item.grams || 0);
+        const delta = Number(item.weight_change_g ?? item.delta_grams ?? item.grams ?? 0);
         const deltaClass = delta > 0 ? "text-success font-weight-bold" : (delta < 0 ? "text-danger font-weight-bold" : "text-muted");
         const deltaSign = delta > 0 ? `+${delta.toFixed(1)}г` : `${delta.toFixed(1)}г`;
-        const actionLabel = item.action || "Операція";
-        const dateStr = item.created_at || (item.timestamp ? new Date(item.timestamp * 1000).toLocaleString("uk-UA") : "—");
+        const actionLabel = actionLabels[item.action] || item.action || "Операція";
+        const remGrams = Number(item.new_weight_g ?? item.remaining_grams ?? 0);
+        const dateStr = item.datetime || item.created_at || (item.timestamp ? new Date(item.timestamp * 1000).toLocaleString("uk-UA") : "—");
+        const userDisplay = item.user || item.user_id || "System";
+        const noteDisplay = item.reason || item.note || "";
 
         return `
             <tr>
@@ -487,8 +501,11 @@ export function renderFilteredMovements() {
                 <td><strong>${escapeHtml(item.spool_name || "Котушка")}</strong></td>
                 <td><span class="badge badge-secondary">${escapeHtml(actionLabel)}</span></td>
                 <td class="${deltaClass}">${deltaSign}</td>
-                <td>${Number(item.remaining_grams || 0).toFixed(1)}г</td>
-                <td><small class="text-muted">${escapeHtml(item.note || item.reason || "—")}</small></td>
+                <td>${remGrams.toFixed(1)}г</td>
+                <td>
+                    <div><i class="fa-solid fa-user-circle me-1 text-muted"></i><strong>${escapeHtml(userDisplay)}</strong></div>
+                    ${noteDisplay ? `<small class="text-muted d-block" style="font-size:0.75rem;">${escapeHtml(noteDisplay)}</small>` : ""}
+                </td>
             </tr>`;
     }).join("");
 }
@@ -501,7 +518,9 @@ export function initMovementsFilterEvents() {
         document.getElementById(id)?.addEventListener("change", renderFilteredMovements);
     });
     document.getElementById("mov-filter-search")?.addEventListener("input", renderFilteredMovements);
-    document.getElementById("btn-reset-movements-filters")?.addEventListener("click", () => {
+
+    const resetBtn = document.getElementById("mov-filter-reset-btn") || document.getElementById("btn-reset-movements-filters");
+    resetBtn?.addEventListener("click", () => {
         const sSelect = document.getElementById("mov-filter-spool");
         const aSelect = document.getElementById("mov-filter-action");
         const dSelect = document.getElementById("mov-filter-date");
@@ -512,6 +531,7 @@ export function initMovementsFilterEvents() {
         if (qInput) qInput.value = "";
         renderFilteredMovements();
     });
+
     document.getElementById("btn-export-movements-pdf")?.addEventListener("click", () => {
         const spoolSelect = document.getElementById("mov-filter-spool");
         const actionSelect = document.getElementById("mov-filter-action");
@@ -525,4 +545,89 @@ export function initMovementsFilterEvents() {
         });
         window.open(url, "_blank");
     });
+}
+
+export function initSpoolsModule() {
+    if (state.spoolsModuleBound) return;
+    state.spoolsModuleBound = true;
+
+    // 1. Spool search input & clear button
+    const searchInput = document.getElementById("spool-search-input");
+    const clearBtn = document.getElementById("spool-search-clear-btn");
+
+    if (searchInput) {
+        searchInput.addEventListener("input", () => {
+            if (clearBtn) {
+                clearBtn.style.display = searchInput.value.trim().length > 0 ? "inline-block" : "none";
+            }
+            renderFilteredSpoolsInventory();
+        });
+    }
+
+    if (clearBtn && searchInput) {
+        clearBtn.addEventListener("click", () => {
+            searchInput.value = "";
+            clearBtn.style.display = "none";
+            searchInput.focus();
+            renderFilteredSpoolsInventory();
+        });
+    }
+
+    // 2. Material filter pills
+    const pillContainer = document.getElementById("spool-filter-pills");
+    if (pillContainer) {
+        pillContainer.querySelectorAll(".pill-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                triggerHaptic("selection");
+                pillContainer.querySelectorAll(".pill-btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                renderFilteredSpoolsInventory();
+            });
+        });
+    }
+
+    // 3. Confirm assign spool button in assign modal
+    const assignBtn = document.getElementById("confirm-assign-spool-btn");
+    if (assignBtn) {
+        assignBtn.addEventListener("click", confirmAssignSpool);
+    }
+
+    // 4. Close assign spool modal button
+    const closeAssignBtn = document.getElementById("close-assign-spool-modal");
+    if (closeAssignBtn) {
+        closeAssignBtn.addEventListener("click", closeAssignSpoolModal);
+    }
+
+    // 5. Preset chips in spool modal
+    document.querySelectorAll("#spool-modal .preset-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+            triggerHaptic("selection");
+            const nameInput = document.getElementById("spool-name");
+            const typeSelect = document.getElementById("spool-type");
+            const colorInput = document.getElementById("spool-color");
+            const priceInput = document.getElementById("spool-price");
+            if (nameInput && chip.dataset.name) nameInput.value = chip.dataset.name;
+            if (typeSelect && chip.dataset.type) typeSelect.value = chip.dataset.type;
+            if (colorInput && chip.dataset.color) colorInput.value = chip.dataset.color;
+            if (priceInput && chip.dataset.price) {
+                priceInput.value = chip.dataset.price;
+                syncSpoolPrices("per_kg");
+            }
+        });
+    });
+
+    // 6. Spool price calculation listeners
+    const pricePerKgInput = document.getElementById("spool-price");
+    const totalPriceInput = document.getElementById("spool-total-price");
+    const gramsInput = document.getElementById("spool-grams");
+
+    if (pricePerKgInput) {
+        pricePerKgInput.addEventListener("input", () => syncSpoolPrices("per_kg"));
+    }
+    if (totalPriceInput) {
+        totalPriceInput.addEventListener("input", () => syncSpoolPrices("total"));
+    }
+    if (gramsInput) {
+        gramsInput.addEventListener("input", () => syncSpoolPrices("per_kg"));
+    }
 }

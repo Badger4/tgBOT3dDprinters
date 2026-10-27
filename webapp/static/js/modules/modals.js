@@ -4,6 +4,7 @@
 
 import { triggerHaptic } from "./utils.js";
 import { state } from "./state.js";
+import { deleteSpoolApi } from "./api.js";
 import { fetchPrinters, openPrinterModal, closePrinterModal, closeFullscreenCamera } from "./printers.js";
 import { handleQuickPauseResume, handleQuickCamPeek, handleQuickLightToggle, handleQuickSpeedCycle } from "./cockpit.js";
 import { openPrinterSettingsModal } from "./settings.js";
@@ -295,14 +296,18 @@ export function initEventDelegation() {
             const assignBtn = e.target.closest(".btn-assign-spool");
             if (assignBtn) {
                 const id = assignBtn.getAttribute("data-id");
-                state.selectedSpoolForAssign = state.spools[id];
+                state.selectedSpoolForAssign = Array.isArray(state.spools)
+                    ? state.spools.find(x => x && x.id === id)
+                    : (state.spools ? state.spools[id] : null);
                 openAssignSpoolModal(state.printers || []);
                 return;
             }
             const editBtn = e.target.closest(".btn-edit-spool");
             if (editBtn) {
                 const id = editBtn.getAttribute("data-id");
-                const s = state.spools[id];
+                const s = Array.isArray(state.spools)
+                    ? state.spools.find(x => x && x.id === id)
+                    : (state.spools ? state.spools[id] : null);
                 if (s) openAddSpoolModal(s);
                 return;
             }
@@ -310,8 +315,8 @@ export function initEventDelegation() {
             if (delBtn) {
                 const id = delBtn.getAttribute("data-id");
                 if (confirm("Видалити цю котушку зі складу?")) {
-                    await fetch(`/api/spools/${id}`, { method: "DELETE" });
-                    loadMaterials();
+                    await deleteSpoolApi(id);
+                    await loadMaterials();
                 }
                 return;
             }

@@ -1153,13 +1153,16 @@
         </div>
 
         <!-- ASSIGN SPOOL TO PRINTER SLOT MODAL -->
-        <div id="assign-spool-modal" class="modal-backdrop">
+        <div id="assign-spool-modal" class="modal-backdrop" onclick="if(event.target===this)window.closeAssignSpoolModal()">
             <div class="modal-window">
                 <div class="modal-header">
                     <h3><i class="fa-solid fa-truck-ramp-box"></i> Встановити котушку на принтер</h3>
-                    <button id="close-assign-spool-modal" class="icon-btn-close" onclick="document.getElementById('assign-spool-modal').classList.remove('active')"><i class="fa-solid fa-xmark"></i></button>
+                    <button type="button" id="close-assign-spool-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body">
+                    <div id="assign-spool-info" class="p-2 mb-3 rounded" style="background: rgba(255,255,255,0.05); font-size: 13px; font-weight: 500;">
+                        <i class="fa-solid fa-spool color-blue"></i> <span id="assign-spool-name">Котушка не обрана</span>
+                    </div>
                     <form id="assign-spool-form" onsubmit="return false;">
                         <div class="form-group">
                             <label>Обраний принтер</label>
@@ -1172,10 +1175,10 @@
                                 <option value="1">A2 (Слот 2)</option>
                                 <option value="2">A3 (Слот 3)</option>
                                 <option value="3">A4 (Слот 4)</option>
-                                <option value="255">VT (Зовнішня тримач-бабіна)</option>
+                                <option value="254">VT (Зовнішня тримач-бабіна)</option>
                             </select>
                         </div>
-                        <button id="confirm-assign-spool-btn" class="btn btn-primary w-100 mt-2">Встановити на принтер</button>
+                        <button type="button" id="confirm-assign-spool-btn" class="btn btn-primary w-100 mt-2">Встановити на принтер</button>
                     </form>
                 </div>
             </div>
@@ -1514,6 +1517,6 @@
     <!-- html2pdf Library for PDF exports (deferred background load) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp Application JS -->
-    <script type="module" src="/static/js/app.js?v=1144"></script>
+    <script type="module" src="/static/js/app.js?v=1145"></script>
 </body>
 </html>
