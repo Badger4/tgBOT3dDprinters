@@ -8,8 +8,10 @@ import { controlPrinterApi, fetchPrintersApi } from "./api.js";
 
 export function renderClassicPrinterCard(p, statusInfo, modelName, isPrinting, progress, timeStr, layerStr, filamentDisplay, hasPhysicalSpool, slotGrams, printerModelVal, serialVal, fullSearchText) {
     const rawSt = String(p.state || "IDLE").toUpperCase();
+    const safeId = escapeHtml(String(p.id));
+    const safeNozzleDia = escapeHtml(String(p.nozzle_diameter || '0.4'));
     return `
-        <div class="printer-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">
+        <div class="printer-card" data-id="${safeId}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">
             <div class="printer-card-header">
                 <div class="printer-name-group">
                     <h3>${escapeHtml(p.name)}</h3>
@@ -17,7 +19,7 @@ export function renderClassicPrinterCard(p, statusInfo, modelName, isPrinting, p
                 </div>
                 <div class="d-flex align-items-center">
                     <span class="status-pill ${statusInfo.badgeClass}">${statusInfo.label}</span>
-                    <button type="button" class="btn-card-gear" data-id="${p.id}" title="Налаштування принтера"><i class="fa-solid fa-gear"></i></button>
+                    <button type="button" class="btn-card-gear" data-id="${safeId}" title="Налаштування принтера"><i class="fa-solid fa-gear"></i></button>
                 </div>
             </div>
 
@@ -32,7 +34,7 @@ export function renderClassicPrinterCard(p, statusInfo, modelName, isPrinting, p
             </div>
 
             <div class="printer-stats-row">
-                <span><i class="fa-solid fa-temperature-high color-red"></i> ${p.nozzle_temp || 0}°C <small style="opacity:0.75;">(${p.nozzle_diameter || '0.4'}мм)</small></span>
+                <span><i class="fa-solid fa-temperature-high color-red"></i> ${p.nozzle_temp || 0}°C <small style="opacity:0.75;">(${safeNozzleDia}мм)</small></span>
                 <span><i class="fa-solid fa-hot-tub-person color-orange"></i> ${p.bed_temp || 0}°C</span>
                 <span><i class="fa-solid fa-layer-group color-blue"></i> ${layerStr}</span>
                 <span><i class="fa-solid fa-spool ${hasPhysicalSpool ? 'color-purple' : 'text-muted'}" style="${hasPhysicalSpool ? '' : 'opacity:0.4;'}"></i> ${filamentDisplay}</span>
@@ -186,10 +188,12 @@ export function renderCockpitPrinterCard(p, statusInfo, modelName, isPrinting, p
     const isPeekOpen = state.openCamPeekIds.has(String(p.id));
     const tg = window.Telegram?.WebApp;
     const initDataParam = tg?.initData ? `?initData=${encodeURIComponent(tg.initData)}` : "";
-    const peekSrc = isPeekOpen ? `/api/printers/${p.id}/snapshot${initDataParam}` : "";
+    const safeId = escapeHtml(String(p.id));
+    const safeNozzleDia = escapeHtml(String(p.nozzle_diameter || '0.4'));
+    const peekSrc = isPeekOpen ? `/api/printers/${encodeURIComponent(p.id)}/snapshot${initDataParam}` : "";
 
     return `
-        <div class="printer-card cockpit-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">
+        <div class="printer-card cockpit-card" data-id="${safeId}" data-name="${escapeHtml(p.name)}" data-model="${escapeHtml(modelName)}" data-pmodel="${escapeHtml(printerModelVal)}" data-ip="${escapeHtml(p.ip || '')}" data-sn="${escapeHtml(serialVal)}" data-search="${escapeHtml(fullSearchText)}" data-state="${statusInfo.code}">
             <!-- Header -->
             <div class="cockpit-header">
                 <div class="cockpit-title-group">
@@ -204,28 +208,28 @@ export function renderCockpitPrinterCard(p, statusInfo, modelName, isPrinting, p
                 </div>
                 <div class="cockpit-quick-actions">
                     ${canPauseResume ? `
-                    <button type="button" class="btn-cockpit-quick btn-cockpit-pause-resume ${isPaused ? 'state-pause' : 'state-running'}" data-id="${p.id}" data-state="${statusInfo.code}" title="${isPaused ? 'Відновити друк' : 'Поставити на паузу'}">
+                    <button type="button" class="btn-cockpit-quick btn-cockpit-pause-resume ${isPaused ? 'state-pause' : 'state-running'}" data-id="${safeId}" data-state="${statusInfo.code}" title="${isPaused ? 'Відновити друк' : 'Поставити на паузу'}">
                         <i class="fa-solid ${isPaused ? 'fa-play' : 'fa-pause'}"></i>
                     </button>` : ''}
-                    <button type="button" class="btn-cockpit-quick btn-cockpit-cam-peek ${isPeekOpen ? 'active' : ''}" data-id="${p.id}" title="Швидкий огляд камери">
+                    <button type="button" class="btn-cockpit-quick btn-cockpit-cam-peek ${isPeekOpen ? 'active' : ''}" data-id="${safeId}" title="Швидкий огляд камери">
                         <i class="fa-solid fa-camera"></i>
                     </button>
-                    <button type="button" class="btn-cockpit-quick btn-cockpit-light ${lightIsOn ? 'active' : ''}" data-id="${p.id}" title="Підсвітка камери: ${lightIsOn ? 'Увімкнено' : 'Вимкнено'}">
+                    <button type="button" class="btn-cockpit-quick btn-cockpit-light ${lightIsOn ? 'active' : ''}" data-id="${safeId}" title="Підсвітка камери: ${lightIsOn ? 'Увімкнено' : 'Вимкнено'}">
                         <i class="fa-solid fa-lightbulb"></i>
                     </button>
-                    <button type="button" class="btn-cockpit-quick btn-cockpit-speed" data-id="${p.id}" data-lvl="${spdLvl}" title="Швидкість: ${curSpd.name} (${curSpd.pct})">
+                    <button type="button" class="btn-cockpit-quick btn-cockpit-speed" data-id="${safeId}" data-lvl="${spdLvl}" title="Швидкість: ${curSpd.name} (${curSpd.pct})">
                         <span class="cockpit-spd-icon">${curSpd.icon}</span>
                         <span class="cockpit-spd-val">${curSpd.pct}</span>
                     </button>
-                    <button type="button" class="btn-card-gear" data-id="${p.id}" title="Налаштування принтера">
+                    <button type="button" class="btn-card-gear" data-id="${safeId}" title="Налаштування принтера">
                         <i class="fa-solid fa-gear"></i>
                     </button>
                 </div>
             </div>
 
             <!-- Quick Inline Camera Peek Box -->
-            <div class="cockpit-cam-peek-box ${isPeekOpen ? 'active' : ''}" id="cockpit-peek-${p.id}">
-                ${isPeekOpen ? `<img src="${peekSrc}" alt="Камера ${escapeHtml(p.name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; color:var(--text-muted); font-size:12px; align-items:center; gap:6px;"><i class="fa-solid fa-video-slash"></i> Камера недоступна</div>` : ''}
+            <div class="cockpit-cam-peek-box ${isPeekOpen ? 'active' : ''}" id="cockpit-peek-${safeId}">
+                ${isPeekOpen ? `<img src="${escapeHtml(peekSrc)}" alt="Камера ${escapeHtml(p.name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; color:var(--text-muted); font-size:12px; align-items:center; gap:6px;"><i class="fa-solid fa-video-slash"></i> Камера недоступна</div>` : ''}
             </div>
 
             <!-- Cockpit Body: Circular SVG Progress & Telemetry -->
@@ -253,7 +257,7 @@ export function renderCockpitPrinterCard(p, statusInfo, modelName, isPrinting, p
                     </div>
                     <div class="cockpit-tele-box">
                         <span class="cockpit-tele-lbl"><i class="fa-solid fa-temperature-high color-red"></i> Сопло</span>
-                        <span class="cockpit-tele-val">${p.nozzle_temp !== undefined ? p.nozzle_temp : 0}°C <small style="font-size:10px; opacity:0.75; font-weight:normal;">(${p.nozzle_diameter || '0.4'}мм)</small></span>
+                        <span class="cockpit-tele-val">${p.nozzle_temp !== undefined ? p.nozzle_temp : 0}°C <small style="font-size:10px; opacity:0.75; font-weight:normal;">(${safeNozzleDia}мм)</small></span>
                     </div>
                     <div class="cockpit-tele-box">
                         <span class="cockpit-tele-lbl"><i class="fa-solid fa-hot-tub-person color-orange"></i> Стіл</span>
@@ -315,13 +319,15 @@ export function handleQuickCamPeek(pId, btnEl, e) {
         box.classList.add("active");
         const tg = window.Telegram?.WebApp;
         const initDataParam = tg?.initData ? `?initData=${encodeURIComponent(tg.initData)}` : "";
-        const src = `/api/printers/${pId}/snapshot${initDataParam}${initDataParam ? '&' : '?'}t=${Date.now()}`;
-        box.innerHTML = `<img src="${src}" alt="Камера" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; color:var(--text-muted); font-size:12px; align-items:center; gap:6px;"><i class="fa-solid fa-video-slash"></i> Камера недоступна</div>`;
+        const src = `/api/printers/${encodeURIComponent(pId)}/snapshot${initDataParam}${initDataParam ? '&' : '?'}t=${Date.now()}`;
+        box.innerHTML = `<img src="${escapeHtml(src)}" alt="Камера" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; color:var(--text-muted); font-size:12px; align-items:center; gap:6px;"><i class="fa-solid fa-video-slash"></i> Камера недоступна</div>`;
     }
 }
 
 export async function handleQuickLightToggle(pId, btnEl, e) {
     if (e) e.stopPropagation();
+    if (btnEl.disabled) return;
+    btnEl.disabled = true;
     triggerHaptic("medium");
     const wasActive = btnEl.classList.contains("active");
     btnEl.classList.toggle("active");
@@ -338,11 +344,15 @@ export async function handleQuickLightToggle(pId, btnEl, e) {
     } catch (err) {
         console.error("Quick light error:", err);
         btnEl.classList.toggle("active");
+    } finally {
+        btnEl.disabled = false;
     }
 }
 
 export async function handleQuickSpeedCycle(pId, btnEl, e) {
     if (e) e.stopPropagation();
+    if (btnEl.disabled) return;
+    btnEl.disabled = true;
     triggerHaptic("medium");
     const curLvl = parseInt(btnEl.getAttribute("data-lvl") || "2");
     const nextLvl = (curLvl % 4) + 1;
@@ -376,5 +386,7 @@ export async function handleQuickSpeedCycle(pId, btnEl, e) {
         btnEl.setAttribute("data-lvl", curLvl);
         if (iconEl) iconEl.textContent = speedMeta[curLvl].icon;
         if (valEl) valEl.textContent = speedMeta[curLvl].pct;
+    } finally {
+        btnEl.disabled = false;
     }
 }

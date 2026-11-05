@@ -3,6 +3,7 @@ Bambu Lab 3D Printer MQTT client and domain model.
 """
 
 import asyncio
+import concurrent.futures
 import hashlib
 import html
 import inspect
@@ -19,11 +20,15 @@ import paho.mqtt.client as mqtt
 
 from config import STORAGE_DIR, logger
 from models.enums import AMSSlot
+from models.printer_commands import PrinterCommandsMixin
+from models.printer_maintenance import PrinterMaintenanceMixin
 from services.ftps_client import extract_model_weight, fetch_bambu_ftps_weight, upload_3mf_to_bambu, verify_bambu_file_size
 from services.gcode_parser import parse_3mf_file
 from services.hms_resolver import format_hms_errors
 from services.mqtt_message_parser import extract_subtask_weight, parse_mqtt_payload
 from storage.manager import StorageManager
+
+_MQTT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="bambu_mqtt")
 
 DEFAULT_MAINTENANCE_ITEMS = {
     "rails": {
@@ -93,7 +98,7 @@ def build_ams_mapping(active_slot: int | str | None, has_ams: bool = True, use_a
     return mapping, True
 
 
-class BambuPrinter:
+class BambuPrinter(PrinterCommandsMixin, PrinterMaintenanceMixin):
     """Manages Bambu Lab 3D Printer telemetry and MQTT control."""
 
     def __init__(self, config: dict[str, Any], storage: StorageManager, save_callback: Any | None = None):
@@ -167,6 +172,8 @@ class BambuPrinter:
         self.last_job_grams = 0.0
         self.current_job_objects: list[dict[str, Any]] = []
         self.skipped_objects: list[int] = []
+        self._skipped_at_progress: dict[int, int] = {}
+        self._skip_refund_applied = False
         self._plate_gif_cache: bytes | None = None
         self._plate_diagram_cache: bytes | None = None
         self._ftps_fetching = False
@@ -578,6 +585,20 @@ class BambuPrinter:
             loop=self._get_active_event_loop(),
         )
 
+    def _refund_spool_warehouse(self, slot_key: str, refund_grams: float, reason: str = "") -> None:
+        """Refunds unprinted grams back to mounted spool in warehouse storage when objects are skipped."""
+        from services.printer_accounting_service import refund_spool_warehouse
+
+        refund_spool_warehouse(
+            storage=self.storage,
+            printer_id=self.id,
+            printer_name=self.name,
+            slot_key=slot_key,
+            refund_grams=refund_grams,
+            reason=reason or f"Пропуск об'єктів: {getattr(self, 'subtask_name', None) or 'Завдання'}",
+            loop=self._get_active_event_loop(),
+        )
+
     def init_mqtt(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
         if not self.ip or not self.serial_number:
             logger.warning(f"[{self.name}] Missing IP or Serial, MQTT disabled.")
@@ -618,6 +639,7 @@ class BambuPrinter:
         self._client.on_message = self._on_message
         setattr(self._client, "on_error", self._on_error)
 
+        self._stop_mqtt = False
         try:
             self._client.connect_async(self.ip, 8883, 60)
             self._client.loop_start()
@@ -626,9 +648,16 @@ class BambuPrinter:
             logger.error(f"❌ Failed connecting MQTT for [{self.name}]: {e}")
 
     def destroy(self) -> None:
+        self._stop_mqtt = True
         if self._client:
-            self._client.loop_stop()
-            self._client.disconnect()
+            try:
+                self._client.loop_stop()
+            except Exception:
+                pass
+            try:
+                self._client.disconnect()
+            except Exception:
+                pass
             logger.info(f"🛑 Disconnected MQTT for [{self.name}]")
 
     def request_pushall(self) -> None:
@@ -755,7 +784,18 @@ class BambuPrinter:
                 self.hms_errors = parsed["hms_errors"]
                 self.hms_resolved = parsed.get("hms_resolved") or format_hms_errors(self.hms_errors)
             if "skipped_objects" in parsed:
-                self.skipped_objects = parsed["skipped_objects"]
+                new_skipped = parsed["skipped_objects"]
+                if new_skipped != self.skipped_objects:
+                    curr_pct = max(0, min(100, int(getattr(self, "mc_percent", getattr(self, "progress", 0)) or 0)))
+                    skipped_at = getattr(self, "_skipped_at_progress", None)
+                    if not isinstance(skipped_at, dict):
+                        skipped_at = {}
+                        self._skipped_at_progress = skipped_at
+                    for oid in new_skipped:
+                        if isinstance(oid, int) and oid not in skipped_at:
+                            skipped_at[oid] = curr_pct
+                    self.skipped_objects = new_skipped
+                    self.invalidate_plate_gif_cache()
 
             if "has_ams" in parsed:
                 self._has_ams_telemetry = parsed["has_ams"]
@@ -954,7 +994,10 @@ class BambuPrinter:
                 skipped = getattr(self, "skipped_objects", [])
                 skipped_ids = sorted(list({int(x) for x in skipped if str(x).isdigit()}))
                 if skipped_ids:
-                    self.current_job_objects = [{"id": str(oid), "name": f"Об'єкт #{oid}"} for oid in skipped_ids]
+                    self.current_job_objects = [
+                        {"id": str(oid), "name": f"Об'єкт #{oid}", "_synthetic": True}
+                        for oid in skipped_ids[:50]
+                    ]
 
             if self.gcode_state in ["RUNNING", "PREPARING", "PREPARATION", "BUILDING", "PAUSE"]:
                 is_calib = bool(getattr(self, "_is_calibrating", False))
@@ -1029,6 +1072,7 @@ class BambuPrinter:
                                 "spool_fingerprint": build_spool_fingerprint(self),
                                 "job_grams": self._current_job_grams,
                                 "job_deducted": self._job_deducted,
+                                "skipped_at_progress": getattr(self, "_skipped_at_progress", {}),
                                 "timestamp": now_ts,
                             }
                             save_active_print_context(self.id, active_print_context)
@@ -1037,7 +1081,7 @@ class BambuPrinter:
                             self._last_saved_context_progress = curr_p
                             self._last_saved_context_time = now_ts
 
-            elif self.gcode_state in ["FINISH", "IDLE", "FAILED"]:
+            elif self.gcode_state in ["FINISH", "IDLE", "FAILED", "SUCCESS", "CANCEL"]:
                 was_calibrating = bool(getattr(self, "_is_calibrating", False))
                 total_layers = int(getattr(self, "total_layer_num", 0) or 0)
                 is_completed_duplicate = bool(
@@ -1115,14 +1159,37 @@ class BambuPrinter:
                         if self._current_job_grams > 0:
                             active_key = getattr(self, "_current_job_slot_key", None) or self.get_active_slot_key()
                             old_w = self.get_slot_grams(active_key)
-                            final_weight = self._current_job_grams
+                            final_weight, _ = self.calculate_effective_job_grams(self._current_job_grams)
                             new_w = max(0.0, round(old_w - final_weight, 2))
                             self.set_slot_grams(new_w, active_key)
                             self._job_deducted = True
+                            self._skip_refund_applied = True
                             self.last_job_grams = final_weight
                             self._deduct_spool_warehouse(active_key, final_weight)
                             logger.info(
                                 f"💾 Auto-deducted {final_weight}g from AMS Slot {active_key} for [{self.name}] on job completion. Old: {old_w}g -> New: {new_w}g"
+                            )
+                            self._trigger_save()
+                    elif (
+                        self._current_job_grams > 0
+                        and getattr(self, "skipped_objects", None)
+                        and not getattr(self, "_skip_refund_applied", False)
+                    ):
+                        effective_w, saved_w = self.calculate_effective_job_grams(self._current_job_grams)
+                        self._skip_refund_applied = True
+                        if saved_w > 0:
+                            active_key = getattr(self, "_current_job_slot_key", None) or self.get_active_slot_key()
+                            old_w = self.get_slot_grams(active_key)
+                            new_w = round(old_w + saved_w, 2)
+                            self.set_slot_grams(new_w, active_key)
+                            self.last_job_grams = effective_w
+                            self._refund_spool_warehouse(
+                                active_key,
+                                saved_w,
+                                reason=f"Пропуск об'єктів ({len(self.skipped_objects)} шт.): {self.subtask_name or 'Завдання'}",
+                            )
+                            logger.info(
+                                f"♻️ Auto-refunded {saved_w}g to Slot {active_key} for [{self.name}] due to skipped objects {self.skipped_objects}. Effective weight: {effective_w}g"
                             )
                             self._trigger_save()
 
@@ -1154,7 +1221,13 @@ class BambuPrinter:
                                 except Exception:
                                     pass
 
+                        if final_weight > 0 and getattr(self, "skipped_objects", None) and not getattr(self, "_skip_refund_applied", False):
+                            final_weight, _ = self.calculate_effective_job_grams(final_weight)
+
                         note_text = "Завершено"
+                        if getattr(self, "skipped_objects", None):
+                            skipped_str = ", ".join(f"#{s}" for s in self.skipped_objects[:10])
+                            note_text = f"Завершено (Пропущено об'єктів: {len(self.skipped_objects)} [{skipped_str}])"
 
                         raw_title = getattr(self, "_custom_job_name", None) or str(self.subtask_name or "").strip()
                         raw_title = raw_title.replace("Metadata/", "").replace("metadata/", "").strip()
@@ -1196,6 +1269,8 @@ class BambuPrinter:
                     self.job_start_time = 0.0 if self.gcode_state in ["IDLE", "FAILED"] else self.job_start_time
                     self.current_job_objects = []
                     self.skipped_objects = []
+                    self._skipped_at_progress = {}
+                    self._skip_refund_applied = False
                     self._plate_gif_cache = None
                     self._is_printing = False
                     self._was_running = False
@@ -1214,541 +1289,7 @@ class BambuPrinter:
         except Exception as e:
             logger.error(f"Error processing MQTT message for [{self.name}]: {e}")
 
-    def pause(self) -> bool:
-        if not self._client or not self._client.is_connected():
-            return False
-        payload = json.dumps({"print": {"sequence_id": str(int(time.time())), "command": "pause"}})
-        self._client.publish(f"device/{self.serial_number}/request", payload)
-        return True
-
-    def pause_print(self) -> bool:
-        return self.pause()
-
-    def resume(self) -> bool:
-        if not self._client or not self._client.is_connected():
-            return False
-        payload = json.dumps({"print": {"sequence_id": str(int(time.time())), "command": "resume"}})
-        self._client.publish(f"device/{self.serial_number}/request", payload)
-        return True
-
-    def resume_print(self) -> bool:
-        return self.resume()
-
-    def stop_print(self) -> bool:
-        if not self._client or not self._client.is_connected():
-            return False
-        payload = json.dumps({"print": {"sequence_id": str(int(time.time())), "command": "stop"}})
-        self._client.publish(f"device/{self.serial_number}/request", payload)
-        return True
-
-    def _get_filament_temp(self, slot_id: int | str | None = None) -> int:
-        """
-        Determines reasonable extrusion/purge temperature based on slot or filament type.
-        Default 220°C (standard PLA/PETG safe extrusion temp).
-        """
-        if getattr(self, "nozzle_target_temper", 0) and self.nozzle_target_temper >= 170:
-            return int(self.nozzle_target_temper)
-
-        slot_str = str(slot_id).strip().lower() if slot_id is not None else ""
-        fil_type = ""
-
-        # Check AMS tray info if available
-        if hasattr(self, "ams_trays_info") and isinstance(self.ams_trays_info, dict) and slot_str in self.ams_trays_info:
-            tray_val = self.ams_trays_info[slot_str]
-            if isinstance(tray_val, dict):
-                fil_type = str(tray_val.get("type") or tray_val.get("tray_type") or "").strip().upper()
-
-        # Check self.filament_type if not found
-        if not fil_type or fil_type in ["", "EMPTY", "НЕВИЗНАЧЕНО"]:
-            fil_type = str(getattr(self, "filament_type", "")).strip().upper()
-
-        if "PETG" in fil_type:
-            return 235
-        elif "ABS" in fil_type or "ASA" in fil_type:
-            return 250
-        elif "PC" in fil_type:
-            return 260
-        elif "TPU" in fil_type:
-            return 220
-        elif "PA" in fil_type or "NYLON" in fil_type:
-            return 260
-        return 220
-
-    def unload_filament(self, slot_id: int | str | None = None, target_temp: int | None = None) -> bool:
-        """
-        Commands printer to unload filament.
-        Safety check: Refuses to execute if printer is actively printing or paused during a print.
-        Sends native unload_filament, AMS unload (target 255) if applicable, and standard gcode file fallback.
-        For non-AMS / external spool, issues heating and retraction sequence via gcode_line.
-        """
-        if self.is_printing or self.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
-            logger.warning(f"⚠️ Cannot unload filament on [{self.name}]: printer is active ({self.gcode_state})")
-            return False
-        if not self._client or not self._client.is_connected():
-            logger.warning(f"⚠️ Cannot unload filament on [{self.name}]: MQTT not connected")
-            return False
-
-        seq = int(time.time())
-        temp = int(target_temp) if target_temp and int(target_temp) >= 170 else self._get_filament_temp(slot_id)
-        slot_str = str(slot_id).strip().lower() if slot_id is not None else ""
-
-        # 1. Native Bambu unload command
-        payload_unload = json.dumps({
-            "print": {
-                "sequence_id": str(seq),
-                "command": "unload_filament"
-            }
-        })
-        self._client.publish(f"device/{self.serial_number}/request", payload_unload)
-
-        # 2. If AMS is present and slot is an AMS slot (0..3), command ams_change_filament with target 255 (unload)
-        if (slot_str in ["0", "1", "2", "3"] and self.has_ams) or (self.has_ams and slot_str not in ["254", "255", "vt", "external"]):
-            payload_ams = json.dumps({
-                "print": {
-                    "sequence_id": str(seq + 1),
-                    "command": "ams_change_filament",
-                    "target": 255,
-                    "curr_temp": temp,
-                    "tar_temp": temp
-                }
-            })
-            self._client.publish(f"device/{self.serial_number}/request", payload_ams)
-        else:
-            # For External Spool (VT / 254) or printer without AMS:
-            # Heat nozzle to extrusion temp, advance 5mm to melt tip, retract 80mm out of extruder gears, turn off heater
-            unload_gcode = f"M109 S{temp}\nM83\nG1 E5 F150\nG1 E-80 F800\nM400\nM82\nM104 S0\n"
-            payload_gcode_line = json.dumps({
-                "print": {
-                    "sequence_id": str(seq + 1),
-                    "command": "gcode_line",
-                    "param": unload_gcode
-                }
-            })
-            self._client.publish(f"device/{self.serial_number}/request", payload_gcode_line)
-
-        # 3. Standard Bambu macro G-code fallback
-        payload_gcode = json.dumps({
-            "print": {
-                "sequence_id": str(seq + 2),
-                "command": "gcode_file",
-                "param": "/usr/etc/print/filament_unload.gcode"
-            }
-        })
-        self._client.publish(f"device/{self.serial_number}/request", payload_gcode)
-        logger.info(f"📤 Sent Unload Filament commands to [{self.name}] ({self.serial_number}) for slot {slot_id} (temp: {temp}°C)")
-        return True
-
-    def load_filament(self, slot_id: int | str | None = None, target_temp: int | None = None) -> bool:
-        """
-        Commands printer to load filament into the extruder.
-        Safety check: Refuses to execute if printer is actively printing or paused during print.
-        For AMS: sends ams_change_filament for the specified tray target.
-        For External spool / Non-AMS: heats nozzle and extrudes 80mm to grab, feed and purge through nozzle.
-        """
-        if self.is_printing or self.gcode_state in ["RUNNING", "PAUSE", "PREPARE"]:
-            logger.warning(f"⚠️ Cannot load filament on [{self.name}]: printer is active ({self.gcode_state})")
-            return False
-        if not self._client or not self._client.is_connected():
-            logger.warning(f"⚠️ Cannot load filament on [{self.name}]: MQTT not connected")
-            return False
-
-        seq = int(time.time())
-        temp = int(target_temp) if target_temp and int(target_temp) >= 170 else self._get_filament_temp(slot_id)
-        slot_str = str(slot_id).strip().lower() if slot_id is not None else ""
-        tray_target = None
-        if slot_str in ["0", "1", "2", "3"]:
-            tray_target = int(slot_str)
-
-        if tray_target is not None and self.has_ams:
-            payload_ams = json.dumps({
-                "print": {
-                    "sequence_id": str(seq),
-                    "command": "ams_change_filament",
-                    "target": tray_target,
-                    "curr_temp": temp,
-                    "tar_temp": temp
-                }
-            })
-            self._client.publish(f"device/{self.serial_number}/request", payload_ams)
-        else:
-            # External spool (254 / VT) or Non-AMS printer:
-            # Heat nozzle to extrusion temp, feed 80mm through extruder gears and nozzle, turn off heater
-            load_gcode = f"M109 S{temp}\nM83\nG1 E80 F200\nM400\nM82\nM104 S0\n"
-            payload_gcode_line = json.dumps({
-                "print": {
-                    "sequence_id": str(seq),
-                    "command": "gcode_line",
-                    "param": load_gcode
-                }
-            })
-            self._client.publish(f"device/{self.serial_number}/request", payload_gcode_line)
-
-        payload_gcode = json.dumps({
-            "print": {
-                "sequence_id": str(seq + 1),
-                "command": "gcode_file",
-                "param": "/usr/etc/print/filament_load.gcode"
-            }
-        })
-        self._client.publish(f"device/{self.serial_number}/request", payload_gcode)
-        logger.info(f"📥 Sent Load Filament commands to [{self.name}] ({self.serial_number}) for slot {slot_id} (temp: {temp}°C)")
-        return True
-
-    def _is_tray_loaded(self, t_info: dict) -> bool:
-        if not isinstance(t_info, dict):
-            return False
-        if "empty" in t_info:
-            return not bool(t_info.get("empty"))
-            
-        t_type = str(t_info.get("type") or t_info.get("tray_type") or "").strip().lower()
-        if not t_type or t_type in ["empty", "null", "none"]:
-            return False
-        return True
-
-    def _check_tray_state_deltas(self) -> None:
-        """
-        Detects physical tray unload and load events based on live MQTT telemetry.
-        Prevents false positives on initial connection by establishing baseline state first.
-        """
-        curr_trays = dict(self.ams_trays_info)
-        if not self._trays_initialized:
-            for k, t_data in curr_trays.items():
-                if isinstance(t_data, dict):
-                    self._known_trays_state[str(k)] = {
-                        "loaded": self._is_tray_loaded(t_data),
-                        "type": str(t_data.get("type") or t_data.get("tray_type") or "").strip(),
-                        "color": str(t_data.get("color") or "").strip(),
-                        "tray_color": str(t_data.get("tray_color") or "").strip(),
-                    }
-            if curr_trays:
-                self._trays_initialized = True
-            return
-
-        for k, t_data in curr_trays.items():
-            if not isinstance(t_data, dict):
-                continue
-            k_str = str(k)
-            now_loaded = self._is_tray_loaded(t_data)
-            now_type = str(t_data.get("type") or t_data.get("tray_type") or "").strip()
-            now_color = str(t_data.get("color") or "").strip()
-            now_tray_color = str(t_data.get("tray_color") or "").strip()
-
-            was_state = self._known_trays_state.get(k_str)
-            if was_state is not None:
-                was_loaded = was_state.get("loaded", False)
-                was_type = was_state.get("type", "")
-
-                # Transition 1: Tray was loaded, now empty -> Hardware Unload!
-                if was_loaded and not now_loaded:
-                    event = {
-                        "event": "tray_unloaded",
-                        "printer_id": self.id,
-                        "printer_name": self.name,
-                        "slot_id": k_str,
-                        "prev_type": was_type,
-                        "timestamp": time.time(),
-                    }
-                    logger.info(f"🔄 [Filament Auto] Tray {k_str} on [{self.name}] unloaded on hardware (was {was_type})")
-                    self._dispatch_tray_event(event)
-
-                # Transition 2: Tray was empty, now loaded -> Hardware Load!
-                elif (not was_loaded and now_loaded) or (now_loaded and not was_type and now_type):
-                    event = {
-                        "event": "tray_loaded",
-                        "printer_id": self.id,
-                        "printer_name": self.name,
-                        "slot_id": k_str,
-                        "filament_type": now_type,
-                        "color": now_color,
-                        "tray_color": now_tray_color,
-                        "tray_info": dict(t_data),
-                        "timestamp": time.time(),
-                    }
-                    logger.info(f"🔄 [Filament Auto] Tray {k_str} on [{self.name}] loaded on hardware ({now_type})")
-                    self._dispatch_tray_event(event)
-
-            self._known_trays_state[k_str] = {
-                "loaded": now_loaded,
-                "type": now_type,
-                "color": now_color,
-                "tray_color": now_tray_color,
-            }
-
-    def _dispatch_tray_event(self, event: dict) -> None:
-        if self.tray_event_callback:
-            loop_to_use = getattr(self, "_main_loop", None) or self._get_active_event_loop()
-            if loop_to_use and loop_to_use.is_running():
-                try:
-                    if inspect.iscoroutinefunction(self.tray_event_callback):
-                        asyncio.run_coroutine_threadsafe(self.tray_event_callback(self, event), loop_to_use)
-                    else:
-                        loop_to_use.call_soon_threadsafe(self.tray_event_callback, self, event)
-                except Exception as e:
-                    logger.warning(f"Failed dispatching tray event for [{self.name}]: {e}")
-            elif not inspect.iscoroutinefunction(self.tray_event_callback):
-                try:
-                    self.tray_event_callback(self, event)
-                except Exception as e:
-                    logger.warning(f"Failed direct callback dispatch for [{self.name}]: {e}")
-        else:
-            self._pending_tray_events.append(event)
-
-    def pop_tray_events(self) -> list[dict]:
-        events = list(self._pending_tray_events)
-        self._pending_tray_events.clear()
-        return events
-
-    def set_speed_level(self, level: int) -> bool:
-        """Sets speed level: 1 = Silent (50%), 2 = Standard (100%), 3 = Sport (124%), 4 = Ludicrous (166%)."""
-        if not self._client or not self._client.is_connected():
-            return False
-        param_str = str(max(1, min(4, level)))
-        payload = json.dumps(
-            {"print": {"sequence_id": str(int(time.time())), "command": "print_speed", "param": param_str}}
-        )
-        self._client.publish(f"device/{self.serial_number}/request", payload)
-        self.spd_lvl = level
-        return True
-
-    def set_print_speed(self, level: int) -> bool:
-        return self.set_speed_level(level)
-
-    def toggle_chamber_light(self, mode: str = "toggle") -> bool:
-        """Toggles or sets chamber LED light ('on', 'off', 'toggle')."""
-        if not self._client or not self._client.is_connected():
-            return False
-        if mode == "toggle":
-            new_mode = "off" if self.chamber_light_state == "on" else "on"
-        else:
-            new_mode = "on" if str(mode).lower() in ["on", "1", "true"] else "off"
-        payload = json.dumps(
-            {
-                "system": {
-                    "sequence_id": str(int(time.time())),
-                    "command": "ledctrl",
-                    "led_node": "chamber_light",
-                    "led_mode": new_mode,
-                    "led_on_time": 500,
-                    "led_off_time": 500,
-                    "loop_times": 0,
-                    "interval_time": 0,
-                }
-            }
-        )
-        self._client.publish(f"device/{self.serial_number}/request", payload)
-        self.chamber_light_state = new_mode
-        return True
-
-    def set_chamber_light(self, mode: str = "toggle") -> bool:
-        return self.toggle_chamber_light(mode)
-
-    def invalidate_plate_gif_cache(self) -> None:
-        """Clears cached animated GIF for plate map."""
-        from services.printer_file_job_service import invalidate_plate_gif_cache
-
-        invalidate_plate_gif_cache(self)
-
-    def get_clean_job_objects(self) -> list[dict[str, Any]]:
-        """
-        Returns only valid printable model objects for the current job.
-        Purges phantom/ghost objects (like Object 69) that lack a 2D bounding box when valid bbox objects exist.
-        """
-        objs = getattr(self, "current_job_objects", [])
-        if not objs:
-            return []
-
-        filtered = []
-        for o in objs:
-            n_low = str(o.get("name", "")).lower()
-            if any(k in n_low for k in [
-                "wipe tower", "prime tower", "purge tower", "wipe_tower", "prime_tower",
-                "flush volume", "purge volume", "timelapse", "calibration line", "leveling line", "test_line"
-            ]):
-                logger.info(f"🧹 Discarded auxiliary object ID={o.get('id')} Name='{o.get('name')}' for [{self.name}]")
-                continue
-
-            bbox = o.get("bbox")
-            if bbox and isinstance(bbox, list) and len(bbox) >= 4:
-                try:
-                    w = abs(float(bbox[2]) - float(bbox[0]))
-                    h = abs(float(bbox[3]) - float(bbox[1]))
-                    if w < 3.0 or h < 3.0 or (w * h) < 9.0:
-                        logger.info(f"🧹 Discarded tiny/0-area object ID={o.get('id')} BBox={bbox} for [{self.name}]")
-                        continue
-                except Exception:
-                    pass
-            filtered.append(o)
-
-        if not filtered and objs:
-            filtered = objs
-
-        if len(filtered) != len(self.current_job_objects):
-            self.current_job_objects = filtered
-            self.invalidate_plate_gif_cache()
-
-        return self.current_job_objects
-
-    def get_plate_gif(self) -> bytes:
-        """Returns cached animated GIF of plate objects highlighting each object sequentially."""
-        from services.printer_file_job_service import render_plate_gif_cached
-
-        return render_plate_gif_cached(self)
-
-    def start_calibration(self) -> bool:
-        """
-        Triggers full automatic Bambu Lab calibration (vibration frequency calibration + auto bed leveling).
-        Publishes MQTT calibration command and G32 gcode line.
-        """
-        if not self._client or not self._client.is_connected():
-            return False
-
-        self._is_calibrating = True
-        self._job_deducted = True
-        self._current_job_grams = 0.0
-
-        # 1. Native Bambu Lab calibration command (Option 63 = Full Calibration)
-        payload_cal = json.dumps(
-            {"print": {"sequence_id": str(int(time.time())), "command": "calibration", "option": 63}}
-        )
-        self._client.publish(f"device/{self.serial_number}/request", payload_cal)
-
-        # 2. Backup G32 gcode_line command for compatibility across firmware versions
-        payload_g32 = json.dumps(
-            {"print": {"sequence_id": str(int(time.time()) + 1), "command": "gcode_line", "param": "G32\n"}}
-        )
-        self._client.publish(f"device/{self.serial_number}/request", payload_g32)
-        logger.info(f"🎯 Triggered automatic calibration (G32 / option 63) for [{self.name}] ({self.serial_number})")
-        return True
-
-    async def skip_objects_async(self, obj_ids: list[int]) -> tuple[bool, str]:
-        """
-        Sends MQTT print.skip_objects command to skip specific object IDs on the current plate.
-        Does not stop the print job.
-        """
-        is_conn = (self._client and hasattr(self._client, "is_connected") and self._client.is_connected()) or getattr(self, "is_mqtt_connected", False)
-        if not self._client or not is_conn:
-            return False, "Принтер не підключений по MQTT або вимкнений"
-        if not self.serial_number:
-            return False, "Серійний номер принтера не вказано"
-        if not obj_ids or not isinstance(obj_ids, list):
-            return False, "Необхідно вказати список ID об'єктів для пропуску"
-
-        int_obj_ids = [int(i) for i in obj_ids if str(i).isdigit()]
-        if not int_obj_ids:
-            return False, "Список ID об'єктів порожній або некоректний"
-
-        # Bambu Lab MQTT command expects cumulative list of all currently skipped object IDs on the plate
-        current_skipped = [int(i) for i in getattr(self, "skipped_objects", []) if str(i).isdigit()]
-        all_skipped = list(dict.fromkeys(current_skipped + int_obj_ids))
-
-        payload = {
-            "print": {
-                "sequence_id": str(int(time.time())),
-                "command": "skip_objects",
-                "obj_list": all_skipped,
-            }
-        }
-        topic = f"device/{self.serial_number}/request"
-        try:
-            result = self._client.publish(topic, json.dumps(payload), qos=1)
-            if result.rc != mqtt.MQTT_ERR_SUCCESS:
-                return False, f"Не вдалося відправити MQTT команду (код {result.rc})"
-        except Exception as e:
-            return False, f"Помилка відправки команди: {e}"
-
-        self.skipped_objects = all_skipped
-        self.invalidate_plate_gif_cache()
-
-        logger.info(f"🚫 Sent skip_objects {all_skipped} to printer [{self.name}] ({self.serial_number})")
-        return True, f"Об'єкт(и) {int_obj_ids} успішно пропущено"
-
-    async def start_print_job_async(
-        self,
-        file_bytes: bytes,
-        filename: str,
-        plate_name: str = "plate_1.gcode",
-        use_ams: bool = True,
-        part_name: str | None = None,
-        ams_slot: int | str | None = None,
-        ams_mapping: list[int] | None = None,
-        weight_g: float | None = None,
-    ) -> tuple[bool, str]:
-        """
-        Uploads 3MF file via FTPS to printer SD card and publishes MQTT project_file command to start printing.
-        Delegates to services.printer_file_job_service.start_print_job.
-        """
-        from services.printer_file_job_service import start_print_job
-
-        return await start_print_job(
-            printer=self,
-            file_bytes=file_bytes,
-            filename=filename,
-            plate_name=plate_name,
-            use_ams=use_ams,
-            part_name=part_name,
-            ams_slot=ams_slot,
-            ams_mapping=ams_mapping,
-            weight_g=weight_g,
-        )
-
-    def calculate_job_cost(self, weight_grams: float, print_mins: int = 0) -> dict[str, float]:
-        """Calculates cost breakdown: filament cost + electricity cost in UAH."""
-        if weight_grams <= 0:
-            return {"filament_cost": 0.0, "electricity_cost": 0.0, "total_cost": 0.0}
-
-        filament_cost = (weight_grams / 1000.0) * self.price_per_kg
-        effective_mins = print_mins if print_mins > 0 else max(10, int(weight_grams * 2.0))
-        electricity_kwh = (self.power_watts / 1000.0) * (effective_mins / 60.0)
-        electricity_cost = electricity_kwh * self.electricity_rate_uah
-
-        return {
-            "filament_cost": round(filament_cost, 2),
-            "electricity_cost": round(electricity_cost, 2),
-            "total_cost": round(filament_cost + electricity_cost, 2),
-        }
-
-    def record_print_hours(self, hours: float) -> None:
-        """Records completed print hours towards total and maintenance counters."""
-        if hours <= 0:
-            return
-        self.total_print_hours = round(self.total_print_hours + hours, 2)
-        self.maintenance_hours_counter = round(self.maintenance_hours_counter + hours, 2)
-        for k, item in self.maintenance_items.items():
-            item["counter_hours"] = round(item.get("counter_hours", 0.0) + hours, 2)
-        logger.info(f"⏱️ Updated print hours for [{self.name}]: +{hours:.2f}h (Total: {self.total_print_hours:.1f}h)")
-        self._trigger_save()
-
-    def reset_maintenance_counter(self, item_key: str = "rails") -> None:
-        """Resets a specific maintenance item's counter after servicing."""
-        now_ts = time.time()
-        if item_key == "all":
-            self.maintenance_hours_counter = 0.0
-            self.last_maintenance_timestamp = now_ts
-            for item in self.maintenance_items.values():
-                item["counter_hours"] = 0.0
-                item["last_reset"] = now_ts
-        elif item_key in self.maintenance_items:
-            self.maintenance_items[item_key]["counter_hours"] = 0.0
-            self.maintenance_items[item_key]["last_reset"] = now_ts
-            if item_key == "rails":
-                self.maintenance_hours_counter = 0.0
-                self.last_maintenance_timestamp = now_ts
-        else:
-            self.maintenance_hours_counter = 0.0
-            self.last_maintenance_timestamp = now_ts
-
-        logger.info(f"🧹 Maintenance counter ({item_key}) reset for [{self.name}]")
-        self._trigger_save()
-
-    def set_maintenance_interval(self, item_key: str, interval_hours: float) -> None:
-        """Sets target maintenance interval in hours for a specific item."""
-        val = max(1.0, float(interval_hours))
-        if item_key in self.maintenance_items:
-            self.maintenance_items[item_key]["interval_hours"] = val
-        if item_key == "rails":
-            self.maintenance_interval_hours = int(val)
-        logger.info(f"⚙️ Maintenance interval for [{self.name}] ({item_key}) set to {val}h")
-        self._trigger_save()
+    # Hardware control commands & maintenance tracking inherited via PrinterCommandsMixin and PrinterMaintenanceMixin
 
     @property
     def mapped_state(self) -> str:

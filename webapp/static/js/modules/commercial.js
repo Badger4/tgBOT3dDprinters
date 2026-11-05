@@ -146,7 +146,19 @@ export function syncPresetToInputs(presetId) {
     if (powerEl && p.power_watts !== undefined) powerEl.value = p.power_watts;
 }
 
+let calcReqSeq = 0;
+let calcDebounceTimer = null;
+
+export function debouncedRecalculateCommercial() {
+    if (calcDebounceTimer) clearTimeout(calcDebounceTimer);
+    calcDebounceTimer = setTimeout(() => {
+        calcDebounceTimer = null;
+        recalculateCommercial();
+    }, 200);
+}
+
 export async function recalculateCommercial() {
+    const mySeq = ++calcReqSeq;
     const weight_g = parseFloat(document.getElementById("calc-weight-g")?.value) || 100;
     const time_mins = parseInt(document.getElementById("calc-time-mins")?.value) || 60;
     const preset_id = document.getElementById("calc-preset-select")?.value;
@@ -158,6 +170,7 @@ export async function recalculateCommercial() {
         const data = await calculateCommercialApi({
             weight_g, time_mins, preset_id, client_order, electricity_rate_uah, power_watts
         });
+        if (mySeq !== calcReqSeq) return;
         if (data.status === "ok" && data.calculation) {
             const c = data.calculation;
             const totalEl = document.getElementById("res-total-price");
@@ -548,11 +561,10 @@ export function initCommercialEventListeners() {
         syncPresetToInputs(e.target.value);
         recalculateCommercial();
     });
-    document.getElementById("calc-weight-g")?.addEventListener("input", recalculateCommercial);
-    document.getElementById("calc-time-mins")?.addEventListener("input", recalculateCommercial);
-    document.getElementById("calc-elec-rate")?.addEventListener("input", recalculateCommercial);
-    document.getElementById("calc-power-watts")?.addEventListener("input", recalculateCommercial);
-    document.getElementById("calc-client-order")?.addEventListener("input", recalculateCommercial);
+    document.getElementById("calc-weight-g")?.addEventListener("input", debouncedRecalculateCommercial);
+    document.getElementById("calc-time-mins")?.addEventListener("input", debouncedRecalculateCommercial);
+    document.getElementById("calc-elec-rate")?.addEventListener("input", debouncedRecalculateCommercial);
+    document.getElementById("calc-power-watts")?.addEventListener("input", debouncedRecalculateCommercial);
 
     document.getElementById("btn-export-calc-pdf")?.addEventListener("click", exportCommercialPdf);
 

@@ -200,8 +200,12 @@ export function getPrinterStatusInfo(rawState) {
 export function formatCockpitHexColor(raw) {
     if (!raw) return '#3b82f6';
     let s = String(raw).trim();
-    if (s.startsWith('#')) return s;
-    if (/^[0-9A-Fa-f]{3,8}$/.test(s)) return '#' + s;
+    if (/^#?[0-9A-Fa-f]{3,8}$/.test(s)) {
+        const hex = s.startsWith('#') ? s.slice(1) : s;
+        if (hex.length === 3 || hex.length === 6 || hex.length === 8) {
+            return '#' + hex;
+        }
+    }
     return '#3b82f6';
 }
 
@@ -1087,5 +1091,26 @@ describe('Design, CSS Architecture & Non-blocking Toast UX', () => {
         assert.equal(parseSlotGrams('-50'), null);
         assert.equal(parseSlotGrams('invalid'), null);
         assert.equal(parseSlotGrams(''), null);
+    });
+
+    it('rejects CSS/SVG XSS payloads in formatCockpitHexColor', () => {
+        assert.equal(formatCockpitHexColor('#ff00aa'), '#ff00aa');
+        assert.equal(formatCockpitHexColor('22c55e'), '#22c55e');
+        assert.equal(formatCockpitHexColor('#fff'), '#fff');
+        assert.equal(formatCockpitHexColor('#12345678'), '#12345678');
+        assert.equal(formatCockpitHexColor('#"><img src=x onerror=alert(1)>'), '#3b82f6');
+        assert.equal(formatCockpitHexColor('#12345'), '#3b82f6');
+        assert.equal(formatCockpitHexColor('javascript:alert(1)'), '#3b82f6');
+    });
+
+    it('verifies modals.js imports escapeHtml and history.js renders 6 table columns', () => {
+        const modalsPath = path.join(__dirname, '..', 'webapp', 'static', 'js', 'modules', 'modals.js');
+        const modalsSrc = fs.readFileSync(modalsPath, 'utf8');
+        assert.match(modalsSrc, /import\s*\{[^}]*\bescapeHtml\b[^}]*\}\s*from\s*["']\.\/utils\.js["']/);
+
+        const printersPath = path.join(__dirname, '..', 'webapp', 'static', 'js', 'modules', 'printers.js');
+        const printersSrc = fs.readFileSync(printersPath, 'utf8');
+        assert.ok(!printersSrc.includes('in ["254", "255"]'), 'printers.js must not use Python-style `in` operator on arrays');
+        assert.ok(printersSrc.includes('["254", "255", "VT"].includes(activeKey)'), 'printers.js must check external slot via .includes()');
     });
 });

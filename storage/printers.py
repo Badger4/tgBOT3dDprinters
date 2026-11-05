@@ -137,7 +137,8 @@ class PrinterRepository(BaseStorage):
         4. Deletes printer from SQLite and updates disk replica.
         Guarantees zero ghost printers or orphaned spools even on crash/power cut.
         """
-        async with self.transaction_lock("fleet_mutation"):
+        async with self.transaction_lock("fleet_mutation"), self.transaction_lock("spools"):
+
             def _tx_delete() -> tuple[bool, list[dict[str, Any]], dict[str, Any]]:
                 conn = self._get_db()
                 try:

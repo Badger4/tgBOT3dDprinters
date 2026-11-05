@@ -15,7 +15,7 @@
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- WebApp CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=1150">
+    <link rel="stylesheet" href="/static/css/style.css?v=1155">
 </head>
 <body>
     <div id="app" class="app-container">
@@ -48,11 +48,11 @@
                 <div class="section-header">
                     <h2><i class="fa-solid fa-print"></i> <span data-i18n="farm_status_title">Стан ферми</span></h2>
                     <div class="d-flex gap-2 align-items-center flex-wrap">
-                        <div class="view-mode-switcher d-inline-flex" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 3px; gap: 3px;">
-                            <button type="button" id="btn-view-detailed" class="btn btn-xs btn-primary" style="border-radius: 7px; padding: 4px 10px; font-size: 12px;">
+                        <div class="view-mode-switcher">
+                            <button type="button" id="btn-view-detailed" class="btn btn-xs active">
                                 🎛️ Детально
                             </button>
-                            <button type="button" id="btn-view-compact" class="btn btn-xs btn-outline" style="border-radius: 7px; padding: 4px 10px; font-size: 12px; border: none;">
+                            <button type="button" id="btn-view-compact" class="btn btn-xs">
                                 ⊞ Компактна плитка
                             </button>
                         </div>
@@ -1029,7 +1029,7 @@
             <div class="modal-window">
                 <div class="modal-header">
                     <h3><i class="fa-solid fa-print"></i> Додати новий принтер</h3>
-                    <button id="close-add-printer-modal" class="icon-btn-close" onclick="document.getElementById('add-printer-modal').classList.remove('active')"><i class="fa-solid fa-xmark"></i></button>
+                    <button id="close-add-printer-modal" class="icon-btn-close"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body">
                     <form id="add-printer-form">
@@ -1332,7 +1332,7 @@
             <div class="modal-window" style="max-width: 480px;">
                 <div class="modal-header">
                     <h3 id="scrap-modal-title"><i class="fa-solid fa-triangle-exclamation color-red"></i> Фіксація браку друку</h3>
-                    <button type="button" class="icon-btn-close" onclick="window.closeScrapModal()"><i class="fa-solid fa-xmark"></i></button>
+                    <button type="button" id="close-scrap-modal" class="icon-btn-close" onclick="window.closeScrapModal()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body p-3">
                     <input type="hidden" id="scrap-entry-ts">
@@ -1340,7 +1340,7 @@
                     <input type="hidden" id="scrap-slot-key">
                     <input type="hidden" id="scrap-spool-id">
                     
-                    <div class="glass-card p-3 mb-3" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color);">
+                    <div class="glass-card p-3 mb-3" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-glass);">
                         <div class="d-flex justify-content-between align-items-center mb-1">
                             <strong id="scrap-model-name" style="font-size: 13px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Модель</strong>
                             <span id="scrap-printer-badge" class="badge badge-secondary" style="font-size: 11px;">Принтер</span>
@@ -1538,6 +1538,6 @@
     <!-- html2pdf Library for PDF exports (deferred background load) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- WebApp Application JS -->
-    <script type="module" src="/static/js/app.js?v=1149"></script>
+    <script type="module" src="/static/js/app.js?v=1155"></script>
 </body>
 </html>

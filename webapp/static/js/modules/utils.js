@@ -57,12 +57,21 @@ export function getPrinterStatusInfo(rawState) {
 
 export function formatCockpitHexColor(raw) {
     if (!raw) return "#3b82f6";
-    let s = String(raw).trim();
-    if (s.startsWith("#")) {
-        return s.length === 7 || s.length === 9 ? s.slice(0, 7) : s;
+    const s = String(raw).trim();
+    if (/^#[0-9A-Fa-f]{6}$/.test(s)) {
+        return s;
     }
-    if (/^[0-9A-Fa-f]{3,8}$/.test(s)) {
+    if (/^#[0-9A-Fa-f]{8}$/.test(s)) {
+        return s.slice(0, 7);
+    }
+    if (/^#[0-9A-Fa-f]{3}$/.test(s)) {
+        return "#" + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
+    }
+    if (/^[0-9A-Fa-f]{6,8}$/.test(s)) {
         return "#" + s.slice(0, 6);
+    }
+    if (/^[0-9A-Fa-f]{3}$/.test(s)) {
+        return "#" + s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
     }
     return "#3b82f6";
 }

@@ -32,6 +32,8 @@ async def handle_file_upload(request: web.Request) -> web.Response:
     """POST /api/files/upload - Accepts 3MF / GCode upload and parses metadata."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     app_obj = request.app["app_obj"]
     try:
@@ -70,21 +72,22 @@ async def handle_file_upload(request: web.Request) -> web.Response:
         total_bytes = 0
         first_chunk = None
 
-        with save_path.open("wb") as out_f:
+        import aiofiles
+        async with aiofiles.open(save_path, "wb") as out_f:
             while True:
                 chunk = await field.read_chunk(size=256 * 1024)
                 if not chunk:
                     break
                 total_bytes += len(chunk)
                 if total_bytes > max_bytes:
-                    out_f.close()
+                    await out_f.close()
                     save_path.unlink(missing_ok=True)
                     return web.json_response(
                         {"error": "Файл перевищує максимальний дозволений розмір 50 MB"}, status=413
                     )
                 if first_chunk is None:
                     first_chunk = chunk
-                out_f.write(chunk)
+                await out_f.write(chunk)
 
         # Validate .3mf ZIP magic bytes on first chunk
         if clean_ext == ".3mf" and first_chunk and not first_chunk.startswith(b"PK\x03\x04"):
@@ -149,6 +152,8 @@ async def handle_image_upload(request: web.Request) -> web.Response:
     """POST /api/files/upload_image - Accepts image file upload from WebApp with auto-compression."""
     if not await check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    if not await is_admin_request(request):
+        return web.json_response({"error": "Forbidden: Admin access required"}, status=403)
 
     MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15MB DoS limit
 

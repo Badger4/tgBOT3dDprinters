@@ -64,7 +64,7 @@ def get_tracked_files():
     extensions = (".py", ".html", ".js", ".css", ".md", ".json", ".txt", ".service", ".conf")
     exclude_dirs = {".venv", "venv", "__pycache__", ".git", "logs", "scratch", "tools", ".idea"}
     res = subprocess.run(
-        ["git", "ls-files", "--cached"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
         cwd=str(PROJECT_ROOT),
         check=True,
         capture_output=True,
@@ -77,6 +77,8 @@ def get_tracked_files():
         if Path(norm).suffix.lower() not in extensions:
             continue
         if any(p in exclude_dirs for p in parts):
+            continue
+        if not (PROJECT_ROOT / line).is_file():
             continue
         files.append((line, norm))
     return files

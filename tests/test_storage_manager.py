@@ -41,7 +41,7 @@ class TestStorageManager(unittest.IsolatedAsyncioTestCase):
         reloaded = await self.storage.load_spools()
         self.assertEqual(reloaded["spool_1"]["remaining_grams"], 850.0)
 
-    async def test_spool_auto_delete_on_zero_weight(self):
+    async def test_spool_preserved_on_zero_weight(self):
         spools = await self.storage.load_spools()
         self.assertIn("spool_1", spools)
 
@@ -49,7 +49,8 @@ class TestStorageManager(unittest.IsolatedAsyncioTestCase):
         await self.storage.save_spools(spools)
 
         reloaded = await self.storage.load_spools()
-        self.assertNotIn("spool_1", reloaded)
+        self.assertIn("spool_1", reloaded)
+        self.assertEqual(reloaded["spool_1"]["remaining_grams"], 0.0)
 
     async def test_history_storage(self):
         entry = {

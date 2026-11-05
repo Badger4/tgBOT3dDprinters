@@ -156,7 +156,7 @@ class CommercialRepository(BaseStorage):
                 history = history[-500:]
 
             # Insert into relational table print_history as well
-            def _insert_db() -> None:
+            def _insert_db() -> bool:
                 conn = self._get_db()
                 try:
                     p_id = str(entry.get("printer_id") or "")
@@ -172,13 +172,15 @@ class CommercialRepository(BaseStorage):
                         (ts, p_id, p_name, sub_name, weight, cost, status, data_json),
                     )
                     conn.commit()
+                    return True
                 except Exception as e:
                     logger.error(f"Error logging print_history to SQLite: {e}")
+                    return False
                 finally:
                     conn.close()
 
-            await asyncio.to_thread(_insert_db)
-            return await self.save_json(self.history_file, history)
+            return bool(await asyncio.to_thread(_insert_db))
+
 
     async def clear_history(self) -> bool:
         """Clears all print history records in SQLite and disk snapshot."""
@@ -206,6 +208,7 @@ class CommercialRepository(BaseStorage):
                 try:
                     conn.execute("DELETE FROM print_history WHERE timestamp = ?", (timestamp,))
                     conn.commit()
+                    return True
                 except Exception as e:
                     logger.error(f"Error deleting print_history row: {e}")
                 finally:
@@ -263,6 +266,7 @@ class CommercialRepository(BaseStorage):
                         (data_json, float(timestamp)),
                     )
                     conn.commit()
+                    return True
                 except Exception as e:
                     logger.error(f"Error updating scrap in print_history table: {e}")
                 finally:

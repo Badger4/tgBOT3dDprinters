@@ -61,6 +61,7 @@ def fetch_job_info_via_ftps(printer: Any) -> None:
                 objs = info.get("objects") or []
                 if objs:
                     printer.current_job_objects = objs
+                    invalidate_plate_gif_cache(printer)
                     logger.info(
                         f"🧩 FTPS fetched {len(objs)} objects for [{printer.name}]: {[o.get('name') for o in objs]}"
                     )
@@ -172,9 +173,12 @@ async def start_print_job(
     # 2. Pre-calculate filament weight & extract plate objects from 3MF BEFORE FTPS upload
     m_info: dict[str, Any] = {}
     try:
-        m_info = parse_3mf_fn(file_bytes, filename)
+        m_info = await asyncio.to_thread(parse_3mf_fn, file_bytes, filename)
         printer.current_job_objects = m_info.get("objects", [])
         printer.skipped_objects = []
+        printer._skipped_at_progress = {}
+        printer._skip_refund_applied = False
+        invalidate_plate_gif_cache(printer)
         w_g = float(m_info.get("weight_g") or 0.0)
 
         # Persist objects & weight into last_sliced_weight.json cache (SSOT SQLite + atomic replica)
@@ -185,11 +189,15 @@ async def start_print_job(
                 "timestamp": time.time(),
                 "objects": printer.current_job_objects,
             }
-            if hasattr(printer, "storage") and hasattr(printer.storage, "set_sliced_weight_cache_sync"):
-                printer.storage.set_sliced_weight_cache_sync(cache_payload)
+            if hasattr(printer, "storage") and hasattr(printer.storage, "set_sliced_weight_cache"):
+                await printer.storage.set_sliced_weight_cache(cache_payload)
+            elif hasattr(printer, "storage") and hasattr(printer.storage, "set_sliced_weight_cache_sync"):
+                await asyncio.to_thread(printer.storage.set_sliced_weight_cache_sync, cache_payload)
             else:
-                cache_file = storage_dir / "last_sliced_weight.json"
-                cache_file.write_text(json.dumps(cache_payload, ensure_ascii=False), encoding="utf-8")
+                def _write_cache():
+                    cache_file = storage_dir / "last_sliced_weight.json"
+                    cache_file.write_text(json.dumps(cache_payload, ensure_ascii=False), encoding="utf-8")
+                await asyncio.to_thread(_write_cache)
             logger.info(f"🧩 Persisted {len(printer.current_job_objects)} objects to weight cache for [{printer.name}]")
         except Exception as e_cache:
             logger.warning(f"Failed writing weight/objects cache: {e_cache}")

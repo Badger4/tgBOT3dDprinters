@@ -98,7 +98,14 @@ export const i18nDict = {
         connected_printers_label: "Підключені принтери:",
         rest_api_status_label: "REST API Статус:",
         status_active: "Активний",
-        loading_users: "Завантаження користувачів..."
+        loading_users: "Завантаження користувачів...",
+        loading_dashboard: "Завантаження моніторингу...",
+        client_order_label: "Замовлення / Клієнт",
+        parts_stock_title: "Склад деталей",
+        new_part_btn: "Нова деталь",
+        parts_warehouse_subtitle: "Готові деталі та прив'язані .3mf файли для швидкого друку",
+        total_scrap_label: "Випадків браку",
+        th_status: "Статус / Облік"
     },
     en: {
         nav_printers: "Farm",
@@ -179,7 +186,14 @@ export const i18nDict = {
         connected_printers_label: "Connected Printers:",
         rest_api_status_label: "REST API Status:",
         status_active: "Active",
-        loading_users: "Loading users..."
+        loading_users: "Loading users...",
+        loading_dashboard: "Loading dashboard...",
+        client_order_label: "Order / Client",
+        parts_stock_title: "Parts Stock",
+        new_part_btn: "New Part",
+        parts_warehouse_subtitle: "Ready parts and linked .3mf files for quick printing",
+        total_scrap_label: "Scrap Cases",
+        th_status: "Status / Accounting"
     }
 };
 
@@ -719,9 +733,9 @@ export async function savePrinterSettingsFromTab() {
 /**
  * Reset printer maintenance hours counter
  */
-export async function resetPrinterMaintenance() {
+export async function resetPrinterMaintenance(explicitPrinterId = null) {
     const sel = document.getElementById("printer-settings-select");
-    const pId = sel?.value;
+    const pId = (typeof explicitPrinterId === "string" && explicitPrinterId) ? explicitPrinterId : sel?.value;
     if (!pId) {
         showToast("Оберіть принтер зі списку!", "warning");
         return;
@@ -731,7 +745,8 @@ export async function resetPrinterMaintenance() {
         return;
     }
 
-    const resetBtn = document.getElementById("p-setting-reset-maint-btn");
+    const isModalCall = typeof explicitPrinterId === "string" && Boolean(explicitPrinterId);
+    const resetBtn = document.getElementById(isModalCall ? "ps-modal-reset-maint-btn" : "p-setting-reset-maint-btn");
     const originalHtml = resetBtn ? resetBtn.innerHTML : "";
     if (resetBtn) {
         resetBtn.disabled = true;
@@ -742,10 +757,14 @@ export async function resetPrinterMaintenance() {
         const res = await savePrinterSettingsApi(pId, { reset_maintenance: true });
         if (res && res.error) throw new Error(res.error);
         triggerHaptic("success");
+        const newCount = res?.settings?.maintenance_hours_counter ?? 0.0;
         const counterEl = document.getElementById("p-setting-maint-counter-val");
-        if (counterEl) {
-            const newCount = res?.settings?.maintenance_hours_counter ?? 0.0;
+        if (counterEl && (!sel?.value || sel.value === pId)) {
             counterEl.textContent = `${newCount} год`;
+        }
+        const modalCounterEl = document.getElementById("ps-modal-maint-counter");
+        if (modalCounterEl) {
+            modalCounterEl.textContent = `${newCount} год`;
         }
         showToast("✅ Лічильник годин технічного обслуговування скинуто на 0.0 год!", "success");
     } catch (e) {
@@ -792,6 +811,10 @@ export async function openPrinterSettingsModal(printerId) {
         sel("ps-modal-nozzle-diameter", s.nozzle_diameter || "0.4");
         sel("ps-modal-ams", s.ams_enabled === true ? "true" : (s.ams_enabled === false ? "false" : "auto"));
         sel("ps-modal-maint-interval", s.maintenance_interval_hours || 100);
+        const modalMaintEl = document.getElementById("ps-modal-maint-counter");
+        if (modalMaintEl) {
+            modalMaintEl.textContent = `${s.maintenance_hours_counter ?? 0.0} год`;
+        }
 
         const n = s.notify || {};
         chk("ps-modal-notify-start", n.start ?? true);
@@ -815,6 +838,14 @@ export async function openPrinterSettingsModal(printerId) {
 export async function savePrinterSettingsModal() {
     const pId = document.getElementById("ps-modal-printer-id")?.value;
     if (!pId) return;
+
+    const saveBtn = document.getElementById("save-printer-settings-modal-btn");
+    if (saveBtn?.disabled) return;
+    const origHtml = saveBtn ? saveBtn.innerHTML : "";
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Збереження...`;
+    }
 
     const notifyObj = {
         start: document.getElementById("ps-modal-notify-start")?.checked ?? true,
@@ -857,6 +888,11 @@ export async function savePrinterSettingsModal() {
     } catch (e) {
         console.error("Failed saving printer settings via modal:", e);
         showToast("⚠️ Помилка зв'язку із сервером: " + (e.message || e), "error");
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = origHtml;
+        }
     }
 }
 
@@ -885,8 +921,12 @@ export function initSettingsEventListeners() {
     // Per-printer save button in Tab 5
     document.getElementById("save-printer-settings-btn")?.addEventListener("click", savePrinterSettingsFromTab);
 
-    // Per-printer maintenance reset button in Tab 5
-    document.getElementById("p-setting-reset-maint-btn")?.addEventListener("click", resetPrinterMaintenance);
+    // Per-printer maintenance reset button in Tab 5 & quick modal
+    document.getElementById("p-setting-reset-maint-btn")?.addEventListener("click", () => resetPrinterMaintenance());
+    document.getElementById("ps-modal-reset-maint-btn")?.addEventListener("click", () => {
+        const pId = document.getElementById("ps-modal-printer-id")?.value;
+        if (pId) resetPrinterMaintenance(pId);
+    });
 
     // Modal printer settings
     document.getElementById("close-printer-settings-modal")?.addEventListener("click", () => {

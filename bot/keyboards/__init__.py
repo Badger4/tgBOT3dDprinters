@@ -18,6 +18,7 @@ from bot.keyboards.printers import (
     get_printer_models_keyboard,
     get_printer_control_keyboard,
     build_skip_objects_keyboard,
+    build_skip_object_confirm_keyboard,
     get_farm_batch_actions_keyboard,
     get_fleet_calibrate_confirm_keyboard,
 )
@@ -73,6 +74,7 @@ from bot.keyboards.history import (
 
 __all__ = [
     "build_skip_objects_keyboard",
+    "build_skip_object_confirm_keyboard",
     "construct_part_info_keyboard",
     "get_admin_keyboard",
     "get_ams_slots_keyboard",

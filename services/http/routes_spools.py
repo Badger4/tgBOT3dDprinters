@@ -79,71 +79,66 @@ async def handle_save_spool(request: web.Request) -> web.Response:
     try:
         data = await request.json()
         spool_id = data.get("id") or f"spool_{int(time.time())}"
-        spools = await app_obj.storage.load_spools()
-        if not isinstance(spools, dict):
-            spools = {}
+        async with app_obj.storage.transaction_lock("spools"):
+            spools = await app_obj.storage.load_spools()
+            if not isinstance(spools, dict):
+                spools = {}
 
-        is_existing = spool_id in spools
-        existing = spools.get(spool_id, {}) if isinstance(spools.get(spool_id), dict) else {}
+            is_existing = spool_id in spools
+            existing = spools.get(spool_id, {}) if isinstance(spools.get(spool_id), dict) else {}
 
-        prev_weight = float(existing.get("remaining_grams", 0.0))
-        new_weight = float(data.get("remaining_grams", 1000.0))
-        spool_name = data.get("name", existing.get("name", "Котушка"))
+            prev_weight = float(existing.get("remaining_grams", 0.0))
+            new_weight = max(0.0, float(data.get("remaining_grams", 1000.0)))
+            spool_name = data.get("name", existing.get("name", "Котушка"))
 
-        if new_weight <= 0.0:
-            if spool_id in spools:
-                del spools[spool_id]
+            initial_g = float(existing.get("initial_grams") or data.get("initial_grams") or new_weight)
+
+            assigned_p = data.get("assigned_printer_id", existing.get("assigned_printer_id"))
+            assigned_s = data.get("assigned_slot_key", existing.get("assigned_slot_key"))
+
+            spools[spool_id] = {
+                "id": spool_id,
+                "name": spool_name,
+                "type": data.get("type", existing.get("type", "PLA")),
+                "color": data.get("color", existing.get("color", "#ffffff")),
+                "initial_grams": initial_g,
+                "remaining_grams": new_weight,
+                "quantity": max(1, int(data.get("quantity", existing.get("quantity", 1)))),
+                "price_per_kg": float(data.get("price_per_kg", existing.get("price_per_kg", 650.0))),
+                "notes": data.get("notes", existing.get("notes", "")),
+                "assigned_printer_id": assigned_p,
+                "assigned_slot_key": assigned_s,
+            }
             await app_obj.storage.save_spools(spools)
-            return web.json_response({"status": "deleted", "spool_id": spool_id, "message": "Котушку видалено через нульову вагу"})
 
-        initial_g = float(existing.get("initial_grams") or data.get("initial_grams") or new_weight)
+            # Audit movement logging
+            if not is_existing:
+                await app_obj.storage.record_spool_movement(
+                    spool_id=spool_id,
+                    spool_name=spool_name,
+                    action="initial_stock",
+                    weight_change_g=new_weight,
+                    prev_weight_g=0.0,
+                    new_weight_g=new_weight,
+                    reason="Первинне внесення котушки на склад",
+                    user="Admin",
+                )
+            elif abs(new_weight - prev_weight) > 0.01:
+                delta = new_weight - prev_weight
+                action = "refill" if delta > 0 else "manual_edit"
+                reason = data.get("reason") or ("Поповнення запасу котушки" if delta > 0 else "Ручне коригування ваги")
+                await app_obj.storage.record_spool_movement(
+                    spool_id=spool_id,
+                    spool_name=spool_name,
+                    action=action,
+                    weight_change_g=delta,
+                    prev_weight_g=prev_weight,
+                    new_weight_g=new_weight,
+                    reason=reason,
+                    user="Admin",
+                )
 
-        assigned_p = data.get("assigned_printer_id", existing.get("assigned_printer_id"))
-        assigned_s = data.get("assigned_slot_key", existing.get("assigned_slot_key"))
-
-        spools[spool_id] = {
-            "id": spool_id,
-            "name": spool_name,
-            "type": data.get("type", existing.get("type", "PLA")),
-            "color": data.get("color", existing.get("color", "#ffffff")),
-            "initial_grams": initial_g,
-            "remaining_grams": new_weight,
-            "quantity": max(1, int(data.get("quantity", existing.get("quantity", 1)))),
-            "price_per_kg": float(data.get("price_per_kg", existing.get("price_per_kg", 650.0))),
-            "notes": data.get("notes", existing.get("notes", "")),
-            "assigned_printer_id": assigned_p,
-            "assigned_slot_key": assigned_s,
-        }
-        await app_obj.storage.save_spools(spools)
-
-        # Audit movement logging
-        if not is_existing:
-            await app_obj.storage.record_spool_movement(
-                spool_id=spool_id,
-                spool_name=spool_name,
-                action="initial_stock",
-                weight_change_g=new_weight,
-                prev_weight_g=0.0,
-                new_weight_g=new_weight,
-                reason="Первинне внесення котушки на склад",
-                user="Admin",
-            )
-        elif abs(new_weight - prev_weight) > 0.01:
-            delta = new_weight - prev_weight
-            action = "refill" if delta > 0 else "manual_edit"
-            reason = data.get("reason") or ("Поповнення запасу котушки" if delta > 0 else "Ручне коригування ваги")
-            await app_obj.storage.record_spool_movement(
-                spool_id=spool_id,
-                spool_name=spool_name,
-                action=action,
-                weight_change_g=delta,
-                prev_weight_g=prev_weight,
-                new_weight_g=new_weight,
-                reason=reason,
-                user="Admin",
-            )
-
-        return web.json_response({"status": "ok", "spool": spools[spool_id]})
+            return web.json_response({"status": "ok", "spool": spools[spool_id]})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
 
@@ -195,34 +190,35 @@ async def handle_mount_spool(request: web.Request) -> web.Response:
         printer_id = data.get("printer_id", "").strip()
         slot_key = str(data.get("slot_key", "0")).strip()
 
-        spools = await app_obj.storage.load_spools()
-        if spool_id not in spools:
-            return web.json_response({"error": "Spool not found"}, status=404)
+        async with app_obj.storage.transaction_lock("spools"):
+            spools = await app_obj.storage.load_spools()
+            if spool_id not in spools:
+                return web.json_response({"error": "Spool not found"}, status=404)
 
-        target_printer = app_obj.printers.get(printer_id)
-        if not target_printer:
-            return web.json_response({"error": "Printer not found"}, status=404)
+            target_printer = app_obj.printers.get(printer_id)
+            if not target_printer:
+                return web.json_response({"error": "Printer not found"}, status=404)
 
-        # Unmount any previously mounted spool in this same printer slot
-        for s_id, s in spools.items():
-            if s.get("assigned_printer_id") == printer_id and str(s.get("assigned_slot_key")) == slot_key:
-                s["assigned_printer_id"] = None
-                s["assigned_slot_key"] = None
+            # Unmount any previously mounted spool in this same printer slot
+            for s_id, s in spools.items():
+                if s.get("assigned_printer_id") == printer_id and str(s.get("assigned_slot_key")) == slot_key:
+                    s["assigned_printer_id"] = None
+                    s["assigned_slot_key"] = None
 
-        spool = spools[spool_id]
-        spool["assigned_printer_id"] = printer_id
-        spool["assigned_slot_key"] = slot_key
-        await app_obj.storage.save_spools(spools)
+            spool = spools[spool_id]
+            spool["assigned_printer_id"] = printer_id
+            spool["assigned_slot_key"] = slot_key
+            await app_obj.storage.save_spools(spools)
 
-        # Update printer slot telemetry
-        rem_g = float(spool.get("remaining_grams", 1000.0))
-        target_printer.set_slot_grams(rem_g, slot_id=slot_key)
-        if hasattr(app_obj, "save_printers_config") and callable(app_obj.save_printers_config):
-            res = app_obj.save_printers_config()
-            if asyncio.iscoroutine(res) or asyncio.isfuture(res):
-                await res
+            # Update printer slot telemetry
+            rem_g = float(spool.get("remaining_grams", 1000.0))
+            target_printer.set_slot_grams(rem_g, slot_id=slot_key)
+            if hasattr(app_obj, "save_printers_config") and callable(app_obj.save_printers_config):
+                res = app_obj.save_printers_config()
+                if asyncio.iscoroutine(res) or asyncio.isfuture(res):
+                    await res
 
-        return web.json_response({"status": "ok", "spool": spool})
+            return web.json_response({"status": "ok", "spool": spool})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
 
@@ -236,28 +232,28 @@ async def handle_unmount_spool(request: web.Request) -> web.Response:
 
     app_obj = request.app["app_obj"]
     spool_id = request.match_info.get("id", "")
-    spools = await app_obj.storage.load_spools()
-    if spool_id not in spools:
-        return web.json_response({"error": "Spool not found"}, status=404)
+    async with app_obj.storage.transaction_lock("spools"):
+        spools = await app_obj.storage.load_spools()
+        if spool_id not in spools:
+            return web.json_response({"error": "Spool not found"}, status=404)
 
-    spool = spools[spool_id]
-    p_id = spool.get("assigned_printer_id")
-    slot_k = spool.get("assigned_slot_key")
+        spool = spools[spool_id]
+        p_id = spool.get("assigned_printer_id")
+        slot_k = spool.get("assigned_slot_key")
 
-    spool["assigned_printer_id"] = None
-    spool["assigned_slot_key"] = None
-    await app_obj.storage.save_spools(spools)
+        spool["assigned_printer_id"] = None
+        spool["assigned_slot_key"] = None
+        await app_obj.storage.save_spools(spools)
 
-    if p_id and p_id in app_obj.printers:
-        p = app_obj.printers[p_id]
-        p.set_slot_grams(0.0, slot_id=str(slot_k or "0"))
-        if hasattr(app_obj, "save_printers_config") and callable(app_obj.save_printers_config):
-            res = app_obj.save_printers_config()
-            if asyncio.iscoroutine(res) or asyncio.isfuture(res):
-                await res
+        if p_id and p_id in app_obj.printers:
+            p = app_obj.printers[p_id]
+            p.set_slot_grams(0.0, slot_id=str(slot_k or "0"))
+            if hasattr(app_obj, "save_printers_config") and callable(app_obj.save_printers_config):
+                res = app_obj.save_printers_config()
+                if asyncio.iscoroutine(res) or asyncio.isfuture(res):
+                    await res
 
-    return web.json_response({"status": "ok", "spool": spool})
-
+        return web.json_response({"status": "ok", "spool": spool})
 
 
 async def handle_export_warehouse_csv(request: web.Request) -> web.Response:

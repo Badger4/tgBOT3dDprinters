@@ -603,16 +603,16 @@ async def export_history_pdf_impl(app, chat_id: str, message_to_reply, user_lang
     filter_suffix = f"_{p_filter}" if p_filter != "all" else ""
     doc_file = BufferedInputFile(pdf_bytes, filename=f"farm_history{filter_suffix}_{date_str}.pdf")
 
-    caption_filter = f"\n🔍 Фільтр: 🖨️ {p_label} | 📅 {d_label}" if (p_filter != "all" or d_filter != "all") else ""
+    caption_filter = f"\n🔍 Фільтр: 🖨️ {html.escape(p_label)} | 📅 {html.escape(d_label)}" if (p_filter != "all" or d_filter != "all") else ""
     caption = (
-        f"📊 *3D Farm Print History PDF Report*{caption_filter}"
+        f"📊 <b>3D Farm Print History PDF Report</b>{caption_filter}"
         if is_en
-        else f"📊 *PDF звіт історії друку 3D Ферми*{caption_filter}"
+        else f"📊 <b>PDF звіт історії друку 3D Ферми</b>{caption_filter}"
     )
     await message_to_reply.answer_document(
         document=doc_file,
         caption=caption,
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode=ParseMode.HTML,
     )
 
 

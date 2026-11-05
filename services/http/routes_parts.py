@@ -172,13 +172,17 @@ async def handle_download_part_3mf(request: web.Request) -> web.Response:
     import os
     safe_id = os.path.basename(str(three_mf_id))
 
-    # Search local disk uploads or parts_files
+    # Search local disk uploads or parts_files (stream directly via FileResponse)
+    clean_fname = "".join(c for c in filename if c not in '\r\n"\\/').strip('_')
+
     for dir_path in [config.STORAGE_DIR / "uploads", config.STORAGE_DIR / "parts_files"]:
         resolved_dir = dir_path.resolve()
         target_path = (resolved_dir / safe_id).resolve()
         if target_path.is_relative_to(resolved_dir) and target_path.exists() and target_path.is_file():
-            file_bytes = target_path.read_bytes()
-            break
+            return web.FileResponse(
+                target_path,
+                headers={"Content-Disposition": f'attachment; filename="{clean_fname}"'},
+            )
 
     # If telegram file_id, download via bot
     if not file_bytes and getattr(app_obj, "bot", None) and not three_mf_id.startswith(("/", "\\", "http")):
@@ -192,7 +196,7 @@ async def handle_download_part_3mf(request: web.Request) -> web.Response:
     if not file_bytes:
         return web.json_response({"error": "Файл .3mf недоступний на сервері"}, status=404)
 
-    clean_fname = re.sub(r'[\r\n"\\/]', '_', filename).strip('_')
+    clean_fname = "".join(c for c in filename if c not in '\r\n"\\/').strip('_')
     return web.Response(
         body=file_bytes,
         headers={

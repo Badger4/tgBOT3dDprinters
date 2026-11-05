@@ -14,7 +14,8 @@ import {
     unmountSpoolApi,
     controlPrinterApi,
     fetchSpoolMovementsApi,
-    getMovementsPdfExportUrl
+    getMovementsPdfExportUrl,
+    downloadAuthenticatedPdf
 } from "./api.js";
 
 export async function loadMaterials() {
@@ -223,13 +224,13 @@ export async function submitSaveSpool(e) {
 
     try {
         const result = await saveSpoolApi(payload);
-        if (result.status === "ok" || result.spool || !result.error) {
+        if (result && !result.error && (result.status === "ok" || result.spool || result.id)) {
             triggerHaptic("success");
             closeSpoolModal();
             await loadMaterials();
         } else {
             triggerHaptic("error");
-            alert("⚠️ Помилка: " + (result.error || "Невідома помилка"));
+            alert("⚠️ Помилка: " + (result?.error || "Невідома помилка"));
         }
     } catch (err) {
         triggerHaptic("error");
@@ -272,7 +273,7 @@ export function openAssignSpoolModal(printers = null, defaultPrinterId = null, d
                     spoolSelect.innerHTML = `<option value="">На складі немає вільних котушок</option>`;
                 } else {
                     spoolSelect.innerHTML = availableSpools.map(s => `
-                        <option value="${s.id}">${escapeHtml(s.name)} (${s.type || 'PLA'} • ${s.remaining_grams || 1000}g)</option>
+                        <option value="${escapeHtml(String(s.id))}">${escapeHtml(s.name)} (${escapeHtml(s.type || 'PLA')} • ${escapeHtml(String(s.remaining_grams || 1000))}g)</option>
                     `).join("");
                 }
             }
@@ -285,7 +286,7 @@ export function openAssignSpoolModal(printers = null, defaultPrinterId = null, d
             selPrinter.innerHTML = `<option value="">Немає доступних принтерів</option>`;
         } else {
             selPrinter.innerHTML = printerList.map(p => `
-                <option value="${p.id}">${escapeHtml(p.name)} (${p.has_ams ? 'З AMS' : 'Пряма подача'})</option>
+                <option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)} (${p.has_ams ? 'З AMS' : 'Пряма подача'})</option>
             `).join("");
         }
         if (defaultPrinterId) selPrinter.value = defaultPrinterId;
@@ -403,7 +404,7 @@ export async function openSpoolMovementsModal(options = {}) {
         const desiredSpool = options.spoolId || spoolSelect.value || "all";
         let optHtml = `<option value="all">🧵 Всі котушки</option>`;
         Object.values(state.spools || {}).forEach(s => {
-            optHtml += `<option value="${s.id}">${escapeHtml(s.name || "Котушка")} (${escapeHtml(s.type || "")})</option>`;
+            optHtml += `<option value="${escapeHtml(String(s.id))}">${escapeHtml(s.name || "Котушка")} (${escapeHtml(s.type || "")})</option>`;
         });
         spoolSelect.innerHTML = optHtml;
         if (options.spoolId) spoolSelect.value = options.spoolId;
@@ -560,7 +561,9 @@ export function initMovementsFilterEvents() {
         renderFilteredMovements();
     });
 
-    document.getElementById("btn-export-movements-pdf")?.addEventListener("click", () => {
+    document.getElementById("btn-export-movements-pdf")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         const spoolSelect = document.getElementById("mov-filter-spool");
         const actionSelect = document.getElementById("mov-filter-action");
         const dateSelect = document.getElementById("mov-filter-date");
@@ -571,7 +574,7 @@ export function initMovementsFilterEvents() {
             period: dateSelect?.value !== "all" ? dateSelect?.value : undefined,
             q: searchInput?.value?.trim() || undefined
         });
-        window.open(url, "_blank");
+        downloadAuthenticatedPdf(url, "spool_movements.pdf", e.currentTarget);
     });
 }
 

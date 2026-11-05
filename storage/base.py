@@ -202,6 +202,23 @@ class BaseStorage:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_history_ts ON print_history(timestamp);")
 
+            # 12. Telegram Notification Outbox
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS notification_outbox (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    parse_mode TEXT,
+                    reply_markup_json TEXT,
+                    attempts INTEGER DEFAULT 0,
+                    next_retry_ts REAL NOT NULL,
+                    created_at REAL NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    error_reason TEXT
+                );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_outbox_pending ON notification_outbox(status, next_retry_ts);")
+
             # 11. Farm Settings
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
@@ -439,3 +456,133 @@ class BaseStorage:
     async def set_sliced_weight_cache(self, data: dict[str, Any]) -> bool:
         """Async persistence of sliced weight cache."""
         return await asyncio.to_thread(self.set_sliced_weight_cache_sync, data)
+
+    async def enqueue_outbox_message(
+        self,
+        chat_id: str,
+        text: str,
+        parse_mode: str | None = None,
+        reply_markup_json: str | None = None,
+        delay_sec: float = 0.0,
+    ) -> int:
+        now = time.time()
+        next_retry = now + max(0.0, float(delay_sec))
+        loop = asyncio.get_running_loop()
+
+        def _sync_enqueue() -> int:
+            conn = self._get_db()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO notification_outbox (chat_id, text, parse_mode, reply_markup_json, attempts, next_retry_ts, created_at, status)
+                    VALUES (?, ?, ?, ?, 0, ?, ?, 'pending')
+                    """,
+                    (str(chat_id), text, parse_mode, reply_markup_json, next_retry, now),
+                )
+                conn.commit()
+                return cur.lastrowid or 0
+            finally:
+                conn.close()
+
+        return await loop.run_in_executor(None, _sync_enqueue)
+
+    async def fetch_pending_outbox_messages(self, limit: int = 10) -> list[dict[str, Any]]:
+        now = time.time()
+        loop = asyncio.get_running_loop()
+
+        def _sync_fetch() -> list[dict[str, Any]]:
+            conn = self._get_db()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT id, chat_id, text, parse_mode, reply_markup_json, attempts, next_retry_ts, created_at
+                    FROM notification_outbox
+                    WHERE status = 'pending' AND next_retry_ts <= ?
+                    ORDER BY next_retry_ts ASC
+                    LIMIT ?
+                    """,
+                    (now, max(1, limit)),
+                )
+                rows = cur.fetchall()
+                results = []
+                for r in rows:
+                    results.append({
+                        "id": r[0],
+                        "chat_id": r[1],
+                        "text": r[2],
+                        "parse_mode": r[3],
+                        "reply_markup_json": r[4],
+                        "attempts": r[5],
+                        "next_retry_ts": r[6],
+                        "created_at": r[7],
+                    })
+                return results
+            finally:
+                conn.close()
+
+        return await loop.run_in_executor(None, _sync_fetch)
+
+    async def mark_outbox_success(self, msg_id: int) -> None:
+        loop = asyncio.get_running_loop()
+
+        def _sync_success() -> None:
+            conn = self._get_db()
+            try:
+                conn.execute("UPDATE notification_outbox SET status = 'sent' WHERE id = ?", (msg_id,))
+                conn.commit()
+            finally:
+                conn.close()
+
+        await loop.run_in_executor(None, _sync_success)
+
+    async def mark_outbox_retry(self, msg_id: int, delay_sec: float, attempts: int) -> None:
+        next_retry = time.time() + max(1.0, float(delay_sec))
+        loop = asyncio.get_running_loop()
+
+        def _sync_retry() -> None:
+            conn = self._get_db()
+            try:
+                conn.execute(
+                    "UPDATE notification_outbox SET attempts = ?, next_retry_ts = ?, status = 'pending' WHERE id = ?",
+                    (attempts, next_retry, msg_id),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        await loop.run_in_executor(None, _sync_retry)
+
+    async def mark_outbox_failed(self, msg_id: int, reason: str = "") -> None:
+        loop = asyncio.get_running_loop()
+
+        def _sync_failed() -> None:
+            conn = self._get_db()
+            try:
+                conn.execute(
+                    "UPDATE notification_outbox SET status = 'failed', error_reason = ? WHERE id = ?",
+                    (str(reason)[:256], msg_id),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        await loop.run_in_executor(None, _sync_failed)
+
+    async def purge_old_outbox(self, max_age_days: int = 7) -> None:
+        cutoff = time.time() - (max_age_days * 86400)
+        loop = asyncio.get_running_loop()
+
+        def _sync_purge() -> None:
+            conn = self._get_db()
+            try:
+                conn.execute(
+                    "DELETE FROM notification_outbox WHERE (status IN ('sent', 'failed')) AND created_at < ?",
+                    (cutoff,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        await loop.run_in_executor(None, _sync_purge)

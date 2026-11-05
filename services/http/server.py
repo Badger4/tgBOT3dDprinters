@@ -228,8 +228,15 @@ def create_http_app(app_obj: Any) -> web.Application:
     import logging
     log = logging.getLogger(__name__)
     log.error("ROUTES REGISTERED:")
+    from services.http.routes_sse import broadcaster
+
+    async def _on_app_shutdown(app: web.Application) -> None:
+        await broadcaster.stop()
+
+    web_app.on_shutdown.append(_on_app_shutdown)
+
     for resource in web_app.router.resources():
-        log.error(str(resource))
+        log.debug(str(resource))
     return web_app
 
 

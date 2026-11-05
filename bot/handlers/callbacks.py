@@ -2,7 +2,10 @@
 Callback query handlers for inline button interactions.
 """
 
+import html
+
 from aiogram import Router, types
+from config import logger
 from aiogram.enums import ParseMode
 
 router = Router()
@@ -12,23 +15,24 @@ router = Router()
 async def handle_callback_query(callback: types.CallbackQuery, app):
     data = callback.data or ""
     if data.startswith("deduct_"):
-        parts = data.split("_")
+        tail = data.removeprefix("deduct_")
+        if tail.startswith("w_"):
+            tail = tail.removeprefix("w_")
         p_id = None
         grams = 0.0
-        if len(parts) >= 4 and parts[1] == "w":
-            p_id = parts[2]
+        if "_" in tail:
+            p_id, grams_str = tail.rsplit("_", 1)
             try:
-                grams = float(parts[3])
+                grams = float(grams_str)
             except ValueError:
                 grams = 0.0
-        elif len(parts) >= 3:
-            p_id = parts[1]
-            try:
-                grams = float(parts[2])
-            except ValueError:
-                grams = 0.0
+        else:
+            p_id = tail
 
         printer = app.printers.get(p_id) if p_id else None
+        if not printer and p_id:
+            printer = next((p for pid, p in app.printers.items() if pid.startswith(p_id)), None)
+
         if printer and grams > 0:
                 active_key = printer.get_active_slot_key()
                 old_w = printer.get_slot_grams(active_key)
@@ -40,7 +44,6 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
                     f"✅ Списано {grams}g зі слота {active_key}! Новий залишок: {new_w}g", show_alert=True
                 )
                 try:
-                    import html
                     await callback.message.reply(
                         f"✅ <b>Списано {grams}g для {html.escape(printer.name)}!</b>\n🧵 <b>Слот AMS:</b> <code>{html.escape(str(active_key))}</code>\n📦 Старий залишок: <i>{old_w}g</i> ➔ Новий залишок: <i>{new_w}g</i>",
                         parse_mode=ParseMode.HTML,
@@ -60,7 +63,6 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
 
             photo = await capture_real_camera_photo(printer.ip, printer.access_code)
             if photo:
-                import html
                 await callback.message.reply_photo(
                     BufferedInputFile(photo, filename=f"{printer.name}.jpg"),
                     caption=f"📷 <b>Кадр з {html.escape(printer.name)}</b>",
@@ -180,8 +182,6 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
                 show_alert=True,
             )
             try:
-                import html
-
                 await callback.message.reply(
                     f"🧹 <b>Стіл принтера {html.escape(printer.name)} очищено!</b>\n"
                     f"✅ Принтер вільний та готовий до наступного друку.",
@@ -203,9 +203,9 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
                 await callback.answer(f"🎯 Запущено калібрування на {printer.name}!", show_alert=True)
                 try:
                     await callback.message.reply(
-                        f"🎯 **Запущено автоматичне калібрування на {printer.name}!**\n"
+                        f"🎯 <b>Запущено автоматичне калібрування на {html.escape(printer.name)}!</b>\n"
                         f"⚙️ Принтер виконує вирівнювання столу та тест резонансів (G32).",
-                        parse_mode=ParseMode.MARKDOWN,
+                        parse_mode=ParseMode.HTML,
                     )
                 except Exception:
                     pass
@@ -216,11 +216,29 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
     elif data.startswith("notify_maint_reset_") or data.startswith("nmr:"):
         if data.startswith("nmr:"):
             parts = data.replace("nmr:", "").split(":")
+            p_id = parts[0]
+            item_key = parts[1] if len(parts) > 1 else "rails"
+            printer = app.printers.get(p_id) or next((p for pid, p in app.printers.items() if pid.startswith(p_id)), None)
         else:
-            parts = data.replace("notify_maint_reset_", "").split("_")
-        p_id = parts[0]
-        item_key = parts[1] if len(parts) > 1 else "rails"
-        printer = app.printers.get(p_id) or next((p for pid, p in app.printers.items() if pid.startswith(p_id)), None)
+            tail = data.removeprefix("notify_maint_reset_")
+            printer = None
+            item_key = "rails"
+            for pid, p in app.printers.items():
+                if tail.startswith(pid + "_"):
+                    printer = p
+                    item_key = tail[len(pid) + 1:]
+                    break
+                elif tail.startswith(pid[:12] + "_"):
+                    printer = p
+                    item_key = tail[len(pid[:12]) + 1:]
+                    break
+            if not printer:
+                if "_" in tail:
+                    p_id, item_key = tail.rsplit("_", 1)
+                    printer = app.printers.get(p_id) or next((p for pid, p in app.printers.items() if pid.startswith(p_id)), None)
+                else:
+                    printer = app.printers.get(tail) or next((p for pid, p in app.printers.items() if pid.startswith(tail)), None)
+
         if printer:
             printer.reset_maintenance_counter(item_key)
             await app.save_printers_config()
@@ -228,9 +246,9 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             await callback.answer(f"🧹 {item_name} для {printer.name} виконано!", show_alert=True)
             try:
                 await callback.message.reply(
-                    f"✅ **ТО ({item_name}) для принтера {printer.name} виконано!**\n"
-                    f"🧹 Лічильник годин скинуто на *0.0h*.",
-                    parse_mode=ParseMode.MARKDOWN,
+                    f"✅ <b>ТО ({html.escape(item_name)}) для принтера {html.escape(printer.name)} виконано!</b>\n"
+                    f"🧹 Лічильник годин скинуто на <b>0.0h</b>.",
+                    parse_mode=ParseMode.HTML,
                 )
             except Exception:
                 pass
@@ -331,41 +349,128 @@ async def handle_callback_query(callback: types.CallbackQuery, app):
             await callback.answer("⚠️ Не вдалося видалити користувача.", show_alert=True)
         return
 
-    elif data.startswith("skip_obj_act:"):
-        parts = data.split(":")
-        if len(parts) == 3:
-            p_id = parts[1]
-            obj_id = parts[2]
-            printer = app.printers.get(p_id)
-            if printer:
-                try:
-                    int_id = int(obj_id)
-                except ValueError:
-                    await callback.answer("⚠️ Некоректний ID об'єкта", show_alert=True)
-                    return
+    elif data.startswith(("skip_obj_act:", "skip_obj_cfm:", "skip_obj_back:", "skip_obj_ref:", "skip_obj_cls:", "skip_obj_stop:", "skip_obj_sel:", "skip_obj_done:")):
+        if data.startswith("skip_obj_done:"):
+            await callback.answer("ℹ️ Цей об'єкт вже пропущено на плейті!", show_alert=True)
+            return
 
-                ok, msg = await printer.skip_objects_async([int_id])
-                if ok:
-                    await callback.answer(f"✅ Об'єкт #{obj_id} позначено на пропуск!", show_alert=True)
-                    try:
-                        from bot.keyboards import build_skip_objects_keyboard
-                        if callback.message:
-                            await callback.message.edit_reply_markup(
-                                reply_markup=build_skip_objects_keyboard(printer)
-                            )
-                            await callback.message.answer(
-                                f"🚫 <b>Команду пропуску об'єкта #{obj_id} надіслано на принтер {html.escape(printer.name)}!</b>\n"
-                                f"ℹ️ Принтер омине цей об'єкт на наступних шарах друку.",
-                                parse_mode=ParseMode.HTML,
-                            )
-                    except Exception as e:
-                        logger.warning(f"Failed to update skip objects message: {e}")
-                else:
-                    await callback.answer(f"⚠️ {msg}", show_alert=True)
+        chat_id = str(
+            callback.from_user.id
+            if callback.from_user
+            else (callback.message.chat.id if callback.message else "")
+        )
+        user = await app.storage.load_user(chat_id) if (chat_id and hasattr(app, "storage")) else {}
+        user = user or {}
+        is_authorized = bool(user.get("is_approved", False) or user.get("is_admin", False) or user.get("role") == "admin")
+        if not is_authorized and chat_id and hasattr(app, "is_user_admin"):
+            try:
+                is_authorized = bool(await app.is_user_admin(chat_id))
+            except Exception:
+                pass
+        if not is_authorized:
+            await callback.answer("⛔ Доступ заборонено: потрібні права оператора або адміністратора!", show_alert=True)
+            return
+
+        parts = data.split(":")
+        cmd = parts[0]
+        p_id = parts[1] if len(parts) > 1 else ""
+        printer = app.printers.get(p_id)
+
+        if cmd == "skip_obj_cls":
+            await callback.answer("Закрито")
+            if callback.message:
+                try:
+                    await callback.message.delete()
+                except Exception:
+                    pass
+            return
+
+        if not printer:
+            await callback.answer("⚠️ Принтер не знайдено", show_alert=True)
+            return
+
+        if cmd == "skip_obj_sel":
+            await callback.answer(f"Обрано {printer.name}")
+            ctx = user.get("context_data", {})
+            ctx["selected_printer_id"] = printer.id
+            user["context_data"] = ctx
+            if hasattr(app, "storage"):
+                await app.storage.save_user(user)
+            if callback.message:
+                from bot.handlers.control import render_skip_objects_menu_for_printer
+                await render_skip_objects_menu_for_printer(callback.message, printer, app)
+            return
+
+        if cmd in ("skip_obj_back", "skip_obj_ref"):
+            from bot.keyboards import build_skip_objects_keyboard
+            await callback.answer("🔄 Оновлено" if cmd == "skip_obj_ref" else "↩️ Скасовано")
+            if callback.message:
+                try:
+                    await callback.message.edit_reply_markup(reply_markup=build_skip_objects_keyboard(printer))
+                except Exception:
+                    pass
+            return
+
+        if cmd == "skip_obj_stop":
+            stop_fn = getattr(printer, "stop_print", getattr(printer, "stop", None))
+            if callable(stop_fn) and stop_fn():
+                await callback.answer("🛑 Друк зупинено!", show_alert=True)
+                if callback.message:
+                    await callback.message.answer(
+                        f"🛑 <b>Друк на {html.escape(printer.name)} зупинено</b>, оскільки всі об'єкти на столі було пропущено.",
+                        parse_mode=ParseMode.HTML,
+                    )
+            else:
+                await callback.answer("⚠️ Не вдалося відправити команду зупинки", show_alert=True)
+            return
+
+        if cmd == "skip_obj_act" and len(parts) == 3:
+            obj_id = parts[2]
+            try:
+                int(obj_id)
+            except ValueError:
+                await callback.answer("⚠️ Некоректний ID об'єкта", show_alert=True)
+                return
+            from bot.keyboards import build_skip_object_confirm_keyboard
+            await callback.answer(f"⚠️ Підтвердіть пропуск об'єкта #{obj_id}")
+            if callback.message:
+                try:
+                    await callback.message.edit_reply_markup(
+                        reply_markup=build_skip_object_confirm_keyboard(printer, obj_id)
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to show skip confirm keyboard: {e}")
+            return
+
+        if cmd == "skip_obj_cfm" and len(parts) == 3:
+            obj_id = parts[2]
+            try:
+                int_id = int(obj_id)
+            except ValueError:
+                await callback.answer("⚠️ Некоректний ID об'єкта", show_alert=True)
                 return
 
-    elif data.startswith("skip_obj_done:"):
-        await callback.answer("ℹ️ Цей об'єкт вже пропущено на плейті!", show_alert=True)
-        return
+            ok, msg = await printer.skip_objects_async([int_id])
+            if ok:
+                await callback.answer(f"✅ Об'єкт #{obj_id} позначено на пропуск!", show_alert=True)
+                try:
+                    from bot.keyboards import build_skip_objects_keyboard
+                    if callback.message:
+                        await callback.message.edit_reply_markup(
+                            reply_markup=build_skip_objects_keyboard(printer)
+                        )
+                        extra_warn = ""
+                        if hasattr(printer, "is_all_objects_skipped") and printer.is_all_objects_skipped():
+                            extra_warn = "\n⚠️ <b>Увага: всі об'єкти на столі пропущено!</b> Рекомендується зупинити друк кнопкою вище, щоб принтер не друкував у повітрі."
+                        await callback.message.answer(
+                            f"🚫 <b>Команду пропуску об'єкта #{obj_id} надіслано на принтер {html.escape(printer.name)}!</b>\n"
+                            f"ℹ️ Принтер омине цей об'єкт на наступних шарах друку.{extra_warn}",
+                            parse_mode=ParseMode.HTML,
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to update skip objects message: {e}")
+            else:
+                await callback.answer(f"⚠️ {msg}", show_alert=True)
+            return
 
     await callback.answer()

@@ -83,12 +83,13 @@ async def handle_part_print_select(callback: CallbackQuery, state: FSMContext, a
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("part_exec_print") | F.data.startswith("pxp:") | F.data.startswith("conf_pxp:"))
+@router.callback_query(F.data.startswith("part_exec_print") | F.data.startswith("pxp:") | F.data.startswith("conf_pxp:") | F.data.startswith("cf_px:"))
 async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app: Any) -> None:
     raw = (
         callback.data.replace("part_exec_print_", "")
         .replace("part_exec_print:", "")
         .replace("conf_pxp:", "")
+        .replace("cf_px:", "")
         .replace("pxp:", "")
     )
     if ":" in raw:
@@ -182,8 +183,8 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
             )
         return
 
-    # Check confirmation step (pxp requires confirmation, conf_pxp and part_exec_print proceed)
-    is_confirmed = callback.data.startswith("conf_pxp:") or callback.data.startswith("part_exec_print")
+    # Check confirmation step (pxp requires confirmation, conf_pxp, cf_px and part_exec_print proceed)
+    is_confirmed = callback.data.startswith("conf_pxp:") or callback.data.startswith("cf_px:") or callback.data.startswith("part_exec_print")
     if not is_confirmed:
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
         p_name = html.escape(printer.name)
@@ -192,18 +193,26 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
         weight_val = part.get("weight_g", part.get("weight", 0.0))
         time_val = part.get("print_time_mins", part.get("time_mins", 0))
 
+        cb_conf = f"conf_pxp:{part_id}:{printer_id}"
+        if len(cb_conf.encode("utf-8")) > 64:
+            cb_conf = f"cf_px:{part_id[:20]}:{printer_id[:20]}"
+
+        cb_canc = f"canc_pxp:{part_id}"
+        if len(cb_canc.encode("utf-8")) > 64:
+            cb_canc = f"canc_pxp:{part_id[:20]}"
+
         confirm_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
                         text="🚀 Підтвердити старт друку",
-                        callback_data=f"conf_pxp:{part_id}:{printer_id}",
+                        callback_data=cb_conf,
                     )
                 ],
                 [
                     InlineKeyboardButton(
                         text="❌ Скасувати",
-                        callback_data=f"canc_pxp:{part_id}",
+                        callback_data=cb_canc,
                     )
                 ],
             ]
@@ -305,7 +314,7 @@ async def handle_part_exec_print(callback: CallbackQuery, state: FSMContext, app
         await callback.message.answer(f"⚠️ Помилка отримання або відправки файлу: {e}")
 
 
-@router.callback_query(F.data.startswith("canc_pxp:"))
+@router.callback_query(F.data.startswith("canc_pxp:") | F.data.startswith("canc_pxp_"))
 async def handle_cancel_part_print(callback: CallbackQuery, state: FSMContext, app: Any) -> None:
     await callback.message.edit_text("❌ Запуск друку деталі скасовано.")
     await callback.answer("Скасовано")

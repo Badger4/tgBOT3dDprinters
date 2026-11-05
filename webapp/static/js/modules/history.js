@@ -137,37 +137,43 @@ export function renderHistoryList(history) {
         const isScrap = Boolean(item.is_scrap);
         const wastedW = item.wasted_weight_g !== undefined ? item.wasted_weight_g : weightVal;
 
+        const safeWastedW = escapeHtml(String(wastedW));
+        const safeScrapReason = escapeHtml(item.scrap_reason || 'Дефект');
+        const safeWeightVal = escapeHtml(String(weightVal));
+        const safeTs = escapeHtml(String(item.timestamp ?? ''));
+        const safeSlotKey = escapeHtml(String(item.slot_key || ''));
+        const safeSpoolId = escapeHtml(String(item.spool_id || ''));
+        const safeDate = escapeHtml(dateFormatted);
+
         const scrapBadge = isScrap
-            ? `<span class="badge-scrap" title="Списано як брак: ${wastedW}г (${item.scrap_reason || 'Дефект'})">⚠️ БРАК: ${escapeHtml(item.scrap_reason || 'Дефект')} (-${wastedW}г)</span>`
-            : "";
+            ? `<span class="badge-scrap" title="Списано як брак: ${safeWastedW}г (${safeScrapReason})">⚠️ БРАК: ${safeScrapReason} (-${safeWastedW}г)</span>`
+            : `<span class="badge badge-success" style="font-size:10px;">✅ Успішно</span>`;
         const orderBadge = clientOrder
             ? `<span class="badge-order-ref" title="Замовлення/Клієнт">🏷️ ${clientOrder}</span>`
             : "";
 
         return `
             <tr>
-                <td><small class="text-muted">${escapeHtml(dateFormatted)}</small></td>
+                <td><small class="text-muted">${safeDate}</small></td>
                 <td><strong>${printerName}</strong></td>
                 <td>
                     <div class="d-flex flex-column gap-1">
                         <span>${taskName}</span>
-                        <div class="d-flex gap-1 flex-wrap align-items-center">
-                            ${orderBadge}
-                            ${scrapBadge}
-                        </div>
+                        ${orderBadge ? `<div class="d-flex gap-1 flex-wrap align-items-center">${orderBadge}</div>` : ''}
                     </div>
                 </td>
-                <td>${weightVal} g</td>
+                <td>${safeWeightVal} g</td>
+                <td>${scrapBadge}</td>
                 <td>
                     <div class="d-flex gap-1">
                         <button class="btn btn-xs btn-outline btn-reprint-entry btn-reprint-history" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" title="Повторити друк">
                             <i class="fa-solid fa-rotate-right"></i>
                         </button>
                         ${!isScrap ? `
-                        <button class="btn btn-xs btn-outline-warning btn-mark-scrap" data-ts="${item.timestamp}" data-weight="${weightVal}" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" data-slot="${item.slot_key || ''}" data-spool-id="${item.spool_id || ''}" data-date="${dateFormatted}" title="Зафіксувати брак та списати">
+                        <button class="btn btn-xs btn-outline-warning btn-mark-scrap" data-ts="${safeTs}" data-weight="${safeWeightVal}" data-task="${taskName}" data-printer="${printerName}" data-printer-id="${printerId}" data-slot="${safeSlotKey}" data-spool-id="${safeSpoolId}" data-date="${safeDate}" title="Зафіксувати брак та списати">
                             <i class="fa-solid fa-triangle-exclamation"></i> Брак
                         </button>` : ''}
-                        <button class="btn btn-xs btn-outline-danger btn-delete-history-entry" data-ts="${item.timestamp}" title="Видалити запис">
+                        <button class="btn btn-xs btn-outline-danger btn-delete-history-entry" data-ts="${safeTs}" title="Видалити запис">
                             <i class="fa-solid fa-trash"></i>
                         </button>
                     </div>
@@ -269,6 +275,7 @@ export function normalizeReprintTaskData(taskOrElement, origPrinterName = "", or
 }
 
 export async function reprintJob(taskOrElement, origPrinterName, origPrinterId) {
+    if (state.isReprintingJob) return;
     const { taskName, printerName, printerId } = normalizeReprintTaskData(taskOrElement, origPrinterName, origPrinterId);
 
     if (!taskName) {
@@ -286,6 +293,7 @@ export async function reprintJob(taskOrElement, origPrinterName, origPrinterId) 
     const confirmed = confirm(`🚀 Повторно кинути на друк модель "${taskName}"?\n\nПринтер: ${targetPrinter.name}`);
     if (!confirmed) return;
 
+    state.isReprintingJob = true;
     triggerHaptic("medium");
 
     try {
@@ -344,6 +352,8 @@ export async function reprintJob(taskOrElement, origPrinterName, origPrinterId) 
     } catch (err) {
         console.error("Reprint error:", err);
         alert("⚠️ Помилка зв'язку при запуску повторного друку.");
+    } finally {
+        state.isReprintingJob = false;
     }
 }
 

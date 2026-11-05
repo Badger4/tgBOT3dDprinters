@@ -664,12 +664,13 @@ async def handle_export_movements_pdf_callback(callback: CallbackQuery, app):
 
         filename = f"spool_movements_audit_{int(time.time())}.pdf"
         doc = BufferedInputFile(pdf_bytes, filename=filename)
+        safe_filter_sub = html.escape(str(filter_sub)) if filter_sub else None
         cap = (
             f"📜 <b>Журнал аудиту руху матеріалів складу (PDF)</b>"
-            f"{f' — {filter_sub}' if filter_sub else ''}"
+            f"{f' — {safe_filter_sub}' if safe_filter_sub else ''}"
             if not is_en
             else f"📜 <b>Warehouse Movements Audit Log (PDF)</b>"
-            f"{f' — {filter_sub}' if filter_sub else ''}"
+            f"{f' — {safe_filter_sub}' if safe_filter_sub else ''}"
         )
         if callback.message:
             await callback.message.answer_document(doc, caption=cap, parse_mode=ParseMode.HTML)

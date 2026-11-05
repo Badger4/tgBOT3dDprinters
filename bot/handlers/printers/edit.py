@@ -4,6 +4,7 @@ Edit printer settings handlers.
 
 import asyncio
 import html
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -60,10 +61,30 @@ async def handle_edit_printer_menu(message: Message, app):
     )
 
 
+async def _check_admin_and_selected_printer(message: Message, app) -> tuple[dict, Any] | None:
+    chat_id = str(message.chat.id)
+    if hasattr(app, "is_user_admin") and callable(app.is_user_admin):
+        is_adm = app.is_user_admin(chat_id)
+        if asyncio.iscoroutine(is_adm) or asyncio.isfuture(is_adm):
+            is_adm = await is_adm
+        if not is_adm:
+            await message.answer("⛔ <b>У вас немає прав адміністратора!</b>", parse_mode=ParseMode.HTML)
+            return None
+    user = await app.storage.load_user(chat_id)
+    selected_pid = user.get("context_data", {}).get("selected_printer_id")
+    target_printer = app.printers.get(selected_pid) if selected_pid else None
+    if not target_printer:
+        await message.answer("⚠️ Спочатку оберіть принтер у меню «🖨️ Принтери».")
+        return None
+    return user, target_printer
+
+
 @router.message(F.text.lower().in_(["✏️ назва принтера", "назва принтера", "✏️ printer name", "printer name"]))
 async def handle_edit_printer_name_start(message: Message, app):
-    chat_id = str(message.chat.id)
-    user = await app.storage.load_user(chat_id)
+    res = await _check_admin_and_selected_printer(message, app)
+    if not res:
+        return
+    user, _ = res
     user["state"] = "edit_p_name"
     await app.storage.save_user(user)
     await message.answer("Введіть нову назву принтера:")
@@ -71,8 +92,10 @@ async def handle_edit_printer_name_start(message: Message, app):
 
 @router.message(F.text.lower().in_(["🌐 ip адреса", "ip адреса", "🌐 ip address", "ip address"]))
 async def handle_edit_printer_ip_start(message: Message, app):
-    chat_id = str(message.chat.id)
-    user = await app.storage.load_user(chat_id)
+    res = await _check_admin_and_selected_printer(message, app)
+    if not res:
+        return
+    user, _ = res
     user["state"] = "edit_p_ip"
     await app.storage.save_user(user)
     await message.answer("Введіть нову IP-адресу принтера:")
@@ -80,8 +103,10 @@ async def handle_edit_printer_ip_start(message: Message, app):
 
 @router.message(F.text.lower().in_(["🔢 серійний номер", "серійний номер", "🔢 serial number", "serial number"]))
 async def handle_edit_printer_sn_start(message: Message, app):
-    chat_id = str(message.chat.id)
-    user = await app.storage.load_user(chat_id)
+    res = await _check_admin_and_selected_printer(message, app)
+    if not res:
+        return
+    user, _ = res
     user["state"] = "edit_p_sn"
     await app.storage.save_user(user)
     await message.answer("Введіть новий серійний номер принтера:")
@@ -89,8 +114,10 @@ async def handle_edit_printer_sn_start(message: Message, app):
 
 @router.message(F.text.lower().in_(["🔑 access code", "access code"]))
 async def handle_edit_printer_code_start(message: Message, app):
-    chat_id = str(message.chat.id)
-    user = await app.storage.load_user(chat_id)
+    res = await _check_admin_and_selected_printer(message, app)
+    if not res:
+        return
+    user, _ = res
     user["state"] = "edit_p_code"
     await app.storage.save_user(user)
     await message.answer("Введіть новий Access Code:")
@@ -98,8 +125,10 @@ async def handle_edit_printer_code_start(message: Message, app):
 
 @router.message(F.text.lower().in_(["🎯 діаметр сопла", "діаметр сопла", "🎯 nozzle diameter", "nozzle diameter"]))
 async def handle_edit_printer_nozzle_start(message: Message, app):
-    chat_id = str(message.chat.id)
-    user = await app.storage.load_user(chat_id)
+    res = await _check_admin_and_selected_printer(message, app)
+    if not res:
+        return
+    user, _ = res
     user["state"] = "edit_p_nozzle"
     await app.storage.save_user(user)
     u_lang = user.get("language", "uk")
@@ -176,9 +205,11 @@ async def handle_edit_printer_states(message: Message, app) -> bool:
         clean_text = text.replace("🎯", "").replace("мм", "").replace("mm", "").strip()
         try:
             val_f = float(clean_text.replace(",", "."))
+            if val_f <= 0 or val_f > 2.0:
+                raise ValueError
             target_printer.nozzle_diameter = f"{val_f:g}"
         except ValueError:
-            target_printer.nozzle_diameter = clean_text or "0.4"
+            target_printer.nozzle_diameter = "0.4"
 
     if needs_reconnect:
         target_printer.destroy()
@@ -190,6 +221,11 @@ async def handle_edit_printer_states(message: Message, app) -> bool:
 
     user["state"] = "printer_menu"
     await app.storage.save_user(user)
-    await message.answer(f"✅ Оновлено параметр принтера {target_printer.name} (Сопло: {getattr(target_printer, 'nozzle_diameter', '0.4')} мм)!")
+    safe_name = html.escape(str(target_printer.name))
+    safe_nozzle = html.escape(str(getattr(target_printer, 'nozzle_diameter', '0.4')))
+    await message.answer(
+        f"✅ <b>Оновлено параметр принтера {safe_name} (Сопло: {safe_nozzle} мм)!</b>",
+        parse_mode=ParseMode.HTML,
+    )
     return True
 

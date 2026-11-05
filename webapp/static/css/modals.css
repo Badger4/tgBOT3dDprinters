@@ -242,11 +242,6 @@
 .telem-box i { font-size: 16px; margin-bottom: 4px; display: block; }
 .telem-info strong { display: block; font-size: 13px; margin-top: 2px; color: #fff; }
 
-.color-red { color: var(--rose); }
-.color-orange { color: var(--amber); }
-.color-blue { color: var(--cyan); }
-.color-purple { color: var(--purple); }
-
 /* Speed Selector */
 .speed-selector {
     display: grid;
@@ -277,6 +272,12 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
+}
+
+@media (max-width: 380px) {
+    .action-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
 }
 
 /* Maintenance Box */
@@ -376,8 +377,10 @@
 }
 
 /* Scroll containment & momentum scrolling */
-.modal-window {
+.modal-window,
+.modal-body {
     overscroll-behavior: contain;
+    overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
 }
 
@@ -608,6 +611,7 @@
     .modal-window input,
     .modal-window select,
     .modal-window textarea,
+    .modal-window .movements-filter-toolbar .form-control,
     .form-control {
         font-size: 16px !important;
     }

@@ -316,6 +316,7 @@ COMMERCIAL_STATES = {
     "copy_preset_new_name",
     "select_preset_to_edit",
     "edit_preset_field",
+    "edit_preset_field_choice",
     "select_preset_to_delete",
     "calc_enter_weight",
     "calc_enter_time",
@@ -351,6 +352,8 @@ async def show_preset_edit_menu(message_or_callback, draft):
 
 
 async def is_commercial_wizard_state(message: Message, app) -> bool:
+    if not message.text:
+        return False
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
     return user.get("state", "") in COMMERCIAL_STATES
@@ -358,6 +361,8 @@ async def is_commercial_wizard_state(message: Message, app) -> bool:
 
 @router.message(is_commercial_wizard_state)
 async def handle_commercial_wizard(message: Message, app):
+    if not message.text:
+        return
     chat_id = str(message.chat.id)
     if not await app.is_user_approved(chat_id):
         return

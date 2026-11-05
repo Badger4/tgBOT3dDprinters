@@ -115,34 +115,108 @@ def get_printer_control_keyboard(printer: BambuPrinter, lang: str = "uk") -> Rep
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+def _format_skip_obj_label(obj: dict, obj_id: object) -> str:
+    raw_name = str(obj.get("name") or "").strip()
+    if not raw_name or raw_name == f"Об'єкт #{obj_id}" or raw_name == f"Об'єкт {obj_id}":
+        return f"#{obj_id}"
+    import re
+    clean = re.sub(rf"\s*#{re.escape(str(obj_id))}\b", "", raw_name).strip()
+    if len(clean) > 18:
+        clean = clean[:17].rstrip() + "…"
+    return f"#{obj_id} {clean}".strip()
+
+
 def build_skip_objects_keyboard(printer: BambuPrinter, lang: str = "uk") -> InlineKeyboardMarkup:
     """Builds interactive compact inline buttons to skip objects on the active print plate."""
+    is_en = lang == "en"
     buttons = []
     current_row = []
     skipped = getattr(printer, "skipped_objects", [])
     objects = getattr(printer, "current_job_objects", [])
+    skipped_str_set = {str(s) for s in skipped}
 
-    for obj in objects:
+    has_named = any(
+        str(o.get("name") or "").strip() not in ("", f"Об'єкт #{o.get('id')}", f"Об'єкт {o.get('id')}")
+        for o in objects
+    )
+    row_width = 2 if has_named else 3
+
+    for obj in objects[:60]:
         obj_id = obj.get("id")
         obj_id_int = int(obj_id) if str(obj_id).isdigit() else obj_id
-        is_skipped = obj_id_int in skipped or str(obj_id_int) in [str(s) for s in skipped]
+        is_skipped = obj_id_int in skipped or str(obj_id_int) in skipped_str_set
+        label = _format_skip_obj_label(obj, obj_id)
 
         if is_skipped:
-            btn_text = f"❌ #{obj_id}"
+            btn_text = f"❌ {label}"
             callback = f"skip_obj_done:{printer.id}:{obj_id}"
         else:
-            btn_text = f"🚫 #{obj_id}"
+            btn_text = f"🚫 {label}"
             callback = f"skip_obj_act:{printer.id}:{obj_id}"
 
         current_row.append(InlineKeyboardButton(text=btn_text, callback_data=callback))
-        if len(current_row) >= 3:
+        if len(current_row) >= row_width:
             buttons.append(current_row)
             current_row = []
 
     if current_row:
         buttons.append(current_row)
 
+    real_objects = [o for o in objects if not o.get("_synthetic")]
+    all_skipped = (
+        printer.is_all_objects_skipped()
+        if hasattr(printer, "is_all_objects_skipped")
+        else bool(real_objects and all(str(o.get("id")) in skipped_str_set for o in real_objects))
+    )
+    if all_skipped:
+        buttons.append([
+            InlineKeyboardButton(
+                text="🛑 Зупинити друк (всі пропущено)" if not is_en else "🛑 Stop Print (all skipped)",
+                callback_data=f"skip_obj_stop:{printer.id}",
+            )
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(
+            text="🔄 Оновити" if not is_en else "🔄 Refresh",
+            callback_data=f"skip_obj_ref:{printer.id}",
+        ),
+        InlineKeyboardButton(
+            text="✖️ Закрити" if not is_en else "✖️ Close",
+            callback_data=f"skip_obj_cls:{printer.id}",
+        ),
+    ])
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def build_skip_object_confirm_keyboard(
+    printer: BambuPrinter, obj_id: int | str, lang: str = "uk"
+) -> InlineKeyboardMarkup:
+    """Builds a two-step confirmation inline keyboard before skipping an object on the print bed."""
+    is_en = lang == "en"
+    obj_label = f"#{obj_id}"
+    for o in getattr(printer, "current_job_objects", []):
+        if str(o.get("id")) == str(obj_id):
+            obj_label = _format_skip_obj_label(o, obj_id)
+            break
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"✅ Так, пропустити {obj_label}" if not is_en else f"✅ Yes, skip {obj_label}",
+                    callback_data=f"skip_obj_cfm:{printer.id}:{obj_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="↩️ Скасувати" if not is_en else "↩️ Cancel",
+                    callback_data=f"skip_obj_back:{printer.id}",
+                )
+            ],
+        ]
+    )
 
 
 def get_farm_batch_actions_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:

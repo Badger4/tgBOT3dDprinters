@@ -4,6 +4,8 @@ Printer print job control (pause, resume, stop) handlers.
 
 import html
 
+from config import logger
+
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
@@ -43,43 +45,85 @@ async def handle_control_menu(message: Message, app):
     )
 
 
+async def _is_user_authorized_for_control(app, chat_id: str, user: dict | None = None) -> bool:
+    if user is None and hasattr(app, "storage"):
+        user = await app.storage.load_user(chat_id)
+    user = user or {}
+    if user.get("is_approved", False) or user.get("is_admin", False) or user.get("role") == "admin":
+        return True
+    if hasattr(app, "is_user_admin"):
+        try:
+            if await app.is_user_admin(chat_id):
+                return True
+        except Exception:
+            pass
+    return False
+
+
 @router.message(F.text.lower().in_(["🚫 пропустити об'єкт", "пропустити об'єкт", "🚫 skip object", "skip object"]))
 async def handle_skip_objects_menu(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
+    if not await _is_user_authorized_for_control(app, chat_id, user):
+        await message.answer("⛔ У вас немає прав доступу для керування друком та пропуску об'єктів.")
+        return
+
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
+    printing_states = ["RUNNING", "PAUSE", "PREPARING", "PREPARATION", "BUILDING"]
 
-    if not target_printer:
-        # Fallback to single active printer if only one is printing
-        active_printers = [
-            p for p in app.printers.values()
-            if getattr(p, "is_online", True) and p.gcode_state in ["RUNNING", "PAUSE", "PREPARING", "PREPARATION", "BUILDING"]
-        ]
+    active_printers = [
+        p for p in app.printers.values()
+        if getattr(p, "is_online", True) and p.gcode_state in printing_states
+    ]
+
+    if not target_printer or target_printer.gcode_state not in printing_states:
         if len(active_printers) == 1:
             target_printer = active_printers[0]
         elif len(active_printers) > 1:
-            await message.answer("⚠️ Декілька принтерів друкують одночасно. Спочатку відкрийте потрібний принтер у меню «🖨️ Принтери».")
+            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+            buttons = [
+                [
+                    InlineKeyboardButton(
+                        text=f"🖨️ {p.name} ({p.subtask_name or p.gcode_state})",
+                        callback_data=f"skip_obj_sel:{p.id}",
+                    )
+                ]
+                for p in active_printers
+            ]
+            buttons.append([InlineKeyboardButton(text="✖️ Закрити", callback_data="skip_obj_cls:0")])
+            await message.answer(
+                "⚠️ <b>Декілька принтерів зараз друкують.</b>\n"
+                "Оберіть принтер, на якому потрібно пропустити об'єкт:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+            )
             return
         else:
-            await message.answer("⚠️ Наразі жоден принтер не друкує. Пропуск об'єктів доступний тільки під час активного друку.")
+            if target_printer:
+                await message.answer(
+                    f"⚠️ Принтер <b>{html.escape(target_printer.name)}</b> зараз не друкує (стан: <code>{target_printer.gcode_state}</code>).\n"
+                    f"Пропуск об'єктів доступний тільки під час активного друку.",
+                    parse_mode=ParseMode.HTML,
+                )
+            else:
+                await message.answer("⚠️ Наразі жоден принтер не друкує. Пропуск об'єктів доступний тільки під час активного друку.")
             return
 
-    if target_printer.gcode_state not in ["RUNNING", "PAUSE", "PREPARING", "PREPARATION", "BUILDING"]:
-        await message.answer(
-            f"⚠️ Принтер <b>{html.escape(target_printer.name)}</b> зараз не друкує (стан: <code>{target_printer.gcode_state}</code>).\n"
-            f"Пропуск об'єктів доступний тільки під час активного друку.",
-            parse_mode=ParseMode.HTML,
-        )
-        return
+    await render_skip_objects_menu_for_printer(message, target_printer, app)
+
+
+async def render_skip_objects_menu_for_printer(message: Message, target_printer, app):
+    import asyncio
+    import re
+    import time
 
     objects = target_printer.get_clean_job_objects()
     if not objects:
         if hasattr(target_printer, "_try_ftps_fetch"):
-            target_printer._ftps_fetching = False
-            target_printer._try_ftps_fetch()
-            import asyncio
-
+            if not getattr(target_printer, "_ftps_fetching", False):
+                target_printer._try_ftps_fetch()
             await asyncio.sleep(1.0)
             objects = target_printer.get_clean_job_objects()
 
@@ -99,8 +143,19 @@ async def handle_skip_objects_menu(message: Message, app):
                 except Exception:
                     pass
         if c_data and isinstance(c_data.get("objects"), list) and c_data["objects"]:
-            target_printer.current_job_objects = c_data["objects"]
-            objects = target_printer.current_job_objects
+            c_fname = str(c_data.get("filename") or c_data.get("path") or "").strip().lower()
+            c_ts = float(c_data.get("timestamp", 0.0) or 0.0)
+            s_name = str(getattr(target_printer, "subtask_name", "") or "").strip().lower()
+            clean_c = re.sub(r"\.(gcode|3mf)$", "", c_fname).replace("\\", "/").split("/")[-1]
+            clean_s = re.sub(r"\.(gcode|3mf)$", "", s_name).replace("\\", "/").split("/")[-1]
+            fname_match = bool(
+                (not clean_c and not clean_s)
+                or (clean_c and clean_s and clean_s != "untitled" and (clean_c in clean_s or clean_s in clean_c))
+            )
+            recent_slice = bool(c_ts > 0 and (time.time() - c_ts < 300) and (not clean_s or clean_s == "untitled"))
+            if fname_match or recent_slice:
+                target_printer.current_job_objects = c_data["objects"]
+                objects = target_printer.current_job_objects
 
     if not objects:
         await message.answer(
@@ -176,6 +231,9 @@ async def handle_skip_objects_menu(message: Message, app):
 async def handle_pause_print(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
+    if not await _is_user_authorized_for_control(app, chat_id, user):
+        await message.answer("⛔ У вас немає прав доступу для керування друком.")
+        return
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
@@ -196,6 +254,9 @@ async def handle_pause_print(message: Message, app):
 async def handle_resume_print(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
+    if not await _is_user_authorized_for_control(app, chat_id, user):
+        await message.answer("⛔ У вас немає прав доступу для керування друком.")
+        return
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
@@ -216,6 +277,9 @@ async def handle_resume_print(message: Message, app):
 async def handle_stop_print_request(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
+    if not await _is_user_authorized_for_control(app, chat_id, user):
+        await message.answer("⛔ У вас немає прав доступу для керування друком.")
+        return
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
 
@@ -233,13 +297,13 @@ async def handle_stop_print_request(message: Message, app):
         resize_keyboard=True,
     )
     prompt_txt = (
-        f"⚠️ **Ви дійсно хочете ЗУПИНИТИ друк на {target_printer.name}?**"
+        f"⚠️ <b>Ви дійсно хочете ЗУПИНИТИ друк на {html.escape(target_printer.name)}?</b>"
         if u_lang != "en"
-        else f"⚠️ **Are you sure you want to STOP printing on {target_printer.name}?**"
+        else f"⚠️ <b>Are you sure you want to STOP printing on {html.escape(target_printer.name)}?</b>"
     )
     await message.answer(
         prompt_txt,
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode=ParseMode.HTML,
         reply_markup=stop_kb,
     )
 
@@ -268,13 +332,13 @@ async def handle_control_states(message: Message, app):
                 user["state"] = "printer_menu"
                 await app.storage.save_user(user)
                 succ_msg = (
-                    f"⏹️ **Друк скасовано (зупинено)** на *{target_printer.name}*"
+                    f"⏹️ <b>Друк скасовано (зупинено)</b> на <b>{html.escape(target_printer.name)}</b>"
                     if u_lang != "en"
-                    else f"⏹️ **Print stopped** on *{target_printer.name}*"
+                    else f"⏹️ <b>Print stopped</b> on <b>{html.escape(target_printer.name)}</b>"
                 )
                 await message.answer(
                     succ_msg,
-                    parse_mode=ParseMode.MARKDOWN,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=get_printer_menu_keyboard(target_printer, lang=u_lang),
                 )
             else:
@@ -346,6 +410,9 @@ async def handle_speed_menu(message: Message, app):
 async def handle_set_speed(message: Message, app):
     chat_id = str(message.chat.id)
     user = await app.storage.load_user(chat_id)
+    if not await _is_user_authorized_for_control(app, chat_id, user):
+        await message.answer("⛔ У вас немає прав доступу для керування друком.")
+        return
     selected_pid = user.get("context_data", {}).get("selected_printer_id")
     target_printer = app.printers.get(selected_pid) if selected_pid else None
     if not target_printer:

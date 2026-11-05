@@ -94,6 +94,75 @@ def deduct_spool_warehouse(
         logger.warning(f"Failed to schedule deduct_spool_warehouse for [{printer_name}]: {e}")
 
 
+def refund_spool_warehouse(
+    storage: Any,
+    printer_id: str,
+    printer_name: str,
+    slot_key: str,
+    refund_grams: float,
+    reason: str = "Повернення невикористаної ваги (пропуск об'єктів)",
+    loop: asyncio.AbstractEventLoop | None = None,
+) -> None:
+    """
+    Refunds unprinted grams back to the spool mounted on the specified printer and slot
+    when objects are skipped during a print job. Thread-safe from sync or async contexts.
+    """
+    if not storage or refund_grams <= 0:
+        return
+
+    async def _do_refund() -> None:
+        try:
+            async with storage.transaction_lock("spools"):
+                spools = await storage.load_spools()
+                spool_to_refund = None
+                spool_id_to_refund = None
+                target_slot_str = str(slot_key)
+                allowed_slots = ["254", "255"] if target_slot_str in ["254", "255"] else [target_slot_str]
+                for s_id, s in spools.items():
+                    if s.get("assigned_printer_id") == printer_id and str(s.get("assigned_slot_key")) in allowed_slots:
+                        spool_to_refund = s
+                        spool_id_to_refund = s_id
+                        break
+
+                if spool_to_refund and spool_id_to_refund:
+                    prev_w = float(spool_to_refund.get("remaining_grams", 0.0))
+                    new_w = round(prev_w + refund_grams, 2)
+                    spool_to_refund["remaining_grams"] = new_w
+                    spools[spool_id_to_refund] = spool_to_refund
+                    await storage.save_spools(spools)
+                    await storage.record_spool_movement(
+                        spool_id=spool_id_to_refund,
+                        spool_name=spool_to_refund.get("name", "Котушка"),
+                        action="skip_refund",
+                        weight_change_g=round(refund_grams, 2),
+                        prev_weight_g=round(prev_w, 2),
+                        new_weight_g=new_w,
+                        reason=reason,
+                        user=printer_name,
+                    )
+        except Exception as ex:
+            logger.warning(f"Error in refund_spool_warehouse async task for [{printer_name}]: {ex}")
+
+    try:
+        current_loop = None
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        target_loop = current_loop or loop
+        if current_loop and current_loop.is_running():
+            current_loop.create_task(_do_refund())
+            return
+
+        if target_loop and target_loop.is_running():
+            asyncio.run_coroutine_threadsafe(_do_refund(), target_loop)
+        else:
+            logger.warning(f"No running loop available for refund_spool_warehouse [{printer_name}]")
+    except Exception as e:
+        logger.warning(f"Failed to schedule refund_spool_warehouse for [{printer_name}]: {e}")
+
+
 def record_print_history_entry(
     storage: Any,
     printer: Any,
@@ -123,6 +192,13 @@ def record_print_history_entry(
     if not clean_subtask or clean_subtask.lower() in ["untitled", "none", "null"] or re.match(r"^[_ -]+$", clean_subtask):
         clean_subtask = "Деталь 3D"
 
+    skipped_list = list(getattr(printer, "skipped_objects", []) or [])
+    effective_note = note_text
+    if skipped_list and "пропущено" not in effective_note.lower():
+        skipped_str = ", ".join(f"#{s}" for s in skipped_list[:10])
+        suffix = f" (Пропущено об'єктів: {len(skipped_list)} [{skipped_str}])"
+        effective_note = f"{effective_note}{suffix}".strip()
+
     entry = {
         "timestamp": time.time(),
         "printer_name": printer.name,
@@ -131,7 +207,8 @@ def record_print_history_entry(
         "subtask_name": clean_subtask,
         "weight_g": round(float(final_weight), 1),
         "filament_type": getattr(printer, "filament_type", ""),
-        "note": note_text,
+        "note": effective_note,
+        "skipped_objects": skipped_list,
     }
 
     try:

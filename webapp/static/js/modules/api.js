@@ -16,8 +16,9 @@ export function getTelegramInitData() {
 }
 
 export function setupFetchInterceptor() {
+    if (window.fetch && window.fetch._isIntercepted) return;
     const originalFetch = window.fetch;
-    window.fetch = function(url, options = {}) {
+    const interceptedFetch = function(url, options = {}) {
         options = options || {};
         let h = options.headers;
         if (!h) {
@@ -38,6 +39,28 @@ export function setupFetchInterceptor() {
         options.headers = h;
         return originalFetch(url, options);
     };
+    interceptedFetch._isIntercepted = true;
+    window.fetch = interceptedFetch;
+}
+
+export async function parseApiJson(res) {
+    let data = null;
+    try {
+        data = await res.json();
+    } catch (_) {
+        data = {};
+    }
+    if (!res.ok) {
+        if (data && typeof data === "object" && !Array.isArray(data)) {
+            if (!data.error) {
+                data.error = data.detail || data.message || `HTTP error ${res.status}`;
+            }
+            data.httpStatus = res.status;
+        } else {
+            data = { error: `HTTP error ${res.status}`, httpStatus: res.status };
+        }
+    }
+    return data;
 }
 
 export async function apiFetch(url, options = {}) {
@@ -189,7 +212,7 @@ export async function createPrinterApi(printerData) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(printerData)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function controlPrinterApi(printerId, action, params = {}) {
@@ -198,12 +221,12 @@ export async function controlPrinterApi(printerId, action, params = {}) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...params })
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function fetchPrinterSettingsApi(printerId) {
     const res = await apiFetch(`/api/printers/${printerId}/settings`);
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function savePrinterSettingsApi(printerId, settings) {
@@ -212,12 +235,12 @@ export async function savePrinterSettingsApi(printerId, settings) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function deletePrinterApi(printerId) {
     const res = await apiFetch(`/api/printers/${printerId}`, { method: "DELETE" });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function sendFleetLightsApi(action = "on", printerIds = null) {
@@ -228,7 +251,7 @@ export async function sendFleetLightsApi(action = "on", printerIds = null) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function sendFleetCalibrateApi(printerIds = null) {
@@ -239,7 +262,7 @@ export async function sendFleetCalibrateApi(printerIds = null) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 // Spools API
@@ -250,7 +273,7 @@ export async function fetchSpoolsApi() {
         err.status = res.status;
         throw err;
     }
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function saveSpoolApi(spoolData) {
@@ -259,12 +282,12 @@ export async function saveSpoolApi(spoolData) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(spoolData)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function deleteSpoolApi(spoolId) {
     const res = await apiFetch(`/api/spools/${spoolId}`, { method: "DELETE" });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function mountSpoolApi(spoolId, printerId, slotKey = "0") {
@@ -273,7 +296,7 @@ export async function mountSpoolApi(spoolId, printerId, slotKey = "0") {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ printer_id: printerId, slot_key: String(slotKey) })
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function unmountSpoolApi(spoolId) {
@@ -282,12 +305,12 @@ export async function unmountSpoolApi(spoolId) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({})
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function fetchSpoolMovementsApi() {
     const res = await apiFetch("/api/spools/movements");
-    return res.json();
+    return parseApiJson(res);
 }
 
 export function getMovementsPdfExportUrl(filters = {}) {
@@ -306,7 +329,7 @@ export function getMovementsPdfExportUrl(filters = {}) {
 // Parts API
 export async function fetchPartsApi() {
     const res = await apiFetch("/api/parts");
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function savePartApi(partData) {
@@ -315,19 +338,19 @@ export async function savePartApi(partData) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(partData)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function deletePartApi(partId) {
     const res = await apiFetch(`/api/parts/${partId}`, { method: "DELETE" });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function printPartApi(partId, printerId) {
     const res = await apiFetch(`/api/parts/${partId}/print/${printerId}`, {
         method: "POST"
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 // Files & Uploads API
@@ -336,7 +359,7 @@ export async function uploadFileApi(formData) {
         method: "POST",
         body: formData
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function uploadImageApi(formData) {
@@ -344,25 +367,25 @@ export async function uploadImageApi(formData) {
         method: "POST",
         body: formData
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 // History API
 export async function fetchHistoryApi() {
     const res = await apiFetch("/api/history");
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function deleteHistoryItemApi(timestamp) {
     const res = await apiFetch(`/api/history?timestamp=${encodeURIComponent(timestamp)}`, {
         method: "DELETE"
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function clearAllHistoryApi() {
     const res = await apiFetch("/api/history", { method: "DELETE" });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function markScrapApi(scrapData) {
@@ -371,13 +394,13 @@ export async function markScrapApi(scrapData) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(scrapData)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 // Commercial Presets API
 export async function fetchCommercialPresetsApi() {
     const res = await apiFetch("/api/commercial/presets");
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function saveCommercialPresetApi(presetData) {
@@ -386,14 +409,14 @@ export async function saveCommercialPresetApi(presetData) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(presetData)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function deleteCommercialPresetApi(presetId) {
     const res = await apiFetch(`/api/commercial/presets/${presetId}`, {
         method: "DELETE"
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function calculateCommercialApi(params) {
@@ -402,13 +425,13 @@ export async function calculateCommercialApi(params) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 // User & Settings API
 export async function fetchUserSettingsApi() {
     const res = await apiFetch("/api/user/settings");
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function saveUserSettingsApi(settings) {
@@ -417,12 +440,12 @@ export async function saveUserSettingsApi(settings) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function fetchGlobalSettingsApi() {
     const res = await apiFetch("/api/settings");
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function saveGlobalSettingsApi(settings) {
@@ -431,17 +454,17 @@ export async function saveGlobalSettingsApi(settings) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function fetchHealthApi() {
     const res = await apiFetch("/health");
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function fetchUsersApi() {
     const res = await apiFetch("/api/users");
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function saveUserAccessApi(userData) {
@@ -450,7 +473,7 @@ export async function saveUserAccessApi(userData) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(userData)
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 export async function deleteUserApi(userId) {
@@ -459,7 +482,7 @@ export async function deleteUserApi(userId) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId })
     });
-    return res.json();
+    return parseApiJson(res);
 }
 
 // Files API

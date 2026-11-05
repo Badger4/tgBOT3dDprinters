@@ -3,6 +3,7 @@
  */
 
 import { escapeHtml, formatTimeMins, getBambuModelCode, normalizeFilamentName, triggerHaptic } from "./utils.js";
+import { updateBackButton } from "./modals.js";
 import { state } from "./state.js";
 import {
     fetchPartsApi,
@@ -282,18 +283,42 @@ export function editPartModal(id) {
     if (part) openAddPartModal(part);
 }
 
+const qtyAdjustSeq = new Map();
+const qtyInitialCount = new Map();
+
 export async function adjustPartQuantity(id, delta) {
     const part = state.parts[id];
     if (!part) return;
     const cur = parseInt(part.count || part.quantity || 0, 10);
+    if (!qtyInitialCount.has(id)) {
+        qtyInitialCount.set(id, cur);
+    }
     const next = Math.max(0, cur + delta);
     part.count = next;
+    const seq = (qtyAdjustSeq.get(id) || 0) + 1;
+    qtyAdjustSeq.set(id, seq);
+
     triggerHaptic("selection");
     await loadParts(true);
     try {
-        await savePartApi({ id, count: next });
+        const res = await savePartApi({ id, count: next });
+        if (qtyAdjustSeq.get(id) === seq) {
+            if (res && res.error) {
+                part.count = qtyInitialCount.get(id) ?? cur;
+                qtyInitialCount.delete(id);
+                await loadParts(true);
+                alert("⚠️ Помилка оновлення кількості: " + res.error);
+            } else {
+                qtyInitialCount.delete(id);
+            }
+        }
     } catch (e) {
         console.error("Adjust qty error:", e);
+        if (qtyAdjustSeq.get(id) === seq) {
+            part.count = qtyInitialCount.get(id) ?? cur;
+            qtyInitialCount.delete(id);
+            await loadParts(true);
+        }
     }
 }
 
@@ -460,9 +485,9 @@ export async function triggerPrintPartById(partId) {
                 <p class="text-muted" style="font-size: 13px;">Деталь: <strong>${escapeHtml(part.name)}</strong></p>
                 <div class="d-flex flex-column gap-2">
                     ${state.printers.map(p => `
-                        <button class="btn btn-outline d-flex justify-content-between align-items-center btn-launch-print-part" data-printer-id="${p.id}">
-                            <span>🖨️ ${escapeHtml(p.name)} (${p.printer_model || p.model || "Bambu"})</span>
-                            <span class="badge ${p.state === 'RUNNING' ? 'badge-warning' : 'badge-success'}">${p.state || 'IDLE'}</span>
+                        <button class="btn btn-outline d-flex justify-content-between align-items-center btn-launch-print-part" data-printer-id="${escapeHtml(String(p.id))}">
+                            <span>🖨️ ${escapeHtml(p.name)} (${escapeHtml(p.printer_model || p.model || "Bambu")})</span>
+                            <span class="badge ${p.state === 'RUNNING' ? 'badge-warning' : 'badge-success'}">${escapeHtml(p.state || 'IDLE')}</span>
                         </button>
                     `).join("")}
                 </div>
@@ -470,9 +495,16 @@ export async function triggerPrintPartById(partId) {
         </div>
     `;
     document.body.appendChild(modal);
+    updateBackButton();
 
-    const closeModal = () => modal.remove();
+    const closeModal = () => {
+        modal.remove();
+        updateBackButton();
+    };
     modal.querySelectorAll(".btn-close-printer-select").forEach(b => b.addEventListener("click", closeModal));
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeModal();
+    });
 
     modal.querySelectorAll(".btn-launch-print-part").forEach(btn => {
         btn.addEventListener("click", async () => {
@@ -487,6 +519,9 @@ export async function triggerPrintPartById(partId) {
 }
 
 async function executeLaunchPartPrint(part, selectedPrinter) {
+    if (state.isLaunchingPartPrint) return;
+    state.isLaunchingPartPrint = true;
+    try {
     const targetM = part.printer_model || '';
     const partFilament = part.filament_type || '';
     const printerFilament = selectedPrinter.filament_type || '';
@@ -556,6 +591,9 @@ async function executeLaunchPartPrint(part, selectedPrinter) {
     } catch (err) {
         console.error("Print part error:", err);
         alert("⚠️ Помилка зв'язку при запуску друку.");
+    }
+    } finally {
+        state.isLaunchingPartPrint = false;
     }
 }
 

@@ -2,12 +2,12 @@
  * 3D Farm Manager - Fleet & Printers Module
  */
 
-import { escapeHtml, formatRemainingTime, getPrinterStatusInfo, cleanSubtaskName, evaluateMathExpression, triggerHaptic } from "./utils.js";
+import { escapeHtml, formatCockpitHexColor, formatRemainingTime, getPrinterStatusInfo, cleanSubtaskName, evaluateMathExpression, triggerHaptic } from "./utils.js";
 import { showToast, showPromptDialog } from "./modals.js";
 import { renderCockpitPrinterCard, renderClassicPrinterCard } from "./cockpit.js";
 import { state } from "./state.js";
 import { api, getWebSessionToken } from "./api.js";
-import { openPrinterSettingsModal } from "./settings.js";
+import { openPrinterSettingsModal, populatePrinterSettingsSelect as populateSettingsDropdown } from "./settings.js";
 
 const ENABLE_COCKPIT_CARDS = true;
 
@@ -100,7 +100,12 @@ export function updateFilterBadges(printers) {
  */
 export function applyPrinterFilters() {
     const searchInput = document.getElementById("printer-search-input");
-    const rawQuery = (searchInput?.value || "").trim().toLowerCase();
+    const rawVal = searchInput?.value || "";
+    const rawQuery = rawVal.trim().toLowerCase();
+    const clearBtn = document.getElementById("clear-search-btn");
+    if (clearBtn) {
+        clearBtn.style.display = rawVal.length > 0 ? "inline-flex" : "none";
+    }
     const activeBtn = document.querySelector("#tab-printers .filter-pills .pill-btn.active");
     const filterState = activeBtn?.dataset.filter || "all";
 
@@ -130,17 +135,7 @@ export function applyPrinterFilters() {
  * Populate printer select dropdown in settings modal
  */
 export function populatePrinterSettingsSelect(printers) {
-    const sel = document.getElementById("printer-settings-select");
-    if (!sel) return;
-    const curVal = sel.value;
-    const opts = `<option value="">-- Оберіть принтер --</option>` +
-        (printers || []).map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)} (${p.ip || 'no IP'})</option>`).join("");
-    if (sel.innerHTML !== opts) {
-        sel.innerHTML = opts;
-        if (curVal && (printers || []).some(p => p.id === curVal)) {
-            sel.value = curVal;
-        }
-    }
+    populateSettingsDropdown(printers || state.printers);
 }
 
 /**
@@ -153,6 +148,11 @@ export function renderPrinters(printers = state.printers) {
     const printersGrid = document.getElementById("printers-grid");
     const dashboardGrid = document.getElementById("dashboard-grid");
     const activeCountEl = document.getElementById("active-printers-count") || document.getElementById("active-count");
+
+    // Enforce view mode display state
+    const isCompactMode = localStorage.getItem("farm_view_mode") === "compact";
+    if (printersGrid) printersGrid.style.display = isCompactMode ? "none" : "";
+    if (dashboardGrid) dashboardGrid.style.display = isCompactMode ? "grid" : "none";
 
     if (!printers || printers.length === 0) {
         const emptyHtml = `
@@ -212,7 +212,7 @@ export function renderPrinters(printers = state.printers) {
             const hasAms = Boolean(p.has_ams);
 
             let displaySlotKey = activeKey;
-            let assignedSpool = assignedSpools.find(s => String(s.assigned_slot_key) === activeKey || (activeKey in ["254", "255"] && String(s.assigned_slot_key) in ["254", "255"]));
+            let assignedSpool = assignedSpools.find(s => String(s.assigned_slot_key) === activeKey || (["254", "255", "VT"].includes(activeKey) && ["254", "255", "VT"].includes(String(s.assigned_slot_key))));
 
             if (!assignedSpool && assignedSpools.length > 0) {
                 assignedSpool = assignedSpools[0];
@@ -296,8 +296,9 @@ export function renderPrinters(printers = state.printers) {
             window._lastCompactSnapshotTime = window._lastCompactSnapshotTime || {};
             // Collect existing compact thumbnail images to avoid flickering
             const activeThumbs = new Map();
+            const existingCards = Array.from(dashboardGrid.querySelectorAll(".glass-card[data-id]"));
             printers.forEach(p => {
-                const card = dashboardGrid.querySelector(`.glass-card[data-id="${p.id}"]`);
+                const card = existingCards.find(c => c.getAttribute("data-id") === String(p.id));
                 const img = card?.querySelector("img");
                 if (img && img.src && img.style.display !== "none") {
                     activeThumbs.set(String(p.id), img);
@@ -326,15 +327,16 @@ export function renderPrinters(printers = state.printers) {
                 const needsRefresh = (Date.now() - lastFetched) > 15000;
                 const canLoadSnapshot = isOnline && !isFailedCooldown;
                 const timeParam = needsRefresh ? `${initDataParam ? '&' : '?'}t=${Date.now()}` : '';
-                const thumbSrc = canLoadSnapshot ? `/api/printers/${p.id}/snapshot${initDataParam}${timeParam}` : '';
+                const safeIdAttr = escapeHtml(String(p.id));
+                const thumbSrc = canLoadSnapshot ? `/api/printers/${encodeURIComponent(p.id)}/snapshot${initDataParam}${timeParam}` : '';
                 
                 return `
-                    <div class="glass-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-state="${statusInfo.code}" style="padding: 10px; cursor: pointer; display: flex; flex-direction: column; position: relative;">
+                    <div class="glass-card" data-id="${safeIdAttr}" data-name="${escapeHtml(p.name)}" data-state="${statusInfo.code}" style="padding: 10px; cursor: pointer; display: flex; flex-direction: column; position: relative;">
                         <div style="font-size: 13px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px;">
                             ${escapeHtml(p.name)}
                         </div>
                         <div style="width: 100%; aspect-ratio: 4/3; background: #000; border-radius: var(--radius-sm); overflow: hidden; position: relative; margin-bottom: 8px;">
-                            ${thumbSrc ? `<img src="${thumbSrc}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;" onload="if(window._failedSnapshots) delete window._failedSnapshots['${p.id}']; window._lastCompactSnapshotTime['${p.id}'] = Date.now();" onerror="this.style.display='none'; window._failedSnapshots = window._failedSnapshots || {}; window._failedSnapshots['${p.id}'] = Date.now(); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />` : ''}
+                            ${thumbSrc ? `<img src="${escapeHtml(thumbSrc)}" data-id="${safeIdAttr}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;" onload="const id=this.dataset.id; if(window._failedSnapshots) delete window._failedSnapshots[id]; window._lastCompactSnapshotTime[id] = Date.now();" onerror="const id=this.dataset.id; this.style.display='none'; window._failedSnapshots = window._failedSnapshots || {}; window._failedSnapshots[id] = Date.now(); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />` : ''}
                             <div style="${thumbSrc ? 'display: none;' : 'display: flex;'} position: absolute; inset: 0; align-items: center; justify-content: center; color: var(--text-dim); background: rgba(0,0,0,0.5);">
                                 <i class="fa-solid ${!isOnline ? 'fa-power-off' : 'fa-camera-slash'}"></i>
                             </div>
@@ -358,11 +360,12 @@ export function renderPrinters(printers = state.printers) {
             }).join("");
 
             // Restore active thumbnails to eliminate flicker unless refresh is due
+            const renderedCards = Array.from(dashboardGrid.querySelectorAll(".glass-card[data-id]"));
             activeThumbs.forEach((oldImg, pId) => {
                 const lastFetched = window._lastCompactSnapshotTime[pId] || 0;
                 const isRecent = (Date.now() - lastFetched) < 15000;
                 if (isRecent) {
-                    const card = dashboardGrid.querySelector(`.glass-card[data-id="${pId}"]`);
+                    const card = renderedCards.find(c => c.getAttribute("data-id") === String(pId));
                     const newImg = card?.querySelector("img");
                     if (newImg) {
                         newImg.replaceWith(oldImg);
@@ -384,18 +387,24 @@ export async function openPrinterModal(pId) {
     const p = state.printers.find(x => x.id === pId);
     if (!p) return;
 
+    updatePrinterModalContent(p);
+    loadCameraSnapshot(pId);
+
+    const printerModal = document.getElementById("printer-modal");
+    if (printerModal) printerModal.classList.add("active");
+
     try {
         const sRes = await api.getSpools();
-        if (sRes) state.spools = sRes;
+        if (sRes) {
+            state.spools = sRes;
+            if (state.selectedPrinterId === pId && (!printerModal || printerModal.classList.contains("active"))) {
+                const latestP = state.printers.find(x => x.id === pId) || p;
+                updatePrinterModalContent(latestP);
+            }
+        }
     } catch (e) {
         console.error("Error fetching spools for modal:", e);
     }
-
-    updatePrinterModalContent(p);
-    loadCameraSnapshot(pId);
-    
-    const printerModal = document.getElementById("printer-modal");
-    if (printerModal) printerModal.classList.add("active");
 }
 
 /**
@@ -571,7 +580,7 @@ export function updatePrinterModalContent(p) {
                         <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
                             <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
                             <div class="d-flex gap-1">
-                                <button class="btn btn-xs btn-outline-primary btn-assign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Встановити котушку зі Складу">
+                                <button class="btn btn-xs btn-outline-primary btn-assign-slot-spool" data-printer="${escapeHtml(p.id)}" data-slot="${escapeHtml(k)}" title="Встановити котушку зі Складу">
                                     <i class="fa-solid fa-plus"></i>
                                 </button>
                             </div>
@@ -590,14 +599,14 @@ export function updatePrinterModalContent(p) {
             let displayGrams = rawGrams;
 
             if (assignedSpool) {
-                spoolColor = assignedSpool.color || '#3b82f6';
+                spoolColor = formatCockpitHexColor(assignedSpool.color || '#3b82f6');
                 spoolName = escapeHtml(assignedSpool.name);
                 spoolType = escapeHtml(assignedSpool.type);
                 displayGrams = assignedSpool.remaining_grams !== undefined ? assignedSpool.remaining_grams : rawGrams;
                 const maxCap = assignedSpool.initial_grams || assignedSpool.total_grams || 1000;
                 pct = Math.min(100, Math.max(0, Math.round((displayGrams / maxCap) * 100)));
             } else if (hasAmsTray) {
-                spoolColor = trayInfo.color || (isActive ? '#22c55e' : '#3b82f6');
+                spoolColor = formatCockpitHexColor(trayInfo.color || (isActive ? '#22c55e' : '#3b82f6'));
                 spoolType = escapeHtml(trayInfo.type);
                 spoolName = trayInfo.sub_brands ? `Bambu ${spoolType} ${escapeHtml(trayInfo.sub_brands)}` : `Bambu ${spoolType}`;
                 displayGrams = rawGrams;
@@ -619,14 +628,14 @@ export function updatePrinterModalContent(p) {
                     <div class="slot-tag d-flex justify-content-between align-items-center mb-1">
                         <span><b>${slotLabels[k]}</b> ${isActive ? '⚡' : ''}</span>
                         <div class="d-flex gap-1">
-                            <button class="btn btn-xs btn-outline btn-edit-slot-grams" data-printer="${p.id}" data-slot="${k}" title="Встановити залишок (г)">
+                            <button class="btn btn-xs btn-outline btn-edit-slot-grams" data-printer="${escapeHtml(p.id)}" data-slot="${escapeHtml(k)}" title="Встановити залишок (г)">
                                 <i class="fa-solid fa-pencil"></i>
                             </button>
                             ${assignedSpool ? `
-                            <button class="btn btn-xs btn-outline-danger btn-unassign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Зняти котушку">
+                            <button class="btn btn-xs btn-outline-danger btn-unassign-slot-spool" data-printer="${escapeHtml(p.id)}" data-slot="${escapeHtml(k)}" title="Зняти котушку">
                                 <i class="fa-solid fa-xmark"></i>
                             </button>` : `
-                            <button class="btn btn-xs btn-outline-primary btn-assign-slot-spool" data-printer="${p.id}" data-slot="${k}" title="Встановити котушку зі Складу">
+                            <button class="btn btn-xs btn-outline-primary btn-assign-slot-spool" data-printer="${escapeHtml(p.id)}" data-slot="${escapeHtml(k)}" title="Встановити котушку зі Складу">
                                 <i class="fa-solid fa-plus"></i>
                             </button>`}
                         </div>
@@ -638,8 +647,8 @@ export function updatePrinterModalContent(p) {
                         </div>
                     </div>
                     <div class="d-flex align-items-center justify-content-between" style="font-size:11px;">
-                        <span>${displayGrams}g</span>
-                        <span class="text-muted">${pct}%</span>
+                        <span>${escapeHtml(String(displayGrams))}g</span>
+                        <span class="text-muted">${escapeHtml(String(pct))}%</span>
                     </div>
                     <div class="progress-bar-wrap sm mt-1">
                         <div class="progress-bar ${pct < 15 ? 'red' : 'green'}" style="width: ${pct}%;"></div>
@@ -732,12 +741,12 @@ export function updatePrinterModalContent(p) {
             return `
                 <div class="maint-item-card ${isOverdue ? 'overdue' : ''}">
                     <div class="maint-item-header">
-                        <span class="maint-item-title">${item.name} ${isOverdue ? '⚠️' : ''}</span>
+                        <span class="maint-item-title">${escapeHtml(item.name)} ${isOverdue ? '⚠️' : ''}</span>
                         <div class="maint-item-inputs">
                             <small style="font-size:11px; color:#94a3b8;">${cHrs} /</small>
-                            <input type="number" class="maint-input-interval" data-key="${item.key}" value="${iHrs}" step="10" min="1" title="Натисніть Enter або клацніть поза полем для збереження годин">
+                            <input type="number" class="maint-input-interval" data-key="${escapeHtml(item.key)}" value="${iHrs}" step="10" min="1" title="Натисніть Enter або клацніть поза полем для збереження годин">
                             <small style="font-size:11px; color:#94a3b8;">год</small>
-                            <button class="btn btn-xs btn-outline-warning btn-reset-maint-item" data-key="${item.key}" style="margin-left:4px;" title="Скинути лічильник">
+                            <button class="btn btn-xs btn-outline-warning btn-reset-maint-item" data-key="${escapeHtml(item.key)}" style="margin-left:4px;" title="Скинути лічильник">
                                 <i class="fa-solid fa-rotate"></i>
                             </button>
                         </div>
@@ -773,17 +782,15 @@ export function updatePrinterModalContent(p) {
 
     if (skipObjectsSection && skipObjectsList) {
         const isPrintingState = ["RUNNING", "PAUSE", "PREPARATION", "BUILDING", "PAUSED"].includes((p.state || p.gcode_state || "").toUpperCase());
-        let objects = isPrintingState ? (p.current_job_objects || []).slice() : [];
+        let objects = isPrintingState ? (p.current_job_objects || []).slice(0, 60) : [];
         const skipped = p.skipped_objects || [];
-        if (isPrintingState && objects.length === 0) {
-            let maxId = 1;
-            skipped.forEach(s => {
-                let val = parseInt(s, 10);
-                if (!isNaN(val) && val > maxId) maxId = val;
+        if (isPrintingState && objects.length === 0 && skipped.length > 0) {
+            const uniqueSkipped = [...new Set(
+                skipped.map(s => parseInt(s, 10)).filter(v => !isNaN(v) && v >= 0)
+            )].slice(0, 50);
+            uniqueSkipped.forEach(id => {
+                objects.push({ id, name: `Об'єкт #${id}` });
             });
-            for (let i = 1; i <= maxId; i++) {
-                objects.push({ id: i, name: `Об'єкт #${i}` });
-            }
         }
 
         if (isPrintingState) {
@@ -791,6 +798,7 @@ export function updatePrinterModalContent(p) {
             if (btnSkipObject) btnSkipObject.style.display = "inline-block";
 
             const stateKey = `${p.id}_${skipped.join(",")}_${objects.map(o => o.id + ":" + (o.name || "")).join(",")}`;
+            const urlVer = `${p.id}_${skipped.join(",")}_${objects.length}`;
             if (skipObjectsList.dataset.renderedKey !== stateKey) {
                 skipObjectsList.dataset.renderedKey = stateKey;
 
@@ -873,13 +881,14 @@ export function updatePrinterModalContent(p) {
                         const widthPct = (((px2 - px1) / imgW) * 100).toFixed(2);
                         const heightPct = (((py2 - py1) / imgH) * 100).toFixed(2);
 
+                        const safeObjId = escapeHtml(String(objId));
                         return `
                             <div class="plate-obj-hotspot ${isSkipped ? 'is-skipped' : 'is-active'}"
-                                 data-id="${objId}"
+                                 data-id="${safeObjId}"
                                  data-name="${escapeHtml(cleanObjName)}"
                                  style="left: ${leftPct}%; top: ${topPct}%; width: ${widthPct}%; height: ${heightPct}%;"
-                                 title="${isSkipped ? `Об'єкт #${objId} (Пропущено)` : `Натисніть, щоб пропустити #${objId} (${escapeHtml(cleanObjName)})`}">
-                                <span class="plate-obj-badge">${isSkipped ? '❌' : `#${objId}`}</span>
+                                 title="${isSkipped ? `Об'єкт #${safeObjId} (Пропущено)` : `Натисніть, щоб пропустити #${safeObjId} (${escapeHtml(cleanObjName)})`}">
+                                <span class="plate-obj-badge">${isSkipped ? '❌' : `#${safeObjId}`}</span>
                             </div>`;
                     }).join("");
 
@@ -889,7 +898,7 @@ export function updatePrinterModalContent(p) {
                     const mapHtml = `
                         <div class="text-center mb-2">
                             <div class="plate-map-container position-relative d-inline-block rounded overflow-hidden shadow-sm border border-secondary" style="max-width: 100%; background: #16161a;">
-                                <img src="/api/printers/${p.id}/plate_map?format=jpg&v=${encodeURIComponent(stateKey)}${initDataParam}${tokenParam}" 
+                                <img src="/api/printers/${encodeURIComponent(p.id)}/plate_map?format=jpg&v=${encodeURIComponent(urlVer)}${initDataParam}${tokenParam}" 
                                      class="img-fluid d-block" 
                                      style="max-height: 270px; width: auto; object-fit: contain;" 
                                      alt="Схема столу" />
@@ -903,11 +912,13 @@ export function updatePrinterModalContent(p) {
                         </div>`;
                     const btnsHtml = `<div class="d-flex flex-wrap gap-1 justify-content-center">` + objects.map(obj => {
                         const objId = obj.id;
+                        const safeObjId = escapeHtml(String(objId));
+                        const cleanObjName = sanitizeObjName(obj.name || `Об'єкт #${objId}`);
                         const isSkipped = skipped.includes(parseInt(objId, 10)) || skipped.includes(String(objId));
                         const labelText = isSkipped ? `#${objId} (Пропущено)` : `#${objId}`;
                         return `
                             <button class="btn btn-sm py-1 px-2 ${isSkipped ? 'btn-secondary disabled' : 'btn-outline-danger'} btn-skip-obj-item font-monospace fw-bold" 
-                                    data-id="${objId}" ${isSkipped ? 'disabled' : ''}>
+                                    data-id="${safeObjId}" data-name="${escapeHtml(cleanObjName)}" title="${escapeHtml(cleanObjName)}" ${isSkipped ? 'disabled' : ''}>
                                 ${isSkipped ? '<i class="fa-solid fa-xmark"></i> ' : '<i class="fa-solid fa-ban me-1"></i>'}
                                 ${escapeHtml(labelText)}
                             </button>`;
@@ -934,9 +945,12 @@ export function updatePrinterModalContent(p) {
                     skipObjectsList.querySelectorAll(".btn-skip-obj-item:not(.disabled)").forEach(b => {
                         b.addEventListener("click", () => {
                             const objId = parseInt(b.getAttribute("data-id"), 10);
-                            handleSkipObj(objId, "");
+                            const objName = b.getAttribute("data-name") || "";
+                            handleSkipObj(objId, objName);
                         });
                     });
+                } else {
+                    skipObjectsList.innerHTML = `<div class="text-muted small text-center py-2"><i class="fa-solid fa-circle-info me-1"></i> Список об'єктів для цього завдання ще не завантажено</div>`;
                 }
             }
         } else {
@@ -1029,10 +1043,15 @@ export function closeFullscreenCamera() {
  */
 export async function sendPrinterAction(actionPayload) {
     if (!state.selectedPrinterId) return;
+    if (state.isSendingPrinterAction) return;
+    state.isSendingPrinterAction = true;
     triggerHaptic("medium");
     try {
         const res = await api.sendPrinterAction(state.selectedPrinterId, actionPayload);
         if (res.status === "ok") {
+            if (res.all_skipped) {
+                showToast("⚠️ Всі об'єкти на столі пропущено! Рекомендується зупинити друк.", "warning");
+            }
             if (["assign_spool", "unassign_spool", "set_slot_grams", "set_filament"].includes(actionPayload.action)) {
                 try {
                     const spoolsMap = await api.getSpools();
@@ -1049,6 +1068,8 @@ export async function sendPrinterAction(actionPayload) {
         }
     } catch (e) {
         console.error("Action error:", e);
+    } finally {
+        state.isSendingPrinterAction = false;
     }
 }
 
@@ -1138,8 +1159,14 @@ export function openFleetBatchModal(actionType) {
  * Execute fleet batch action
  */
 export async function executeFleetBatchAction(actionType, selectedIds) {
+    if (state.isExecutingFleetBatch) return;
+    state.isExecutingFleetBatch = true;
     triggerHaptic("medium");
     const fleetBatchModal = document.getElementById("fleet-batch-modal");
+    const runAllBtn = document.getElementById("fleet-batch-run-all-btn");
+    const runSelBtn = document.getElementById("fleet-batch-run-selected-btn");
+    if (runAllBtn) runAllBtn.disabled = true;
+    if (runSelBtn) runSelBtn.disabled = true;
     if (fleetBatchModal) fleetBatchModal.classList.remove("active");
 
     try {
@@ -1182,6 +1209,10 @@ export async function executeFleetBatchAction(actionType, selectedIds) {
     } catch (e) {
         console.error("Fleet batch action error:", e);
         alert("Помилка зв'язку під час виконання групової дії.");
+    } finally {
+        state.isExecutingFleetBatch = false;
+        if (runAllBtn) runAllBtn.disabled = false;
+        updateFleetBatchSelectedCount();
     }
 }
 
@@ -1204,6 +1235,9 @@ export function closeAddPrinterModal() {
 }
 
 export async function submitAddPrinterForm() {
+    const savePrinterSubmitBtn = document.getElementById("save-printer-submit");
+    if (savePrinterSubmitBtn?.disabled) return;
+
     const nameInput = document.getElementById("new-p-name");
     const ipInput = document.getElementById("new-p-ip");
     const codeInput = document.getElementById("new-p-code");
@@ -1222,7 +1256,6 @@ export async function submitAddPrinterForm() {
     }
 
     triggerHaptic("medium");
-    const savePrinterSubmitBtn = document.getElementById("save-printer-submit");
     if (savePrinterSubmitBtn) {
         savePrinterSubmitBtn.disabled = true;
         savePrinterSubmitBtn.textContent = "Збереження...";
@@ -1253,10 +1286,23 @@ export async function submitAddPrinterForm() {
  * Initialize event listeners for printers and farm controls
  */
 export function initPrintersModule() {
-    // Search input
+    if (state.printersModuleBound) return;
+    state.printersModuleBound = true;
+
+    // Search input & clear button
     const searchInput = document.getElementById("printer-search-input");
+    const clearSearchBtn = document.getElementById("clear-search-btn");
     if (searchInput) {
         searchInput.addEventListener("input", applyPrinterFilters);
+    }
+    if (clearSearchBtn && searchInput) {
+        clearSearchBtn.addEventListener("click", () => {
+            triggerHaptic("light");
+            searchInput.value = "";
+            clearSearchBtn.style.display = "none";
+            applyPrinterFilters();
+            searchInput.focus();
+        });
     }
 
     // Filter pills
@@ -1275,32 +1321,61 @@ export function initPrintersModule() {
     const printersGrid = document.getElementById("printers-grid");
     const dashboardGrid = document.getElementById("dashboard-grid");
 
-    if (btnViewDetailed && btnViewCompact) {
+    const setViewMode = (mode, triggerRender = true) => {
+        const isCompact = mode === "compact";
+        if (btnViewDetailed) {
+            btnViewDetailed.classList.toggle("active", !isCompact);
+            btnViewDetailed.classList.remove("btn-primary", "btn-outline");
+        }
+        if (btnViewCompact) {
+            btnViewCompact.classList.toggle("active", isCompact);
+            btnViewCompact.classList.remove("btn-primary", "btn-outline");
+        }
+        if (printersGrid) printersGrid.style.display = isCompact ? "none" : "";
+        if (dashboardGrid) dashboardGrid.style.display = isCompact ? "grid" : "none";
+        try {
+            localStorage.setItem("farm_view_mode", mode);
+        } catch (_) {}
+        if (triggerRender) renderPrinters();
+    };
+    window.setViewMode = setViewMode;
+
+    if (btnViewDetailed) {
         btnViewDetailed.addEventListener("click", () => {
             triggerHaptic("selection");
-            btnViewDetailed.classList.add("active");
-            btnViewCompact.classList.remove("active");
-            if (printersGrid) printersGrid.style.display = "";
-            if (dashboardGrid) dashboardGrid.style.display = "none";
-            localStorage.setItem("farm_view_mode", "detailed");
-            renderPrinters();
+            setViewMode("detailed");
         });
+    }
 
+    if (btnViewCompact) {
         btnViewCompact.addEventListener("click", () => {
             triggerHaptic("selection");
-            btnViewCompact.classList.add("active");
-            btnViewDetailed.classList.remove("active");
-            if (printersGrid) printersGrid.style.display = "none";
-            if (dashboardGrid) dashboardGrid.style.display = "grid";
-            localStorage.setItem("farm_view_mode", "compact");
-            renderPrinters();
+            setViewMode("compact");
         });
+    }
 
-        // Restore view preference
-        const savedView = localStorage.getItem("farm_view_mode");
-        if (savedView === "compact") {
-            btnViewCompact.click();
+    // Safety global delegation for view switcher buttons
+    document.addEventListener("click", (e) => {
+        const compactBtn = e.target.closest("#btn-view-compact");
+        if (compactBtn) {
+            triggerHaptic("selection");
+            setViewMode("compact");
+            return;
         }
+        const detailedBtn = e.target.closest("#btn-view-detailed");
+        if (detailedBtn) {
+            triggerHaptic("selection");
+            setViewMode("detailed");
+            return;
+        }
+    });
+
+    // Restore view preference
+    const savedView = localStorage.getItem("farm_view_mode");
+    if (savedView === "compact") {
+        setViewMode("compact", false);
+    } else {
+        setViewMode("detailed", false);
     }
 
     // Modal action buttons
@@ -1446,8 +1521,7 @@ export function initPrintersModule() {
             e.preventDefault();
             submitAddPrinterForm();
         });
-    }
-    if (savePrinterSubmitBtn) {
+    } else if (savePrinterSubmitBtn) {
         savePrinterSubmitBtn.addEventListener("click", (e) => {
             e.preventDefault();
             submitAddPrinterForm();
@@ -1469,8 +1543,7 @@ export function initPrintersModule() {
                     const data = await api.deletePrinter(targetId);
                     if (data.status === "ok") {
                         document.getElementById("printer-settings-modal")?.classList.remove("active");
-                        document.getElementById("printer-modal")?.classList.remove("active");
-                        state.selectedPrinterId = null;
+                        closePrinterModal();
                         await fetchPrinters();
                     } else {
                         alert("Помилка видалення принтера: " + (data.error || "Невідомо"));

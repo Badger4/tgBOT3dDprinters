@@ -674,7 +674,7 @@ async def _handle_add_spool_state(message: Message, app, user: dict, state: str,
         user["state"] = "add_spool_color"
         await app.storage.save_user(user)
 
-        cur_type = user["context_data"]["new_spool"]["type"]
+        cur_type = html.escape(str(user["context_data"]["new_spool"]["type"]))
         prompt = (
             f"🎨 <b>Оберіть базовий колір пластику ({cur_type}) або напишіть будь-який відтінок текстом:</b>\n\n"
             f"💡 <i>Наприклад: <code>бірюзовий</code>, <code>графіт</code>, <code>хакі</code>, <code>бордовий</code>, <code>м'ятний</code> або HEX (<code>#0D9488</code>)</i>"
@@ -700,7 +700,7 @@ async def _handle_add_spool_state(message: Message, app, user: dict, state: str,
         user["state"] = "add_spool_grams"
         await app.storage.save_user(user)
 
-        disp_col = get_color_display_name(user["context_data"]["new_spool"], lang=u_lang)
+        disp_col = html.escape(str(get_color_display_name(user["context_data"]["new_spool"], lang=u_lang)))
         await message.answer(
             f"Колір розпізнано як: <b>{disp_col}</b>\n\n"
             f"Введіть початкову або залишкову вагу філаменту в грамах (наприклад <code>1000</code> або <code>850</code>):"

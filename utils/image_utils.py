@@ -1,7 +1,9 @@
+
 """
 Image optimization and compression utilities for 3D part photos and previews.
 """
 
+import functools
 import io
 from typing import Any
 
@@ -43,6 +45,7 @@ def compress_part_photo(raw_bytes: bytes) -> bytes:
     return buffer.getvalue()
 
 
+@functools.lru_cache(maxsize=32)
 def _load_unicode_font(size: int = 14) -> Any:
     if Image is None:
         return None
@@ -220,20 +223,28 @@ def render_plate_diagram(
 
             target_w = max(10, int(bw * 0.85))
             target_h = max(10, int(bh * 0.85))
-            font_sz = min(150, max(14, target_h))
-            dyn_font = _load_unicode_font(font_sz)
+            est_max_w = int(target_w / max(1.0, len(badge_text) * 0.52))
+            hi = min(120, max(12, target_h), max(12, est_max_w * 2))
+            lo = 10
+            best_sz = 10
 
-            while font_sz > 10:
+            while lo <= hi:
+                mid = ((lo + hi) // 4) * 2
+                if mid < 10:
+                    mid = 10
                 try:
-                    t_bbox = draw.textbbox((0, 0), badge_text, font=dyn_font)
+                    cand_font = _load_unicode_font(mid)
+                    t_bbox = draw.textbbox((0, 0), badge_text, font=cand_font)
                     tw = t_bbox[2] - t_bbox[0]
                     th = t_bbox[3] - t_bbox[1]
                     if tw <= target_w and th <= target_h:
-                        break
+                        best_sz = mid
+                        lo = mid + 2
+                    else:
+                        hi = mid - 2
                 except Exception:
                     break
-                font_sz -= 2
-                dyn_font = _load_unicode_font(font_sz)
+            dyn_font = _load_unicode_font(best_sz)
 
             try:
                 t_bbox = draw.textbbox((0, 0), badge_text, font=dyn_font)
@@ -371,25 +382,29 @@ def render_plate_gif(
                 draw.rectangle([px1, py1, px2, py2], fill=fill_col, outline=border_col, width=border_w)
 
                 if is_highlighted:
-                    # Dynamic font scaling to fill object box
+                    # Dynamic font scaling via binary search to fill object box without CPU thrashing
                     tag = f"#{obj_id}"
                     bw = max(20, px2 - px1)
                     bh = max(20, py2 - py1)
                     target_w = max(10, int(bw * 0.85))
                     target_h = max(10, int(bh * 0.85))
-                    font_sz = min(150, max(14, target_h))
-                    dyn_font = _load_unicode_font(font_sz)
-                    while font_sz > 10:
+                    lo, hi = 10, min(150, max(14, target_h))
+                    best_sz = lo
+                    while lo <= hi:
+                        mid = (lo + hi) // 2
+                        test_font = _load_unicode_font(mid)
                         try:
-                            t_bbox = draw.textbbox((0, 0), tag, font=dyn_font)
+                            t_bbox = draw.textbbox((0, 0), tag, font=test_font)
                             tw = t_bbox[2] - t_bbox[0]
                             th = t_bbox[3] - t_bbox[1]
                             if tw <= target_w and th <= target_h:
-                                break
+                                best_sz = mid
+                                lo = mid + 1
+                            else:
+                                hi = mid - 1
                         except Exception:
                             break
-                        font_sz -= 2
-                        dyn_font = _load_unicode_font(font_sz)
+                    dyn_font = _load_unicode_font(best_sz)
 
                     try:
                         t_bbox = draw.textbbox((0, 0), tag, font=dyn_font)

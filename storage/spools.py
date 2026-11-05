@@ -53,8 +53,8 @@ class SpoolRepository(BaseStorage):
                         try:
                             s = json.loads(row[1])
                             rem_g = float(s.get("remaining_grams", 1000.0))
-                            if rem_g > 0.0:
-                                res[row[0]] = s
+                            s["remaining_grams"] = max(0.0, rem_g)
+                            res[row[0]] = s
                         except Exception:
                             pass
                     return res
@@ -84,8 +84,8 @@ class SpoolRepository(BaseStorage):
                     rem_g = float(rem_val) if isinstance(rem_val, (int, float, str)) else 1000.0
                 except (ValueError, TypeError):
                     rem_g = 1000.0
-                if rem_g > 0.0:
-                    filtered[s_id] = s
+                s["remaining_grams"] = max(0.0, rem_g)
+                filtered[s_id] = s
 
         if filtered:
             await self.save_spools(filtered)
@@ -109,9 +109,9 @@ class SpoolRepository(BaseStorage):
                     rem_g = float(rem_val if rem_val is not None else 1000.0)
                 except (ValueError, TypeError):
                     rem_g = 1000.0
-                if rem_g > 0.0:
-                    s["remaining_grams"] = rem_g
-                    filtered[s_id] = s
+                s["remaining_grams"] = max(0.0, rem_g)
+
+                filtered[s_id] = s
 
         val_str = json.dumps(filtered, ensure_ascii=False)
 
@@ -296,13 +296,13 @@ class SpoolRepository(BaseStorage):
 
         await asyncio.to_thread(_insert_db)
 
-        # Mirror in movements_file for legacy consumers
-        async with self.transaction_lock("movements"):
-            movements = await self.load_json(self.movements_file, [])
-            movements.append(entry)
-            if len(movements) > 1000:
-                movements = movements[-1000:]
-            await self.save_json(self.movements_file, movements)
+        # SQLite warehouse_movements is the SSOT for movements (prevents SD-card write amplification)
+
+
+
+
+
+
 
         logger.info(
             f"📦 [Warehouse Audit] Spool [{spool_name}] ({spool_id}) action='{action}' "

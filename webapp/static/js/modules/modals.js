@@ -2,7 +2,7 @@
  * 3D Farm Manager - Modals, Gestures & Centralized Event Delegation Module
  */
 
-import { triggerHaptic } from "./utils.js";
+import { escapeHtml, triggerHaptic } from "./utils.js";
 import { state } from "./state.js";
 import { deleteSpoolApi } from "./api.js";
 import { fetchPrinters, openPrinterModal, closePrinterModal, closeFullscreenCamera } from "./printers.js";
@@ -44,7 +44,12 @@ export function closeTopmostModal() {
             const fsImg = document.getElementById("fullscreen-camera-img");
             if (cImg) cImg.src = "";
             if (fsImg) fsImg.src = "";
-            state.selectedPrinterId = null;
+            if (lastModal.id === "printer-modal") {
+                state.selectedPrinterId = null;
+            }
+        }
+        if (lastModal.classList.contains("modal-nested")) {
+            lastModal.remove();
         }
         updateBackButton();
         return true;
@@ -105,7 +110,7 @@ export function showPromptDialog({ title = "Введення", message = "", def
             <div class="modal-window" style="max-width: 360px;">
                 <div class="modal-header">
                     <h3 id="prompt-dialog-title" class="modal-title">Введення</h3>
-                    <button type="button" class="btn-close" id="prompt-dialog-close">&times;</button>
+                    <button type="button" class="icon-btn-close btn-close" id="prompt-dialog-close">&times;</button>
                 </div>
                 <div class="modal-body">
                     <p id="prompt-dialog-msg" class="text-muted mb-2"></p>
@@ -213,6 +218,10 @@ export function initGestures() {
 
     document.addEventListener("touchstart", (e) => {
         if (ptrRefreshing || window.scrollY > 2) return;
+        // Guard against triggering PTR when interacting with scrollable sub-elements, forms, or buttons
+        if (e.target.closest(".table-responsive, .modal-window, .modal-body, .parts-grid, .history-table-container, .spools-grid, input, select, textarea, button, a")) {
+            return;
+        }
         const activeModal = document.querySelector(".modal-backdrop.active, .camera-fullscreen-backdrop.active");
         if (activeModal) return;
         ptrStartY = e.touches[0].clientY;
@@ -565,6 +574,9 @@ export function initEventDelegation() {
  * Initialize modal system, global key listeners and BackButton observer
  */
 export function initModalsModule() {
+    if (state.modalsModuleBound) return;
+    state.modalsModuleBound = true;
+
     const tg = window.Telegram?.WebApp;
     if (tg) {
         tg.ready();
@@ -578,11 +590,21 @@ export function initModalsModule() {
         }
     }
 
-    // Observe modal DOM changes to keep BackButton in sync
-    const modalObserver = new MutationObserver(() => {
-        updateBackButton();
+    // Observe modal DOM changes to keep BackButton in sync without 60fps style thrashing
+    const modalObserver = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            const t = m.target;
+            if (t && t.nodeType === 1 && (
+                t.classList?.contains("modal-backdrop") ||
+                t.classList?.contains("camera-fullscreen-backdrop") ||
+                (t.id && t.id.endsWith("-modal"))
+            )) {
+                updateBackButton();
+                break;
+            }
+        }
     });
-    modalObserver.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class', 'style'] });
+    modalObserver.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
 
     // Global Escape key handler
     document.addEventListener("keydown", (e) => {

@@ -981,11 +981,12 @@ async def handle_mount_states(message: Message, app, user: dict, state: str, tex
         user["state"] = "edit_filament_weight"
         await app.storage.save_user(user)
 
+        safe_slot_disp = html.escape(str(slot_display))
         await message.answer(
-            f"Поточний залишок для <b>{html.escape(target_printer.name)} ({slot_display})</b>: <b>{curr_g}g</b>\n\n"
+            f"Поточний залишок для <b>{html.escape(target_printer.name)} ({safe_slot_disp})</b>: <b>{curr_g}g</b>\n\n"
             f"Введіть нову залишкову вагу філаменту в грамах (наприклад <code>850</code>):"
             if u_lang != "en"
-            else f"Current remaining for <b>{html.escape(target_printer.name)} ({slot_display})</b>: <b>{curr_g}g</b>\n\n"
+            else f"Current remaining for <b>{html.escape(target_printer.name)} ({safe_slot_disp})</b>: <b>{curr_g}g</b>\n\n"
             f"Enter new filament remaining weight in grams (e.g. <code>850</code>):",
             parse_mode=ParseMode.HTML,
             reply_markup=ReplyKeyboardMarkup(

@@ -27,10 +27,13 @@ async def handle_admin_panel(message: Message, app):
     await app.storage.save_user(user)
     u_lang = user.get("language", "uk")
     await message.answer(
-        "*👑 Панель Адміністратора*" if u_lang != "en" else "*👑 Admin Panel*",
-        parse_mode=ParseMode.MARKDOWN,
+        "<b>👑 Панель Адміністратора</b>" if u_lang != "en" else "<b>👑 Admin Panel</b>",
+        parse_mode=ParseMode.HTML,
         reply_markup=get_admin_keyboard(lang=u_lang),
     )
+
+
+handle_admin_menu = handle_admin_panel
 
 
 @router.message(F.text.lower().in_(["👥 користувачі", "користувачі", "👥 users", "users"]))
@@ -54,8 +57,8 @@ async def handle_list_approved_users(message: Message, app):
             btn_list.append([KeyboardButton(text=f"{role} {name} ({uid})")])
     btn_list.append([KeyboardButton(text="Повернутись в адмінку" if u_lang != "en" else "Back to admin")])
     await message.answer(
-        "*Список затверджених користувачів:*" if u_lang != "en" else "*Approved users list:*",
-        parse_mode=ParseMode.MARKDOWN,
+        "<b>Список затверджених користувачів:</b>" if u_lang != "en" else "<b>Approved users list:</b>",
+        parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardMarkup(keyboard=btn_list, resize_keyboard=True),
     )
 
@@ -83,14 +86,14 @@ async def handle_list_pending_users(message: Message, app):
             btn_list.append([KeyboardButton(text=f"⏳ {name} ({uid})")])
     if not btn_list:
         await message.answer(
-            "*No pending users.*" if is_en else "*Немає нових користувачів.*",
-            parse_mode=ParseMode.MARKDOWN
+            "<i>No pending users.</i>" if is_en else "<i>Немає нових користувачів.</i>",
+            parse_mode=ParseMode.HTML
         )
         return
     btn_list.append([KeyboardButton(text="Back to admin" if is_en else "Повернутись в адмінку")])
     await message.answer(
-        "*Pending new users:*" if is_en else "*Нові користувачі на підтвердженні:*",
-        parse_mode=ParseMode.MARKDOWN,
+        "<b>Pending new users:</b>" if is_en else "<b>Нові користувачі на підтвердженні:</b>",
+        parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardMarkup(keyboard=btn_list, resize_keyboard=True),
     )
 

@@ -176,7 +176,7 @@ async def handle_delete_printer(request: web.Request) -> web.Response:
     if not p:
         return web.json_response({"error": "Printer not found"}, status=404)
 
-    p.destroy()
+    await asyncio.to_thread(p.destroy)
     del app_obj.printers[p_id]
     del_fn = getattr(app_obj.storage, "delete_printer_atomic", None)
     if del_fn is not None and callable(del_fn) and type(del_fn).__name__ not in ("MagicMock", "Mock"):
@@ -355,7 +355,7 @@ async def handle_update_access_code(request: web.Request) -> web.Response:
         if new_sn:
             p.serial_number = new_sn
 
-        p.destroy()
+        await asyncio.to_thread(p.destroy)
         p.init_mqtt(asyncio.get_running_loop())
         await app_obj.save_printers_config()
         logger.info(f"🔑 Updated credentials & reconnected MQTT for [{p.name}] via REST API")
@@ -484,7 +484,7 @@ async def handle_update_printer_settings(request: web.Request) -> web.Response:
             p.maintenance_hours_counter = 0.0
 
         if reconnect_mqtt:
-            p.destroy()
+            await asyncio.to_thread(p.destroy)
             p.init_mqtt(asyncio.get_running_loop())
 
         await app_obj.save_printers_config()

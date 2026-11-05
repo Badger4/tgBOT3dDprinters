@@ -32,6 +32,7 @@ import { initModalsModule, showToast, updateBackButton, closeTopmostModal, setup
 // Backward-Compatibility Facades on Window
 // Required for inline onclick handlers in index.html and Telegram WebApp integration
 // ============================================================================
+window.escapeHtml = escapeHtml;
 window.openAddSpoolModal = openAddSpoolModal;
 window.closeSpoolModal = closeSpoolModal;
 window.submitSaveSpool = submitSaveSpool;
@@ -88,6 +89,8 @@ window.loadUsersTable = loadUsersTable;
 // Header 3MF Upload & Quick Action Modal
 // ============================================================================
 function initHeaderFileUpload() {
+    if (state.headerFileUploadBound) return;
+    state.headerFileUploadBound = true;
     const uploadBtn = document.getElementById("upload-file-btn");
     const fileInput = document.getElementById("file-upload-input");
     const fileActionModal = document.getElementById("file-action-modal");
@@ -211,7 +214,9 @@ function initHeaderFileUpload() {
                         badgeText = '🛑 Несумісна модель';
                     }
                 }
-                const pNozzle = p.nozzle_diameter ? ` | 🎯 ${p.nozzle_diameter}мм` : '';
+                const pNozzle = p.nozzle_diameter ? ` | 🎯 ${escapeHtml(String(p.nozzle_diameter))}мм` : '';
+                const safeState = escapeHtml(String(p.state || 'IDLE'));
+                const safeId = escapeHtml(String(p.id));
                 return `
                 <div class="spool-item mb-2" style="flex-direction:column; align-items:stretch;">
                     <div class="d-flex justify-content-between align-items-center">
@@ -219,10 +224,10 @@ function initHeaderFileUpload() {
                             <i class="fa-solid fa-print ${p.state === 'RUNNING' ? 'color-green' : 'color-purple'}" style="font-size:20px;"></i>
                             <div class="spool-details">
                                 <h4>${escapeHtml(p.name)}</h4>
-                                <p>Статус: <strong>${p.state}</strong>${pNozzle} | ${badgeText}</p>
+                                <p>Статус: <strong>${safeState}</strong>${pNozzle} | ${badgeText}</p>
                             </div>
                         </div>
-                        <button class="btn btn-sm ${p.compatible ? 'btn-success' : 'btn-outline-danger'} btn-start-print-job" data-id="${p.id}" ${p.state === 'RUNNING' ? 'disabled' : ''}>
+                        <button class="btn btn-sm ${p.compatible ? 'btn-success' : 'btn-outline-danger'} btn-start-print-job" data-id="${safeId}" ${p.state === 'RUNNING' ? 'disabled' : ''}>
                             ${p.state === 'RUNNING' ? 'Зайнятий' : (p.compatible ? '🚀 Друк' : '🛑 Заблоковано')}
                         </button>
                     </div>
@@ -278,6 +283,8 @@ function initHeaderFileUpload() {
 // Bottom Tab Navigation
 // ============================================================================
 function initTabNavigation() {
+    if (state.tabNavBound) return;
+    state.tabNavBound = true;
     const navButtons = document.querySelectorAll(".nav-btn");
     const tabPages = document.querySelectorAll(".tab-page");
 
@@ -306,6 +313,18 @@ function initTabNavigation() {
 // Main Application Bootstrapper
 // ============================================================================
 async function bootstrapApp() {
+    // 0. Telegram WebApp mobile viewport & gesture conflict mitigation
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+        try {
+            tg.ready?.();
+            tg.expand?.();
+            tg.disableVerticalSwipes?.();
+        } catch (e) {
+            console.warn("Failed initializing Telegram WebApp viewport features:", e);
+        }
+    }
+
     // 1. Setup fetch credentials & token interceptor
     setupFetchInterceptor();
 

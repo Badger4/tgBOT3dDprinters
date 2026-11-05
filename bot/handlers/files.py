@@ -404,7 +404,7 @@ async def handle_select_printer_for_file(message: Message, app):
         else:
             ams_note = ""
             if getattr(target_p, "has_ams", False) and hasattr(target_p, "get_loaded_ams_summary"):
-                ams_note = f"\n📋 <b>Заправлені слоти AMS:</b>\n{target_p.get_loaded_ams_summary()}\n"
+                ams_note = f"\n📋 <b>Заправлені слоти AMS:</b>\n{html.escape(target_p.get_loaded_ams_summary())}\n"
             await message.answer(
                 f"🚨 <b>ПОМИЛКА СУМІСНОСТІ! ДРУК БЛОКОВАНО!</b>\n\n"
                 f"🛑 <b>Філамент несумісний з файлом!</b>\n"
@@ -421,7 +421,7 @@ async def handle_select_printer_for_file(message: Message, app):
 
     warn_txt = ""
     if c_info["level"] == "WARNING":
-        warn_txt += f"\n{c_info['reason']}\n"
+        warn_txt += f"\n{html.escape(str(c_info['reason']))}\n"
 
     if w_req > target_p.filament_grams:
         deficit = round(w_req - target_p.filament_grams, 1)
@@ -671,14 +671,14 @@ async def handle_confirm_start_print_job(message: Message, app):
                 slot_label = f"Слот {used_slot_key}"
 
             await message.answer(
-                f"{print_msg}\n"
+                f"{html.escape(str(print_msg))}\n"
                 f"📦 Новий залишок нитки ({slot_label}): <b>{rem_g}g</b>\n\n"
                 f"✅ <b>Друк успішно запущено!</b>\nФайл відправлено на виконання на принтер <b>{html.escape(target_p.name)}</b>.",
                 parse_mode=ParseMode.HTML,
                 reply_markup=get_printer_menu_keyboard(target_p),
             )
         else:
-            await message.answer(f"🛑 <b>ПОМИЛКА ЗАПУСКУ ДРУКУ!</b>\n{print_msg}", parse_mode=ParseMode.HTML)
+            await message.answer(f"🛑 <b>ПОМИЛКА ЗАПУСКУ ДРУКУ!</b>\n{html.escape(str(print_msg))}", parse_mode=ParseMode.HTML)
 
         try:
             await msg_wait.delete()

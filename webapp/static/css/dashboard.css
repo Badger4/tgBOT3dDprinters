@@ -175,6 +175,20 @@
     padding: 12px 14px;
     border-radius: var(--radius-md);
     border: 1px solid var(--border-glass);
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+    .spool-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .spool-item .spool-right {
+        width: 100%;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
 }
 
 .spool-left {

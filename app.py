@@ -5,6 +5,7 @@ Main Application orchestrating Telegram bot, storage, and printer monitoring.
 import asyncio
 import gc
 import html
+import json
 import os
 import re
 import time
@@ -13,6 +14,8 @@ from typing import Any
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter
+from services.notification_outbox import NotificationOutboxDispatcher
 
 from bot.handlers import setup_routers
 from bot.keyboards import get_error_notification_inline_keyboard, get_notification_inline_keyboard
@@ -84,6 +87,7 @@ class PrinterBotApp:
         self.dp: Dispatcher | None = None
         self.printer_states: dict[str, dict[str, Any]] = {}
         self.live_status_messages: dict[str, dict[str, Any]] = {}
+        self.outbox: NotificationOutboxDispatcher | None = NotificationOutboxDispatcher(None, self.storage)
 
     async def update_live_status_messages(self) -> None:
         """Silently edits live status messages in-place for active printers."""
@@ -166,7 +170,7 @@ class PrinterBotApp:
         return bool(user.get("is_approved", False))
 
     async def safe_send_message(
-        self, chat_id: str, text: str, parse_mode: str | None = ParseMode.MARKDOWN, reply_markup: Any | None = None
+        self, chat_id: str, text: str, parse_mode: str | None = ParseMode.HTML, reply_markup: Any | None = None
     ) -> bool:
         if not self.bot:
             return False
@@ -176,6 +180,18 @@ class PrinterBotApp:
         try:
             await self.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_markup=reply_markup)
             return True
+        except TelegramRetryAfter as e:
+            logger.warning(f"⏳ Hit Telegram rate limit for {chat_id} ({e.retry_after}s). Enqueueing to Outbox.")
+            if getattr(self, "outbox", None):
+                await self.outbox.enqueue(chat_id, text, parse_mode=parse_mode, reply_markup=reply_markup, delay_sec=float(e.retry_after) + 0.5)
+                return True
+            return False
+        except (TelegramNetworkError, asyncio.TimeoutError) as e:
+            logger.warning(f"📡 Network drop sending to {chat_id} ({e}). Enqueueing to Outbox for retry.")
+            if getattr(self, "outbox", None):
+                await self.outbox.enqueue(chat_id, text, parse_mode=parse_mode, reply_markup=reply_markup, delay_sec=3.0)
+                return True
+            return False
         except Exception as e:
             err_str = str(e).lower()
             if "chat not found" in err_str or "bot was blocked" in err_str or "user is deactivated" in err_str:
@@ -184,6 +200,9 @@ class PrinterBotApp:
                 await self.storage.save_user(user)
             else:
                 logger.warning(f"Failed sending message to {chat_id}: {e}")
+                if getattr(self, "outbox", None):
+                    await self.outbox.enqueue(chat_id, text, parse_mode=parse_mode, reply_markup=reply_markup, delay_sec=5.0)
+                    return True
             return False
 
     async def send_notification(
@@ -198,7 +217,7 @@ class PrinterBotApp:
             p_dict = printer.get_notify_dict()
             if not p_dict.get(event_type, True):
                 return
-        p_mode = parse_mode or (ParseMode.HTML if ("<b>" in text or "<code>" in text) else ParseMode.MARKDOWN)
+        p_mode = parse_mode or ParseMode.HTML
         users = await self.storage.load_all_users()
         for chat_id, udata in users.items():
             if udata.get("chat_active") is False:
@@ -206,7 +225,10 @@ class PrinterBotApp:
             user_allows = udata.get("notify", {}).get(event_type, True)
             is_app = udata.get("is_approved", False) or await self.is_user_admin(chat_id)
             if user_allows and is_app:
-                await self.safe_send_message(chat_id, text, parse_mode=p_mode, reply_markup=reply_markup)
+                if getattr(self, "outbox", None):
+                    await self.outbox.enqueue(chat_id, text, parse_mode=p_mode, reply_markup=reply_markup)
+                else:
+                    await self.safe_send_message(chat_id, text, parse_mode=p_mode, reply_markup=reply_markup)
 
     async def handle_tray_event(self, printer: BambuPrinter, event: dict) -> None:
         """
@@ -220,33 +242,36 @@ class PrinterBotApp:
         slot_label = slot_names.get(slot_id, f"Слот {slot_id}")
 
         if event_type == "tray_unloaded":
-            spools = await self.storage.load_spools()
             assigned_spool = None
-            for s_id, s in spools.items():
-                if s.get("assigned_printer_id") == printer.id and str(s.get("assigned_slot_key")) in [slot_id, "255" if slot_id == "254" else slot_id]:
-                    assigned_spool = s
-                    break
+            res_desc = ""
+            async with self.storage.transaction_lock("spools"):
+                spools = await self.storage.load_spools()
+                for s_id, s in spools.items():
+                    if s.get("assigned_printer_id") == printer.id and str(s.get("assigned_slot_key")) in [slot_id, "255" if slot_id == "254" else slot_id]:
+                        assigned_spool = s
+                        break
+
+                if assigned_spool:
+                    from bot.handlers.filament.add import unassign_spool_from_slot
+                    res_desc, _ = unassign_spool_from_slot(spools, assigned_spool, printer, slot_id)
+                    await self.storage.save_spools(spools)
+                    printer.set_slot_grams(0.0, slot_id=slot_id)
+                    await self.save_printers_config()
+
+                    await self.storage.record_spool_movement(
+                        spool_id=assigned_spool["id"],
+                        spool_name=assigned_spool.get("name", "Котушка"),
+                        action="unassign",
+                        weight_change_g=0.0,
+                        prev_weight_g=float(assigned_spool.get("remaining_grams", 1000.0)),
+                        new_weight_g=float(assigned_spool.get("remaining_grams", 1000.0)),
+                        reason="Автоматичне повернення на склад (вивантажено на принтері)",
+                        user="Bambu Hardware",
+                        printer_id=printer.id,
+                        slot_key=slot_id,
+                    )
 
             if assigned_spool:
-                from bot.handlers.filament.add import unassign_spool_from_slot
-                res_desc, _ = unassign_spool_from_slot(spools, assigned_spool, printer, slot_id)
-                await self.storage.save_spools(spools)
-                printer.set_slot_grams(0.0, slot_id=slot_id)
-                await self.save_printers_config()
-
-                await self.storage.record_spool_movement(
-                    spool_id=assigned_spool["id"],
-                    spool_name=assigned_spool.get("name", "Котушка"),
-                    action="unassign",
-                    weight_change_g=0.0,
-                    prev_weight_g=float(assigned_spool.get("remaining_grams", 1000.0)),
-                    new_weight_g=float(assigned_spool.get("remaining_grams", 1000.0)),
-                    reason="Автоматичне повернення на склад (вивантажено на принтері)",
-                    user="Bambu Hardware",
-                    printer_id=printer.id,
-                    slot_key=slot_id,
-                )
-
                 notif_text = (
                     f"🔓 <b>Філамент вивантажено на принтері {html.escape(printer.name)} [{slot_label}]!</b>\n\n"
                     f"📦 Котушку <b>{html.escape(assigned_spool.get('name', 'Котушка'))}</b> ({assigned_spool.get('type', 'PLA')}) "
@@ -312,7 +337,7 @@ class PrinterBotApp:
                 p.storage = self.storage
 
             # Step 5: Active print context recovery check on bot startup
-            saved_context = load_active_print_context(p.id)
+            saved_context = await asyncio.to_thread(load_active_print_context, p.id)
             if saved_context and p.gcode_state in ("RUNNING", "PAUSE", "PREPARATION", "PREPARING", "BUILDING"):
                 current_fp = build_spool_fingerprint(p)
                 if (
@@ -322,10 +347,15 @@ class PrinterBotApp:
                 ):
                     p._current_job_grams = float(saved_context.get("job_grams", 0.0))
                     p._job_deducted = bool(saved_context.get("job_deducted", True))
+                    raw_sap = saved_context.get("skipped_at_progress")
+                    if isinstance(raw_sap, dict):
+                        p._skipped_at_progress = {
+                            int(k): float(v) for k, v in raw_sap.items() if str(k).isdigit()
+                        }
                     logger.info(f"✅ Відновлено сесію друку для {p.name} (вага: {p._current_job_grams}g)")
                 else:
                     logger.warning(f"⚠️ Контекст друку не збігається для {p.name}, видаляю застарілий запис")
-                    delete_active_print_context(p.id)
+                    await asyncio.to_thread(delete_active_print_context, p.id)
 
             self.printer_states[p_id] = {
                 "lastState": p.gcode_state,
@@ -418,37 +448,37 @@ class PrinterBotApp:
                         is_insufficient = used_w > 0 and used_w > spool_before
 
                         if st["lastState"] != "RUNNING" and p.notify and not st["notifiedStart"]:
-                            start_txt = f"🚀 *Принтер {p.name} розпочав друк!*\n"
+                            start_txt = f"🚀 <b>Принтер {html.escape(p.name)} розпочав друк!</b>\n"
                             if p.subtask_name:
-                                start_txt += f"📄 **Модель:** `{p.subtask_name}`\n"
-                            start_txt += f"🧵 **Матеріал:** *{p.filament_type}*\n"
+                                start_txt += f"📄 <b>Модель:</b> <code>{html.escape(p.subtask_name)}</code>\n"
+                            start_txt += f"🧵 <b>Матеріал:</b> <i>{html.escape(p.filament_type)}</i>\n"
                             if used_w > 0:
-                                start_txt += f"⚖️ **Вага моделі:** `{used_w}g` (списано)\n"
-                            start_txt += f"📦 **Залишок на бабіні:** *{p.filament_grams}g*"
+                                start_txt += f"⚖️ <b>Вага моделі:</b> <code>{used_w}g</code> (списано)\n"
+                            start_txt += f"📦 <b>Залишок на бабіні:</b> <b>{p.filament_grams}g</b>"
 
                             if is_insufficient:
                                 backup_slots = p.find_ams_backup_slots(p.filament_type) if hasattr(p, "find_ams_backup_slots") else []
                                 total_backup = sum(float(b.get("grams", 0.0)) for b in backup_slots)
                                 total_avail = round(spool_before + total_backup, 2)
                                 if total_avail >= used_w:
-                                    backup_names = ", ".join([f"{b['name']} ({b['grams']}g)" for b in backup_slots])
+                                    backup_names = ", ".join([f"{html.escape(b['name'])} ({b['grams']}g)" for b in backup_slots])
                                     start_txt += (
-                                        f"\n\nℹ️ *На активній котушці замало нитки ({spool_before}g),*\n"
-                                        f"але в AMS знайдено сумісний резерв: *Слот {backup_names}*!\n"
-                                        f"✨ Всього доступно: *{total_avail}g* (потрібно: `{used_w}g`). Автозаміна AMS спрацює штатно! 😉✅"
+                                        f"\n\nℹ️ <i>На активній котушці замало нитки ({spool_before}g),</i>\n"
+                                        f"але в AMS знайдено сумісний резерв: <b>Слот {backup_names}</b>!\n"
+                                        f"✨ Всього доступно: <b>{total_avail}g</b> (потрібно: <code>{used_w}g</code>). Автозаміна AMS спрацює штатно! 😉✅"
                                     )
                                 else:
                                     deficit = round(used_w - total_avail if backup_slots else used_w - spool_before, 2)
                                     deficit_note = f" (всього в AMS: {total_avail}g)" if backup_slots else ""
                                     start_txt += (
-                                        f"\n\n🚨 **УВАГА! Недостатньо пластику для друку!**\n"
-                                        f"❌ Вага моделі (`{used_w}g`) більша ніж залишок (`{spool_before}g`{deficit_note})!\n"
-                                        f"⚠️ Не вистачає ~*{deficit}g*! Будь ласка, замініть котушку."
+                                        f"\n\n🚨 <b>УВАГА! Недостатньо пластику для друку!</b>\n"
+                                        f"❌ Вага моделі (<code>{used_w}g</code>) більша ніж залишок (<code>{spool_before}g</code>{deficit_note})!\n"
+                                        f"⚠️ Не вистачає ~<b>{deficit}g</b>! Будь ласка, замініть котушку."
                                     )
                                 st["notifiedInsufficentWarning"] = True
 
                             await self.send_notification(
-                                "start", start_txt, printer=p, reply_markup=get_notification_inline_keyboard(p.id)
+                                "start", start_txt, printer=p, reply_markup=get_notification_inline_keyboard(p.id), parse_mode=ParseMode.HTML
                             )
                             st["notifiedStart"] = True
                             st["notifiedFinish"] = False
@@ -461,36 +491,39 @@ class PrinterBotApp:
                             total_backup = sum(float(b.get("grams", 0.0)) for b in backup_slots)
                             total_avail = round(spool_before + total_backup, 2)
                             if total_avail >= used_w:
-                                backup_names = ", ".join([f"{b['name']} ({b['grams']}g)" for b in backup_slots])
+                                backup_names = ", ".join([f"{html.escape(b['name'])} ({b['grams']}g)" for b in backup_slots])
                                 warn_txt = (
-                                    f"ℹ️ *Гей! На поточній котушці (Слот {slot_label}) всього {spool_before}g,*\n"
-                                    f"але в AMS є сумісний резерв: *Слот {backup_names}* (разом: *{total_avail}g* / потрібно: `{used_w}g`).\n"
+                                    f"ℹ️ <i>Гей! На поточній котушці (Слот {html.escape(slot_label)}) всього {spool_before}g,</i>\n"
+                                    f"але в AMS є сумісний резерв: <b>Слот {backup_names}</b> (разом: <b>{total_avail}g</b> / потрібно: <code>{used_w}g</code>).\n"
                                     f"✨ Автозаміна AMS перемкнеться штатно під час друку! ✅"
                                 )
                             else:
                                 if backup_slots:
                                     total_def = round(used_w - total_avail, 2)
                                     warn_txt = (
-                                        f"🚨 **УВАГА! Навіть з урахуванням усіх слотів AMS пластику не вистачить!**\n"
-                                        f"🖨️ **Принтер:** *{p.name}*\n"
-                                        f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
-                                        f"⚖️ **Потрібно:** `{used_w}g` | 📦 **Всього в AMS:** `{total_avail}g`\n"
-                                        f"⚠️ Не вистачає ще ~*{total_def}g*! Підготуйте нову котушку."
+                                        f"🚨 <b>УВАГА! Навіть з урахуванням усіх слотів AMS пластику не вистачить!</b>\n"
+                                        f"🖨️ <b>Принтер:</b> <b>{html.escape(p.name)}</b>\n"
+                                        f"📄 <b>Модель:</b> <code>{html.escape(p.subtask_name or 'Невідомо')}</code>\n"
+                                        f"⚖️ <b>Потрібно:</b> <code>{used_w}g</code> | 📦 <b>Всього в AMS:</b> <code>{total_avail}g</code>\n"
+                                        f"⚠️ Не вистачає ще ~<b>{total_def}g</b>! Підготуйте нову котушку."
                                     )
                                 else:
                                     deficit = round(used_w - spool_before, 2)
                                     warn_txt = (
-                                        f"🚨 **УВАГА! Недостатньо пластику на принтері {p.name}!**\n"
-                                        f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
-                                        f"⚖️ **Вага моделі:** `{used_w}g` | 📦 **Залишок:** `{spool_before}g`\n"
-                                        f"⚠️ Не вистачає ~*{deficit}g* пластику! Будь ласка, встановіть нову котушку."
+                                        f"🚨 <b>УВАГА! Недостатньо пластику на принтері {html.escape(p.name)}!</b>\n"
+                                        f"📄 <b>Модель:</b> <code>{html.escape(p.subtask_name or 'Невідомо')}</code>\n"
+                                        f"⚖️ <b>Вага моделі:</b> <code>{used_w}g</code> | 📦 <b>Залишок:</b> <code>{spool_before}g</code>\n"
+                                        f"⚠️ Не вистачає ~<b>{deficit}g</b> пластику! Будь ласка, встановіть нову котушку."
                                     )
-                            await self.send_notification("start", warn_txt, printer=p)
+                            await self.send_notification("start", warn_txt, printer=p, parse_mode=ParseMode.HTML)
                             st["notifiedInsufficentWarning"] = True
 
                         # Advance Time Notification
                         if p.mc_remaining_time > 0:
                             all_users = await self.storage.load_all_users()
+                            p_notify = p.get_notify_dict() if hasattr(p, "get_notify_dict") else getattr(p, "notify", {})
+                            p_min_time = p_notify.get("min_time_to_end") if isinstance(p_notify, dict) else None
+
                             for chat_id, udata in all_users.items():
                                 if udata.get("chat_active") is False:
                                     continue
@@ -498,19 +531,23 @@ class PrinterBotApp:
                                 if not is_app:
                                     continue
                                 u_notify = udata.get("notify", {})
-                                min_time = u_notify.get("min_time_to_end", 0)
+                                raw_time = p_min_time if (p_min_time is not None and p_min_time > 0) else u_notify.get("min_time_to_end", 0)
+                                try:
+                                    min_time = int(raw_time) if raw_time is not None else 0
+                                except (ValueError, TypeError):
+                                    min_time = 0
 
                                 time_key = f"notifiedTimeBeforeEnd_{chat_id}"
                                 if min_time > 0 and p.mc_remaining_time <= min_time:
                                     if not st.get(time_key):
                                         time_txt = (
-                                            f"⏳ *Попередження про завершення друку!*\n"
-                                            f"🖨️ **Принтер:** *{p.name}*\n"
-                                            f"📄 **Модель:** `{p.subtask_name or 'Невідомо'}`\n"
-                                            f"⏱️ Друк завершиться приблизно через *{p.mc_remaining_time} хв*!"
+                                            f"⏳ <b>Попередження про завершення друку!</b>\n"
+                                            f"🖨️ <b>Принтер:</b> <b>{html.escape(p.name)}</b>\n"
+                                            f"📄 <b>Модель:</b> <code>{html.escape(p.subtask_name or 'Невідомо')}</code>\n"
+                                            f"⏱️ Друк завершиться приблизно через <b>{p.mc_remaining_time} хв</b>!"
                                         )
                                         sent = await self.safe_send_message(
-                                            chat_id, time_txt, parse_mode=ParseMode.MARKDOWN
+                                            chat_id, time_txt, parse_mode=ParseMode.HTML
                                         )
                                         if sent:
                                             st[time_key] = True
@@ -521,6 +558,9 @@ class PrinterBotApp:
                     is_printer_online = getattr(p, "online", False) and getattr(p, "is_mqtt_connected", True) and p.gcode_state not in ["OFFLINE", "UNKNOWN"]
                     if is_printer_online and p.filament_grams > 0.0:
                         all_users = await self.storage.load_all_users()
+                        p_notify = p.get_notify_dict() if hasattr(p, "get_notify_dict") else getattr(p, "notify", {})
+                        p_min_fil = p_notify.get("min_filament") if isinstance(p_notify, dict) else None
+
                         for chat_id, udata in all_users.items():
                             if udata.get("chat_active") is False:
                                 continue
@@ -528,7 +568,7 @@ class PrinterBotApp:
                             if not is_app:
                                 continue
                             u_notify = udata.get("notify", {})
-                            raw_fil = u_notify.get("min_filament")
+                            raw_fil = p_min_fil if (p_min_fil is not None and float(p_min_fil) > 0) else u_notify.get("min_filament")
                             try:
                                 min_fil = float(raw_fil) if raw_fil is not None else 0.0
                             except (ValueError, TypeError):
@@ -542,20 +582,20 @@ class PrinterBotApp:
                             if p.filament_grams <= min_fil:
                                 if not st.get(fil_key):
                                     fil_txt = (
-                                        f"📦 *Гей! Автоматичне попередження про малий залишок нитки!*\n"
-                                        f"🖨️ **Принтер:** *{p.name}*\n"
-                                        f"🧵 **Залишок на бабіні:** *{p.filament_grams}g* (поріг: ≤{int(min_fil)}g)\n"
+                                        f"📦 <b>Гей! Автоматичне попередження про малий залишок нитки!</b>\n"
+                                        f"🖨️ <b>Принтер:</b> <b>{html.escape(p.name)}</b>\n"
+                                        f"🧵 <b>Залишок на бабіні:</b> <b>{p.filament_grams}g</b> (поріг: ≤{int(min_fil)}g)\n"
                                         f"⚠️ На котушці замало пластику! Підготуйте нову котушку заздалегідь."
                                     )
-                                    sent = await self.safe_send_message(chat_id, fil_txt, parse_mode=ParseMode.MARKDOWN)
+                                    sent = await self.safe_send_message(chat_id, fil_txt, parse_mode=ParseMode.HTML)
                                     if sent:
                                         st[fil_key] = True
                             elif p.filament_grams > min_fil:
                                 st[fil_key] = False
-                    elif p.filament_grams <= 0.0 or not is_printer_online:
-                        # Reset low filament flags if spool was removed or printer is off/disconnected
+                    elif p.filament_grams <= 0.0:
+                        # Reset low filament flags only if spool was actually emptied or removed, NOT on Wi-Fi blink
                         for k in list(st.keys()):
-                            if k.startswith("notifiedLowFilament_"):
+                            if k.startswith(f"notifiedLowFilament_{p.id}") or k.endswith(f"_{p.id}"):
                                 st[k] = False
 
                     # 2. Pause Notification
@@ -563,11 +603,12 @@ class PrinterBotApp:
                         if p.notify and not st["notifiedPause"]:
                             await self.send_notification(
                                 "pause",
-                                f"⏸️ *Увага! Принтер {p.name} поставлено на паузу!* Будь ласка, перевірте стан принтера.",
+                                f"⏸️ <b>Увага! Принтер {html.escape(p.name)} поставлено на паузу!</b> Будь ласка, перевірте стан принтера.",
                                 printer=p, reply_markup=get_error_notification_inline_keyboard(p.id),
+                                parse_mode=ParseMode.HTML,
                             )
                             st["notifiedPause"] = True
-                    elif curr_state != "PAUSE":
+                    elif curr_state in ("RUNNING", "FINISH", "IDLE"):
                         st["notifiedPause"] = False
 
                     # 3. Finish Notification & History Recording
@@ -576,18 +617,19 @@ class PrinterBotApp:
                             from bot.keyboards.notifications import get_finish_notification_inline_keyboard
 
                             used_w = getattr(p, "last_job_grams", 0.0) or getattr(p, "_current_job_grams", 0.0)
-                            finish_txt = f"🎉 *Принтер {p.name} нарешті завершив друк!*\n"
+                            finish_txt = f"🎉 <b>Принтер {html.escape(p.name)} нарешті завершив друк!</b>\n"
                             if p.subtask_name:
-                                finish_txt += f"📄 **Модель:** `{p.subtask_name}`\n"
+                                finish_txt += f"📄 <b>Модель:</b> <code>{html.escape(p.subtask_name)}</code>\n"
                             if used_w > 0:
-                                finish_txt += f"⚖️ **Списано:** `{used_w}g`\n"
-                            finish_txt += f"📦 **Залишок на бабіні:** *{p.get_slot_grams()}g*\nІди й негайно зніми деталь зі столу, скільки можна чекати?! 😤🧹"
+                                finish_txt += f"⚖️ <b>Списано:</b> <code>{used_w}g</code>\n"
+                            finish_txt += f"📦 <b>Залишок на бабіні:</b> <b>{p.get_slot_grams()}g</b>\nІди й негайно зніми деталь зі столу, скільки можна чекати?! 😤🧹"
 
                             await self.send_notification(
                                 "finish",
                                 finish_txt,
                                 printer=p,
                                 reply_markup=get_finish_notification_inline_keyboard(p.id),
+                                parse_mode=ParseMode.HTML,
                             )
                             st["notifiedFinish"] = True
                             st["notifiedStart"] = False
@@ -611,8 +653,10 @@ class PrinterBotApp:
 
                             if final_weight == 0.0:
                                 c_data = None
-                                if hasattr(self, "storage") and hasattr(self.storage, "get_sliced_weight_cache_sync"):
-                                    c_data = self.storage.get_sliced_weight_cache_sync()
+                                if hasattr(self, "storage") and hasattr(self.storage, "get_sliced_weight_cache"):
+                                    c_data = await self.storage.get_sliced_weight_cache()
+                                elif hasattr(self, "storage") and hasattr(self.storage, "get_sliced_weight_cache_sync"):
+                                    c_data = await asyncio.to_thread(self.storage.get_sliced_weight_cache_sync)
                                 if c_data is None:
                                     cache_file = STORAGE_DIR / "last_sliced_weight.json"
                                     if cache_file.exists():
@@ -660,12 +704,13 @@ class PrinterBotApp:
                             if not st.get("notifiedClearReminder"):
                                 from bot.keyboards.notifications import get_finish_notification_inline_keyboard
 
-                                rem_txt = f"🔔 *Нагадування: друк завершено!*\nДрук на {p.name} закінчився 15 хв тому.\nЗніміть готову деталь зі столу, щоб звільнити принтер! 🧼"
+                                rem_txt = f"🔔 <b>Нагадування: друк завершено!</b>\nДрук на {html.escape(p.name)} закінчився 15 хв тому.\nЗніміть готову деталь зі столу, щоб звільнити принтер! 🧼"
                                 await self.send_notification(
                                     "remind_clear",
                                     rem_txt,
                                     printer=p,
                                     reply_markup=get_finish_notification_inline_keyboard(p.id),
+                                    parse_mode=ParseMode.HTML,
                                 )
                                 st["notifiedClearReminder"] = True
                         elif mins_passed > 30.0:
@@ -744,8 +789,8 @@ class PrinterBotApp:
                             if not st.get(notif_key):
                                 item_name = item.get("name", "ТО")
                                 maint_txt = (
-                                    f"🧹 *Час провести {item_name} на принтері {p.name}!*\n"
-                                    f"⏱️ Відпрацьовано: *{c_hrs:.1f} годин* (встановлений поріг: {int(i_hrs)} год)!\n"
+                                    f"🧹 <b>Час провести {html.escape(item_name)} на принтері {html.escape(p.name)}!</b>\n"
+                                    f"⏱️ Відпрацьовано: <b>{c_hrs:.1f} годин</b> (встановлений поріг: {int(i_hrs)} год)!\n"
                                     f"🔧 Проведіть планове технічне обслуговування. 🧼✨"
                                 )
                                 from bot.keyboards import get_maintenance_inline_keyboard
@@ -755,6 +800,7 @@ class PrinterBotApp:
                                     maint_txt,
                                     printer=p,
                                     reply_markup=get_maintenance_inline_keyboard(p.id, item_k, item_name),
+                                    parse_mode=ParseMode.HTML,
                                 )
                                 st[notif_key] = True
                         else:
@@ -812,6 +858,9 @@ class PrinterBotApp:
         self.bot = Bot(token=TELEGRAM_BOT_TOKEN, session=session)
         self.dp = Dispatcher()
         self.dp["app"] = self
+        if getattr(self, "outbox", None):
+            self.outbox.bot = self.bot
+            self.outbox.start()
 
         @self.dp.message.outer_middleware()
         async def log_telegram_message(handler, event, data):
@@ -887,6 +936,11 @@ class PrinterBotApp:
             if webhook_url:
                 try:
                     await self.bot.delete_webhook()
+                except Exception:
+                    pass
+            if getattr(self, "outbox", None):
+                try:
+                    await self.outbox.stop()
                 except Exception:
                     pass
             monitor_task.cancel()

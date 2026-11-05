@@ -182,8 +182,11 @@ async def check_auth(request: web.Request) -> bool:
 
     req_key = _safe_header(request, "X-API-Key") or _safe_query(request, "token")
     admin_pass = getattr(config, "WEB_ADMIN_PASSWORD", "") or API_SECRET_KEY
-    if (API_SECRET_KEY and req_key == API_SECRET_KEY) or (admin_pass and req_key == admin_pass):
-        return True
+    if req_key:
+        if API_SECRET_KEY and hmac.compare_digest(req_key, API_SECRET_KEY):
+            return True
+        if admin_pass and hmac.compare_digest(req_key, admin_pass):
+            return True
 
     # 2. Check Telegram WebApp initData HMAC + DB User Approval
     init_data = _safe_header(request, "X-Telegram-Init-Data") or _safe_query(request, "initData")
@@ -242,8 +245,11 @@ async def is_admin_request(request: web.Request) -> bool:
     # 2. Check API Key or Admin Password
     req_key = _safe_header(request, "X-API-Key") or _safe_query(request, "token")
     admin_pass = getattr(config, "WEB_ADMIN_PASSWORD", "") or API_SECRET_KEY
-    if (API_SECRET_KEY and req_key == API_SECRET_KEY) or (admin_pass and req_key == admin_pass):
-        return True
+    if req_key:
+        if API_SECRET_KEY and hmac.compare_digest(req_key, API_SECRET_KEY):
+            return True
+        if admin_pass and hmac.compare_digest(req_key, admin_pass):
+            return True
 
     # 3. Telegram WebApp initData verification
     init_data = _safe_header(request, "X-Telegram-Init-Data") or _safe_query(request, "initData")

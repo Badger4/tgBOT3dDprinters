@@ -79,9 +79,9 @@ def get_finish_time_str(minutes: int, is_en: bool = False) -> str:
 def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False, hide_sensitive: bool = False) -> str:
 
     sensitive_block = "" if hide_sensitive else (
-        f"🌐 <b>IP:</b> <tg-spoiler>{target_printer.ip}</tg-spoiler>\n"
-        f"🔑 <b>Access Code:</b> <tg-spoiler>{target_printer.access_code}</tg-spoiler>\n"
-        f"🏷 <b>SN:</b> <tg-spoiler>{target_printer.serial_number}</tg-spoiler>\n"
+        f"🌐 <b>IP:</b> <tg-spoiler>{html.escape(str(target_printer.ip))}</tg-spoiler>\n"
+        f"🔑 <b>Access Code:</b> <tg-spoiler>{html.escape(str(target_printer.access_code))}</tg-spoiler>\n"
+        f"🏷 <b>SN:</b> <tg-spoiler>{html.escape(str(target_printer.serial_number))}</tg-spoiler>\n"
     )
     is_online = getattr(target_printer, "is_online", True)
     mapped_st = getattr(target_printer, "mapped_state", "ONLINE")
@@ -334,7 +334,7 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False,
 
     safe_pname = html.escape(str(target_printer.name))
     if is_en:
-        noz_d = getattr(target_printer, "nozzle_diameter", "0.4")
+        noz_d = html.escape(str(getattr(target_printer, "nozzle_diameter", "0.4")))
         status_txt = (
             f"<b>📊 Printer Status: {safe_pname}</b>\n\n"
             f"{state_emoji} <b>State:</b> <code>{state_label}</code>{wifi_str}\n"
@@ -345,7 +345,7 @@ def build_printer_status_card(target_printer: BambuPrinter, is_en: bool = False,
             f"{hours_str}"
         )
     else:
-        noz_d = getattr(target_printer, "nozzle_diameter", "0.4")
+        noz_d = html.escape(str(getattr(target_printer, "nozzle_diameter", "0.4")))
         status_txt = (
             f"<b>📊 Стан принтера: {safe_pname}</b>\n\n"
             f"{state_emoji} <b>Стан:</b> <code>{state_label}</code>{wifi_str}\n"

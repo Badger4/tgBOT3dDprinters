@@ -7,6 +7,12 @@ import { getTelegramInitData, getSessionToken } from "./api.js";
 let evtSource = null;
 let sseRetryCount = 0;
 let reconnectTimer = null;
+const lastPrinterStates = new Map();
+let visibilityListenerBound = false;
+let visibilityCallbacks = {
+    onVisible: null,
+    onHidden: null
+};
 
 let activeCallbacks = {
     onPrinters: null,
@@ -14,6 +20,10 @@ let activeCallbacks = {
     onOpen: null,
     onError: null
 };
+
+export function resetSSEStateCache() {
+    lastPrinterStates.clear();
+}
 
 export function initSSEStream(callbacks = {}) {
     // 1. Always record callbacks first, even if the document is currently hidden or EventSource is unavailable
@@ -67,10 +77,21 @@ export function initSSEStream(callbacks = {}) {
                     if (typeof activeCallbacks.onPrinters === "function") {
                         activeCallbacks.onPrinters(data);
                     }
-                    if (data.some(p => String(p?.state || "").toUpperCase() === "FINISH")) {
-                        if (typeof activeCallbacks.onFinish === "function") {
-                            activeCallbacks.onFinish();
+                    let newlyFinished = false;
+                    for (const p of data) {
+                        if (!p) continue;
+                        const pKey = String(p.id ?? p.name ?? "");
+                        const currState = String(p.state || "").toUpperCase();
+                        const prevState = lastPrinterStates.get(pKey);
+                        if (currState === "FINISH" && prevState !== "FINISH") {
+                            newlyFinished = true;
                         }
+                        if (pKey) {
+                            lastPrinterStates.set(pKey, currState);
+                        }
+                    }
+                    if (newlyFinished && typeof activeCallbacks.onFinish === "function") {
+                        activeCallbacks.onFinish();
                     }
                 }
             } catch (e) {
@@ -117,7 +138,11 @@ export function closeSSEStream() {
 export function setupVisibilityHandler(options = {}) {
     const BLANK_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
     const callbacks = (typeof options === "function") ? { onVisible: options } : (options || {});
-    const { onVisible, onHidden } = callbacks;
+    visibilityCallbacks.onVisible = callbacks.onVisible || null;
+    visibilityCallbacks.onHidden = callbacks.onHidden || null;
+
+    if (visibilityListenerBound) return;
+    visibilityListenerBound = true;
 
     document.addEventListener("visibilitychange", () => {
         if (document.hidden) {
@@ -126,11 +151,11 @@ export function setupVisibilityHandler(options = {}) {
             const fsImg = document.getElementById("fullscreen-camera-img");
             if (cImg) cImg.src = BLANK_PIXEL;
             if (fsImg) fsImg.src = BLANK_PIXEL;
-            if (typeof onHidden === "function") onHidden();
+            if (typeof visibilityCallbacks.onHidden === "function") visibilityCallbacks.onHidden();
         } else {
             // Re-open SSE stream using stored activeCallbacks
             initSSEStream();
-            if (typeof onVisible === "function") onVisible();
+            if (typeof visibilityCallbacks.onVisible === "function") visibilityCallbacks.onVisible();
         }
     });
 }

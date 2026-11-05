@@ -488,8 +488,8 @@ async def back_to_main_menu_or_list(message: Message, state: FSMContext, app: An
         await message.answer(t("warehouse_title", lang), parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
-@router.message(PartEditingStates.search_query)
-@router.message(PartEditingStates.in_parts_list)
+@router.message(PartEditingStates.search_query, F.text)
+@router.message(PartEditingStates.in_parts_list, F.text)
 async def process_search_part_query(message: Message, state: FSMContext, app: Any) -> None:
     raw_text = (message.text or "").strip()
     text_lower = raw_text.lower()
@@ -534,8 +534,8 @@ async def process_search_part_query(message: Message, state: FSMContext, app: An
             await handle_notifications_menu(message, app)
             return
         elif text_lower in ["👑 адмінка", "адмінка", "👑 admin", "admin", "адмін-панель"]:
-            from bot.handlers.admin import handle_admin_menu
-            await handle_admin_menu(message, app)
+            from bot.handlers.admin import handle_admin_panel
+            await handle_admin_panel(message, app)
             return
         elif text_lower in ["💰 комерція", "комерція", "калькулятор", "commercial"]:
             from bot.handlers.commercial import handle_commercial_menu
