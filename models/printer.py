@@ -24,7 +24,7 @@ from models.printer_commands import PrinterCommandsMixin
 from models.printer_maintenance import PrinterMaintenanceMixin
 from services.ftps_client import extract_model_weight, fetch_bambu_ftps_weight, upload_3mf_to_bambu, verify_bambu_file_size
 from services.gcode_parser import parse_3mf_file
-from services.hms_resolver import format_hms_errors
+from services.hms_resolver import decode_print_error, format_hms_errors
 from services.mqtt_message_parser import extract_subtask_weight, parse_mqtt_payload
 from storage.manager import StorageManager
 
@@ -1390,7 +1390,8 @@ class BambuPrinter(PrinterCommandsMixin, PrinterMaintenanceMixin):
         if mc_err is not None:
             mc_str = str(mc_err).strip()
             if mc_str and mc_str not in ["0", "None", "null", ""] and mc_err != 0:
-                desc = f"Код помилки MC: {mc_str}"
+                decoded_mc = decode_print_error(mc_err)
+                desc = f"Помилка MC: {decoded_mc} (код: {mc_str})" if decoded_mc else f"Код помилки MC: {mc_str}"
                 if desc not in errors:
                     errors.append(desc)
 
@@ -1398,7 +1399,8 @@ class BambuPrinter(PrinterCommandsMixin, PrinterMaintenanceMixin):
         if p_err is not None:
             p_str = str(p_err).strip()
             if p_str and p_str not in ["0", "None", "null", ""] and p_err != 0:
-                desc = f"Код помилки друку: {p_str}"
+                decoded_p = decode_print_error(p_err)
+                desc = f"Помилка друку: {decoded_p} (код: {p_str})" if decoded_p else f"Код помилки друку: {p_str}"
                 if desc not in errors:
                     errors.append(desc)
 

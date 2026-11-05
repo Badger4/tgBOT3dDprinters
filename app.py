@@ -1,3 +1,4 @@
+from services.hms_resolver import decode_print_error
 """
 Main Application orchestrating Telegram bot, storage, and printer monitoring.
 """
@@ -53,13 +54,15 @@ def get_printer_active_errors(p: Any) -> list[str]:
 
     mc_err = getattr(p, "mc_print_error_code", None)
     if mc_err is not None and str(mc_err).strip() not in ["0", "None", "null", ""] and mc_err != 0:
-        desc = f"Код помилки MC: {mc_err}"
+        decoded_mc = decode_print_error(mc_err)
+        desc = f"Помилка MC: {decoded_mc} (код: {mc_err})" if decoded_mc else f"Код помилки MC: {mc_err}"
         if desc not in errors:
             errors.append(desc)
 
     p_err = getattr(p, "print_error", None)
     if p_err is not None and str(p_err).strip() not in ["0", "None", "null", ""] and p_err != 0:
-        desc = f"Код помилки друку: {p_err}"
+        decoded_p = decode_print_error(p_err)
+        desc = f"Помилка друку: {decoded_p} (код: {p_err})" if decoded_p else f"Код помилки друку: {p_err}"
         if desc not in errors:
             errors.append(desc)
 

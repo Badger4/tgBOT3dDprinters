@@ -41,6 +41,7 @@ HMS_CODE_MAP: dict[str, str] = {
     "HMS_0300_0400_0001_0001": "Пропуск кроків крокового мотора (Stepper Motor skipped steps)",
     "HMS_0300_0400": "Пропуск кроків моторів по осях X/Y/Z",
     "HMS_0300_0800_0001_0001": "Застрягання нитки або збій датчика екструдера",
+    "HMS_0300_0800_0001_0002": "Нитка застрягла у хотенді / екструдері",
     "HMS_0300_0800_0002_0001": "Перевищення температури хотенда / сопла",
     "HMS_0300_0800_0003_0001": "Збій нагрівача сопла або обрив термопари",
     "HMS_0300_0800_0004_0001": "Низька температура сопла під час екструзії",
@@ -54,6 +55,7 @@ HMS_CODE_MAP: dict[str, str] = {
     "HMS_0300_0C00_0001_0001": "Двері камери або передня кришка відчинені",
     "HMS_0300_0C00": "Відчинені двері камери або захисна кришка",
     "HMS_0300_0D00_0001_0001": "Маркер будівельної пластини не виявлено",
+    "HMS_0300_0D00_0001_0003": "Закінчився філамент (екструдер порожній)",
     "HMS_0300_0D00": "Помилка визначення пластини друку",
     "HMS_0300": "Помилка механіки, екструдера або AI-камери",
 
@@ -72,21 +74,42 @@ HMS_CODE_MAP: dict[str, str] = {
     "HMS_0500_0600": "Помилка мотора обертання котушки AMS",
     "HMS_0500": "Помилка модуля або слотів системи AMS",
 
-    # --- Category 0700: Micro Lidar & Optical Calibration ---
+    # --- Category 0700: Micro Lidar & Optical Calibration / AMS Slots ---
     "HMS_0700_8001": "Закінчився філамент в AMS (Слот 1)",
     "HMS_0700_8002": "Закінчився філамент в AMS (Слот 2)",
     "HMS_0700_8003": "Закінчився філамент в AMS (Слот 3)",
     "HMS_0700_8004": "Закінчився філамент в AMS (Слот 4)",
     "HMS_0700_8011": "Закінчився філамент в AMS",
-    "HMS_0700_2000": "Закінчився філамент (зовнішня котушка)",
-    "HMS_07FF_2000": "Закінчився філамент (зовнішня котушка)",
-    "HMS_07FE_2000": "Закінчився філамент (зовнішня котушка)",
-    "HMS_0300_0D00_0001_0003": "Закінчився філамент (екструдер порожній)",
+    "HMS_0700_2000_0002_0004": "Будь ласка, витягніть філамент з екструдера",
+    "HMS_0700_2000_0002_0002": "Філамент AMS відсутній або не подається в екструдер",
+    "HMS_0700_2000_0002_0001": "Закінчився філамент в AMS",
+    "HMS_0700_2000_0002_0003": "Збій подачі філаменту AMS",
+    "HMS_0700_2000": "Закінчився або застряг філамент в AMS",
+    "HMS_0700_C003": "Витягніть філамент з екструдера",
     "HMS_0700_0100_0001_0001": "Забруднено лінзу камери Micro Lidar",
     "HMS_0700_0100": "Помилка оптики Micro Lidar (Протріть серветкою)",
     "HMS_0700_0200_0001_0001": "Збій лазерного калібрування потоку (Flow Calibration)",
     "HMS_0700_0200": "Помилка оптичного калібрування потоку Micro Lidar",
-    "HMS_0700": "Помилка сенсора Micro Lidar",
+    "HMS_0700": "Помилка сенсора Micro Lidar або подачі філаменту",
+
+    # --- Category 07FF / 07FE: External Spool Holder & Virtual Slot ---
+    "HMS_07FF_2000_0002_0004": "Будь ласка, витягніть зовнішній філамент з екструдера",
+    "HMS_07FF_2000_0002_0002": "Зовнішній філамент відсутній або не подається в екструдер",
+    "HMS_07FF_2000_0002_0001": "Закінчився зовнішній філамент",
+    "HMS_07FF_2000_0002_0003": "Збій подачі / завантаження зовнішнього філаменту",
+    "HMS_07FF_7000_0002_0003": "Закінчився філамент або припинилась екструзія",
+    "HMS_07FF_2000": "Закінчився філамент або потрібна дія (зовнішня котушка)",
+    "HMS_07FF_C003": "Витягніть філамент із зовнішньої котушки / екструдера",
+    "HMS_07FF": "Помилка зовнішньої котушки або датчика подачі",
+    "HMS_07FE_2000_0002_0004": "Будь ласка, витягніть зовнішній філамент з екструдера",
+    "HMS_07FE_2000_0002_0002": "Зовнішній філамент відсутній або не подається в екструдер",
+    "HMS_07FE_2000": "Закінчився філамент (зовнішня котушка)",
+    "HMS_07FE": "Помилка зовнішньої котушки філаменту",
+
+    # --- Category 0500: Print Job, MicroSD & System Tasks ---
+    "HMS_0500_C010": "Помилка читання MicroSD карти (перевірте або замініть карту)",
+    "HMS_0500_C011": "Невідомий статус завдання друку (можна ігнорувати)",
+    "HMS_0500_4003": "Помилка розбору файлу друку (надішліть заново)",
 
     # --- Category 1200: Expansion Modules & External Accessories ---
     "HMS_1200_0100_0001_0001": "Помилка зовнішнього модуля розширення",
@@ -94,11 +117,70 @@ HMS_CODE_MAP: dict[str, str] = {
 }
 
 
+# Direct mapping for Bambu print_error and mc_print_error_code
+PRINT_ERROR_MAP: dict[int | str, str] = {
+    134201347: "Витягніть філамент із зовнішньої котушки / екструдера",
+    0x07FFC003: "Витягніть філамент із зовнішньої котушки / екструдера",
+    "07FFC003": "Витягніть філамент із зовнішньої котушки / екструдера",
+    "07FF-C003": "Витягніть філамент із зовнішньої котушки / екструдера",
+    0x0700C003: "Витягніть філамент із екструдера",
+    "0700C003": "Витягніть філамент із екструдера",
+    0x0500C010: "Помилка читання MicroSD карти (перевірте або замініть карту)",
+    "0500C010": "Помилка читання MicroSD карти (перевірте або замініть карту)",
+    0x0500C011: "Невідомий статус друку (можна ігнорувати)",
+    "0500C011": "Невідомий статус друку (можна ігнорувати)",
+    0x05004003: "Помилка розбору файлу друку (надішліть заново)",
+    "05004003": "Помилка розбору файлу друку (надішліть заново)",
+    83935249: "Невідомий статус друку (можна ігнорувати)",
+    83935248: "Помилка читання MicroSD карти",
+}
+
+
+def decode_print_error(error_code: Any) -> str | None:
+    """
+    Decodes Bambu print_error or mc_print_error_code into a human-readable Ukrainian description.
+    Returns None if error_code represents no error (0, None, empty) or is unknown.
+    """
+    if error_code is None:
+        return None
+    s = str(error_code).strip()
+    if not s or s in ("0", "None", "null", "undefined"):
+        return None
+
+    if s in PRINT_ERROR_MAP:
+        return PRINT_ERROR_MAP[s]
+
+    val_int: int | None = None
+    try:
+        val_int = int(s, 0) if (s.startswith("0x") or s.startswith("0X")) else int(s)
+    except (ValueError, TypeError):
+        pass
+
+    if val_int is not None:
+        if val_int == 0:
+            return None
+        if val_int in PRINT_ERROR_MAP:
+            return PRINT_ERROR_MAP[val_int]
+
+        hex8 = f"{val_int:08X}"
+        if hex8 in PRINT_ERROR_MAP:
+            return PRINT_ERROR_MAP[hex8]
+
+        cand1 = f"HMS_{hex8[:4]}_{hex8[4:]}"
+        if cand1 in HMS_CODE_MAP:
+            return HMS_CODE_MAP[cand1]
+
+        cand2 = f"HMS_{hex8[:4]}"
+        if cand2 in HMS_CODE_MAP:
+            return HMS_CODE_MAP[cand2]
+
+    return None
+
+
 def decode_hms_entry(entry: dict[str, Any] | int | str) -> str:
     """
     Decodes a single HMS error entry into a formatted string with description.
-    Supports raw integer masks, 16-hex string codes (e.g. HMS0002000212FF2000), dash codes (e.g. 0300-0100), or dicts.
-    Uses multi-pattern candidate matching with category translation (0002 -> 0200, 0003 -> 0300).
+    Supports raw integer masks, 16-hex string codes (e.g. 07FF-2000-0002-0004), dash codes, or dicts {"attr": ..., "code": ...}.
     """
     import re
 
@@ -111,14 +193,25 @@ def decode_hms_entry(entry: dict[str, Any] | int | str) -> str:
         if isinstance(raw_code, int) and isinstance(raw_attr, int):
             code_hex = f"{raw_code:08X}"
             attr_hex = f"{raw_attr:08X}"
-            hex16 = code_hex + attr_hex
-            raw_display = f"HMS_{code_hex[:4]}_{code_hex[4:]}_{attr_hex[:4]}_{attr_hex[4:]}"
+
+            # Bambu Lab MQTT protocol standard:
+            # attr = HIGH 32 bits (subsystem / module category, e.g. 0x07FF2000)
+            # code = LOW 32 bits (error index / sub-code, e.g. 0x00020004)
+            # Official Bambu Wiki: HMS_07FF-2000-0002-0004
+            known_prefixes = ("01", "02", "03", "05", "07", "12")
+            if code_hex[:2] in known_prefixes and attr_hex[:2] not in known_prefixes:
+                # Handle legacy tests or callers that passed code and attr in reverse
+                hex16 = code_hex + attr_hex
+                raw_display = f"HMS_{code_hex[:4]}-{code_hex[4:]}-{attr_hex[:4]}-{attr_hex[4:]}"
+            else:
+                hex16 = attr_hex + code_hex
+                raw_display = f"HMS_{attr_hex[:4]}-{attr_hex[4:]}-{code_hex[:4]}-{code_hex[4:]}"
         else:
-            raw_display = str(entry.get("code") or entry)
+            raw_display = str(entry.get("code") or entry.get("attr") or entry)
     elif isinstance(entry, int):
         code_hex = f"{entry:08X}"
         hex16 = f"{code_hex}00010001"
-        raw_display = f"HMS_{code_hex[:4]}_{code_hex[4:]}_0001_0001"
+        raw_display = f"HMS_{code_hex[:4]}-{code_hex[4:]}-0001-0001"
     else:
         raw_display = str(entry).strip()
 
@@ -132,29 +225,11 @@ def decode_hms_entry(entry: dict[str, Any] | int | str) -> str:
     if len(hex16) == 16:
         c1, c2, c3, c4 = hex16[0:4], hex16[4:8], hex16[8:12], hex16[12:16]
 
-        cat_map = {
-            "0001": "0100", "0002": "0200", "0003": "0300",
-            "0005": "0500", "0007": "0700", "0012": "1200",
-        }
-        sub_map = {
-            "0001": "0100", "0002": "0200", "0003": "0300", "0004": "0400",
-            "0005": "0500", "0006": "0600", "0007": "0700", "0008": "0800",
-            "0009": "0900", "000A": "0A00", "000B": "0B00", "000C": "0C00",
-            "000D": "0D00",
-        }
-
-        m_c1 = cat_map.get(c1, c1)
-        m_c2 = sub_map.get(c2, c2)
-
         candidates.extend([
             f"HMS_{c1}_{c2}_{c3}_{c4}",
-            f"HMS_{m_c1}_{m_c2}_{c3}_{c4}",
+            f"HMS_{c1}_{c2}_{c3}",
             f"HMS_{c1}_{c2}",
-            f"HMS_{m_c1}_{m_c2}",
-            f"HMS_{m_c1}_{c2}",
-            f"HMS_{c1}_{m_c2}",
             f"HMS_{c1}",
-            f"HMS_{m_c1}",
         ])
 
     norm = raw_display.replace("-", "_").upper()
@@ -177,7 +252,7 @@ def decode_hms_entry(entry: dict[str, Any] | int | str) -> str:
             break
 
     if desc:
-        disp = norm if (raw_display and not raw_display.startswith("HMS")) else raw_display
+        disp = raw_display if raw_display.startswith("HMS") else f"HMS_{raw_display.lstrip('HMS_')}"
         return f"{disp}: {desc}"
     return raw_display
 
